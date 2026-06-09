@@ -1,0 +1,44 @@
+[
+  {
+    "id_empleado": "e295432e-4340-4c51-9cd3-3c2e96549f86",
+    "fecha_local": "2026-03-05",
+    "tipo_checada": "ENTRADA",
+    "estatus_puntualidad": "SIN_TURNO",
+    "timestamp_checada": "2026-03-05T07:59:18.350316+00:00"
+  },
+  {
+    "id_empleado": "286197f9-cc8d-4618-94b2-961a8da8e36d",
+    "fecha_local": "2026-03-05",
+    "tipo_checada": "REGRESO_PERMISO_PERSONAL",
+    "estatus_puntualidad": "PUNTUAL",
+    "timestamp_checada": "2026-03-05T07:20:32.142475+00:00"
+  },
+  {
+    "id_empleado": "286197f9-cc8d-4618-94b2-961a8da8e36d",
+    "fecha_local": "2026-03-05",
+    "tipo_checada": "REGRESO_PERMISO_PERSONAL",
+    "estatus_puntualidad": "PUNTUAL",
+    "timestamp_checada": "2026-03-05T07:08:21.926985+00:00"
+  },
+  {
+    "id_empleado": "286197f9-cc8d-4618-94b2-961a8da8e36d",
+    "fecha_local": "2026-03-05",
+    "tipo_checada": "PERMISO_PERSONAL",
+    "estatus_puntualidad": "SIN_TURNO",
+    "timestamp_checada": "2026-03-05T06:57:11.309226+00:00"
+  },
+  {
+    "id_empleado": "5f9e1594-86f5-49b8-b60d-45552c0c5974",
+    "fecha_local": "2026-03-05",
+    "tipo_checada": "COMIDA_SALIDA",
+    "estatus_puntualidad": "RETARDO",
+    "timestamp_checada": "2026-03-05T06:39:13.929262+00:00"
+  },
+  {
+    "id_empleado": "e295432e-4340-4c51-9cd3-3c2e96549f86",
+    "fecha_local": "2026-03-05",
+    "tipo_checada": "ENTRADA",
+    "estatus_puntualidad": "PUNTUAL",
+    "timestamp_checada": "2026-03-05T06:38:56.955494+00:00"
+  }
+]

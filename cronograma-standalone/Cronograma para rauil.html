@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cronograma de Actividades</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#fffbeb',
+                            100: '#fef3c7',
+                            200: '#fde68a',
+                            300: '#fcd34d',
+                            400: '#fbbf24',
+                            500: '#f59e0b',
+                            600: '#d97706',
+                            700: '#b45309',
+                            800: '#92400e',
+                            900: '#78350f',
+                        },
+                        dark: {
+                            900: '#0f172a',
+                            800: '#1e293b',
+                            700: '#334155',
+                            600: '#475569',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Outfit', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Custom CSS Embedido -->
+    <style>
+/* CSS Custom Animations and Glassmorphism Styles */
+
+:root {
+    --glass-bg: rgba(30, 41, 59, 0.4);
+    --glass-border: rgba(255, 255, 255, 0.08);
+}
+
+body {
+    background-color: #0b0f19;
+    background-image: 
+        radial-gradient(at 0% 0%, rgba(245, 158, 11, 0.15) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.1) 0px, transparent 50%);
+    background-attachment: fixed;
+}
+
+/* Glassmorphism Cards */
+.glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* Form Styles */
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.form-group label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #cbd5e1;
+}
+
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group input[type="time"],
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    color: white;
+    font-family: inherit;
+    transition: all 0.3s ease;
+    outline: none;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+    background: rgba(15, 23, 42, 0.8);
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(245, 158, 11, 0.5);
+}
+
+/* Toggle Switch */
+.toggle-container {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle-container input {
+    display: none;
+}
+
+.toggle-switch {
+    width: 44px;
+    height: 24px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    position: relative;
+    transition: background-color 0.3s ease;
+}
+
+.toggle-switch::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.toggle-container input:checked + .toggle-switch {
+    background-color: #f59e0b;
+}
+
+.toggle-container input:checked + .toggle-switch::after {
+    transform: translateX(20px);
+}
+
+.toggle-label {
+    margin-left: 0.75rem;
+    font-size: 0.9rem;
+    color: #e2e8f0;
+}
+
+/* Buttons */
+.btn-primary {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0.6rem 1.2rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
+}
+
+.btn-primary:hover {
+    box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+    transform: translateY(-2px);
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.05);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    padding: 0.6rem 1.2rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+}
+
+/* Activity Card Animations */
+.activity-item {
+    animation: slideUp 0.4s ease forwards;
+    opacity: 0;
+    transform: translateY(20px);
+}
+
+@keyframes slideUp {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Page Load Animations */
+.fade-in {
+    animation: fadeIn 0.8s ease forwards;
+}
+
+.slide-in-left {
+    animation: slideInLeft 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.slide-in-right {
+    animation: slideInRight 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideInLeft {
+    from { opacity: 0; transform: translateX(-30px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInRight {
+    from { opacity: 0; transform: translateX(30px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* Status Badge */
+.status-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.status-pending {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.status-done {
+    background: rgba(34, 197, 94, 0.15);
+    color: #4ade80;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+    </style>
+</head>
+<body class="bg-dark-900 text-white min-h-screen font-sans antialiased overflow-x-hidden selection:bg-brand-500 selection:text-white">
+
+    <!-- Background effects -->
+    <div class="fixed inset-0 z-[-1] overflow-hidden pointer-events-none">
+        <div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-brand-600/20 rounded-full blur-[120px]"></div>
+        <div class="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-600/20 rounded-full blur-[120px]"></div>
+    </div>
+
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row items-center justify-between mb-10 pb-6 border-b border-white/10 fade-in">
+            <div class="flex items-center gap-4 mb-4 md:mb-0">
+                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white text-2xl shadow-lg shadow-brand-500/30">
+                    <i class="fa-solid fa-helmet-safety"></i>
+                </div>
+                <div>
+                    <h1 class="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400">Tracker de Actividades</h1>
+                    <p class="text-gray-400 text-sm">Organizador personal para tus primeros días</p>
+                </div>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="exportToExcel()" class="btn-secondary group">
+                    <i class="fa-solid fa-file-excel text-green-400 group-hover:scale-110 transition-transform"></i>
+                    Exportar Excel
+                </button>
+                <button onclick="exportToPDF()" class="btn-primary group">
+                    <i class="fa-solid fa-file-pdf group-hover:scale-110 transition-transform"></i>
+                    Exportar PDF
+                </button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            
+            <!-- Left Column: Form -->
+            <div class="lg:col-span-4 slide-in-left">
+                <div class="glass-card rounded-2xl p-6 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-brand-400 to-brand-600"></div>
+                    <h2 class="text-xl font-semibold mb-6 flex items-center gap-2">
+                        <i class="fa-solid fa-plus-circle text-brand-500"></i> Nueva Actividad
+                    </h2>
+                    
+                    <form id="activityForm" class="space-y-5">
+                        
+                        <!-- Fecha: Mes y Día -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="form-group">
+                                <label for="mes">Mes</label>
+                                <select id="mes" required>
+                                    <option value="" disabled selected>Selecciona</option>
+                                    <option value="Enero">Enero</option>
+                                    <option value="Febrero">Febrero</option>
+                                    <option value="Marzo">Marzo</option>
+                                    <option value="Abril">Abril</option>
+                                    <option value="Mayo">Mayo</option>
+                                    <option value="Junio">Junio</option>
+                                    <option value="Julio">Julio</option>
+                                    <option value="Agosto">Agosto</option>
+                                    <option value="Septiembre">Septiembre</option>
+                                    <option value="Octubre">Octubre</option>
+                                    <option value="Noviembre">Noviembre</option>
+                                    <option value="Diciembre">Diciembre</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="dia">Día</label>
+                                <input type="number" id="dia" min="1" max="31" placeholder="Ej. 15" required>
+                            </div>
+                        </div>
+
+                        <!-- Qué va a hacer -->
+                        <div class="form-group">
+                            <label for="actividad">¿Qué vas a hacer?</label>
+                            <textarea id="actividad" rows="2" placeholder="Describe la tarea o proyecto..." required></textarea>
+                        </div>
+
+                        <!-- Hora de entrega -->
+                        <div class="form-group">
+                            <label for="hora_entrega">Hora de entrega</label>
+                            <input type="time" id="hora_entrega">
+                        </div>
+
+                        <!-- Dudas y Destinatario -->
+                        <div class="form-group">
+                            <label for="dudas">¿Dónde/Con quién consultar duda?</label>
+                            <input type="text" id="dudas" placeholder="Ej. Ing. Roberto / Manual de Operación">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="destinatario">¿A quién mandar esta actividad?</label>
+                            <input type="text" id="destinatario" placeholder="Ej. Jefe de Turno">
+                        </div>
+
+                        <!-- Checkboxes: Todo el día / Finalizado -->
+                        <div class="space-y-3 pt-2">
+                            <label class="toggle-container">
+                                <input type="checkbox" id="todo_dia">
+                                <div class="toggle-switch"></div>
+                                <span class="toggle-label">Tomará todo el día <i class="fa-solid fa-sun text-brand-400 ml-1"></i></span>
+                            </label>
+                            
+                            <label class="toggle-container">
+                                <input type="checkbox" id="finalizada">
+                                <div class="toggle-switch"></div>
+                                <span class="toggle-label">Actividad finalizada <i class="fa-solid fa-check-circle text-green-400 ml-1"></i></span>
+                            </label>
+                        </div>
+
+                        <button type="submit" class="w-full btn-primary mt-4 py-3 text-lg font-medium">
+                            <i class="fa-solid fa-save mr-2"></i> Guardar Actividad
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Right Column: List -->
+            <div class="lg:col-span-8 slide-in-right">
+                <div class="glass-card rounded-2xl p-6 h-full min-h-[600px] flex flex-col">
+                    <div class="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
+                        <h2 class="text-xl font-semibold flex items-center gap-2">
+                            <i class="fa-solid fa-list-check text-brand-500"></i> Mi Cronograma
+                        </h2>
+                        <div class="flex items-center gap-2 text-sm text-gray-400 bg-dark-800/50 px-3 py-1.5 rounded-full border border-white/5">
+                            <span id="total-count" class="font-bold text-white">0</span> registradas
+                        </div>
+                    </div>
+
+                    <!-- Lista de Actividades -->
+                    <div id="activities-list" class="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar pb-4">
+                        <!-- Las actividades se inyectan aquí -->
+                        <div id="empty-state" class="h-full flex flex-col items-center justify-center text-gray-500 opacity-60">
+                            <i class="fa-regular fa-calendar-plus text-6xl mb-4 text-brand-500/50"></i>
+                            <p class="text-lg">Aún no hay actividades registradas.</p>
+                            <p class="text-sm">Llena el formulario a la izquierda para empezar.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Scripts para exportar -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    
+    <!-- Lógica de la app embedida -->
+    <script>
+// Estado de la aplicación
+let activities = JSON.parse(localStorage.getItem('mine_activities')) || [];
+
+// Elementos del DOM
+const form = document.getElementById('activityForm');
+const activitiesList = document.getElementById('activities-list');
+const emptyState = document.getElementById('empty-state');
+const totalCount = document.getElementById('total-count');
+
+// Render inicial
+renderActivities();
+
+// Evento Submit
+form.addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const activity = {
+        id: Date.now().toString(),
+        mes: document.getElementById('mes').value,
+        dia: document.getElementById('dia').value,
+        actividad: document.getElementById('actividad').value,
+        hora_entrega: document.getElementById('hora_entrega').value || 'N/A',
+        dudas: document.getElementById('dudas').value || 'N/A',
+        destinatario: document.getElementById('destinatario').value || 'N/A',
+        todo_dia: document.getElementById('todo_dia').checked,
+        finalizada: document.getElementById('finalizada').checked,
+        creado_en: new Date().toISOString()
+    };
+
+    activities.push(activity);
+    saveData();
+    renderActivities();
+    
+    // Reset formulario (manteniendo el mes y día por comodidad)
+    const mesActual = document.getElementById('mes').value;
+    const diaActual = document.getElementById('dia').value;
+    form.reset();
+    document.getElementById('mes').value = mesActual;
+    document.getElementById('dia').value = diaActual;
+    
+    // Pequeño feedback visual
+    const btn = form.querySelector('button[type="submit"]');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> ¡Guardado!';
+    btn.classList.add('bg-green-500');
+    setTimeout(() => {
+        btn.innerHTML = originalText;
+        btn.classList.remove('bg-green-500');
+    }, 1500);
+});
+
+// Guardar en LocalStorage
+function saveData() {
+    localStorage.setItem('mine_activities', JSON.stringify(activities));
+}
+
+// Eliminar actividad
+function deleteActivity(id) {
+    if(confirm('¿Seguro que quieres eliminar esta actividad?')) {
+        activities = activities.filter(a => a.id !== id);
+        saveData();
+        renderActivities();
+    }
+}
+
+// Toggle estatus finalizada
+function toggleStatus(id) {
+    const act = activities.find(a => a.id === id);
+    if(act) {
+        act.finalizada = !act.finalizada;
+        saveData();
+        renderActivities();
+    }
+}
+
+// Renderizar la lista
+function renderActivities() {
+    totalCount.textContent = activities.length;
+
+    if (activities.length === 0) {
+        activitiesList.innerHTML = '';
+        activitiesList.appendChild(emptyState);
+        emptyState.style.display = 'flex';
+        return;
+    }
+
+    emptyState.style.display = 'none';
+    
+    // Ordenar por mes y día (simplificado)
+    const sortedActivities = [...activities].sort((a, b) => parseInt(b.id) - parseInt(a.id));
+
+    activitiesList.innerHTML = '';
+
+    sortedActivities.forEach((act, index) => {
+        const div = document.createElement('div');
+        div.className = `activity-item p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors relative group`;
+        div.style.animationDelay = `${index * 0.05}s`;
+
+        const statusClass = act.finalizada ? 'status-done' : 'status-pending';
+        const statusText = act.finalizada ? 'Finalizada' : 'Pendiente';
+        const statusIcon = act.finalizada ? 'fa-check-circle' : 'fa-clock';
+
+        const todoDiaBadge = act.todo_dia 
+            ? `<span class="bg-brand-500/20 text-brand-400 text-xs px-2 py-1 rounded-md border border-brand-500/30 ml-2"><i class="fa-solid fa-sun mr-1"></i> Todo el día</span>` 
+            : '';
+
+        div.innerHTML = `
+            <div class="flex justify-between items-start mb-2">
+                <div class="flex items-center gap-2">
+                    <div class="bg-dark-800 text-brand-400 font-bold px-3 py-1.5 rounded-lg border border-white/5 shadow-inner">
+                        ${act.dia} ${act.mes.substring(0,3)}
+                    </div>
+                    <span class="status-badge ${statusClass}">
+                        <i class="fa-solid ${statusIcon} mr-1"></i> ${statusText}
+                    </span>
+                    ${todoDiaBadge}
+                </div>
+                <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onclick="toggleStatus('${act.id}')" class="text-gray-400 hover:text-green-400 transition-colors" title="Marcar/Desmarcar completada">
+                        <i class="fa-solid fa-check"></i>
+                    </button>
+                    <button onclick="deleteActivity('${act.id}')" class="text-gray-400 hover:text-red-400 transition-colors" title="Eliminar">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <h3 class="text-lg font-medium text-white mb-3 mt-1 pl-1">${act.actividad}</h3>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm pl-1">
+                <div class="flex items-center gap-2 text-gray-400">
+                    <i class="fa-regular fa-clock text-brand-500/70"></i>
+                    <span>Entrega: <strong class="text-gray-200">${act.hora_entrega}</strong></span>
+                </div>
+                <div class="flex items-center gap-2 text-gray-400">
+                    <i class="fa-regular fa-paper-plane text-brand-500/70"></i>
+                    <span>Para: <strong class="text-gray-200">${act.destinatario}</strong></span>
+                </div>
+                <div class="flex items-center gap-2 text-gray-400">
+                    <i class="fa-regular fa-circle-question text-brand-500/70"></i>
+                    <span>Dudas: <strong class="text-gray-200">${act.dudas}</strong></span>
+                </div>
+            </div>
+        `;
+
+        activitiesList.appendChild(div);
+    });
+}
+
+// ==========================================
+// EXPORTAR A EXCEL (XLSX)
+// ==========================================
+function exportToExcel() {
+    if (activities.length === 0) {
+        alert("No hay actividades para exportar.");
+        return;
+    }
+
+    // Preparar data para Excel
+    const data = activities.map(act => ({
+        "Mes": act.mes,
+        "Día": act.dia,
+        "Actividad": act.actividad,
+        "Hora de Entrega": act.hora_entrega,
+        "Tomará Todo el Día": act.todo_dia ? "Sí" : "No",
+        "Dudas / Consultas": act.dudas,
+        "Destinatario": act.destinatario,
+        "Estatus": act.finalizada ? "Finalizada" : "Pendiente"
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    
+    // Ajustar anchos de columna
+    const wscols = [
+        {wch: 12}, // Mes
+        {wch: 5},  // Dia
+        {wch: 40}, // Actividad
+        {wch: 15}, // Hora
+        {wch: 18}, // Todo el dia
+        {wch: 25}, // Dudas
+        {wch: 20}, // Destinatario
+        {wch: 15}  // Estatus
+    ];
+    ws['!cols'] = wscols;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Cronograma");
+
+    // Generar archivo
+    XLSX.writeFile(wb, "Cronograma_Actividades_Mina.xlsx");
+}
+
+// ==========================================
+// EXPORTAR A PDF (jsPDF + autoTable)
+// ==========================================
+function exportToPDF() {
+    if (activities.length === 0) {
+        alert("No hay actividades para exportar.");
+        return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({
+        orientation: "landscape",
+        unit: "mm",
+        format: "a4"
+    });
+
+    // Colores corporativos / elegantes
+    const primaryColor = [245, 158, 11]; // Brand-500 (Amber)
+    const darkColor = [30, 41, 59]; // Dark-800
+
+    // Header Background
+    doc.setFillColor(darkColor[0], darkColor[1], darkColor[2]);
+    doc.rect(0, 0, 297, 30, 'F');
+
+    // Title
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(22);
+    doc.text("Cronograma de Actividades - Primeros Días", 14, 20);
+    
+    // Subtitle / Date
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    const today = new Date().toLocaleDateString('es-MX');
+    doc.text(`Reporte generado: ${today}`, 235, 20);
+
+    // Preparar datos para tabla
+    // Ordenar cronológicamente para el PDF (por simplicidad, por mes y luego día, asumiendo meses textuales requeriría un mapeo, lo haremos simple)
+    const monthMap = {
+        "Enero":1, "Febrero":2, "Marzo":3, "Abril":4, "Mayo":5, "Junio":6, 
+        "Julio":7, "Agosto":8, "Septiembre":9, "Octubre":10, "Noviembre":11, "Diciembre":12
+    };
+    
+    const sortedForPdf = [...activities].sort((a, b) => {
+        if(monthMap[a.mes] !== monthMap[b.mes]) return monthMap[a.mes] - monthMap[b.mes];
+        return parseInt(a.dia) - parseInt(b.dia);
+    });
+
+    const tableBody = sortedForPdf.map(act => {
+        return [
+            `${act.dia} ${act.mes.substring(0,3)}`,
+            act.actividad,
+            act.todo_dia ? "TODO EL DÍA" : act.hora_entrega,
+            act.destinatario,
+            act.dudas,
+            act.finalizada ? "✓ LISTO" : "PENDIENTE"
+        ];
+    });
+
+    // Generar Tabla con AutoTable
+    doc.autoTable({
+        startY: 40,
+        head: [['Fecha', 'Descripción de la Actividad', 'Horario / Entrega', 'Destinatario', 'Resolución Dudas', 'Estatus']],
+        body: tableBody,
+        theme: 'grid',
+        headStyles: {
+            fillColor: primaryColor,
+            textColor: 255,
+            fontStyle: 'bold',
+            halign: 'center'
+        },
+        columnStyles: {
+            0: { halign: 'center', cellWidth: 25, fontStyle: 'bold' },
+            1: { cellWidth: 90 },
+            2: { halign: 'center', cellWidth: 35 },
+            3: { cellWidth: 40 },
+            4: { cellWidth: 50 },
+            5: { halign: 'center', cellWidth: 30, fontStyle: 'bold' }
+        },
+        styles: {
+            font: 'helvetica',
+            fontSize: 9,
+            cellPadding: 4,
+            lineColor: [200, 200, 200],
+            lineWidth: 0.1
+        },
+        alternateRowStyles: {
+            fillColor: [249, 250, 251]
+        },
+        // Personalizar celdas específicas (ej. Estatus)
+        didParseCell: function(data) {
+            if (data.section === 'body' && data.column.index === 5) {
+                if (data.cell.raw === "✓ LISTO") {
+                    data.cell.styles.textColor = [34, 197, 94]; // Verde
+                } else {
+                    data.cell.styles.textColor = [245, 158, 11]; // Naranja
+                }
+            }
+            if (data.section === 'body' && data.column.index === 2) {
+                if (data.cell.raw === "TODO EL DÍA") {
+                    data.cell.styles.textColor = [217, 119, 6]; // Naranja oscuro
+                    data.cell.styles.fontStyle = 'bold';
+                }
+            }
+        }
+    });
+
+    // Guardar PDF
+    doc.save("Cronograma_Resumen_Mina.pdf");
+}
+    </script>
+</body>
+</html>

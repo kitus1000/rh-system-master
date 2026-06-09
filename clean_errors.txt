@@ -1,0 +1,7 @@
+﻿app/api/debug-catalogs/route.ts(5,35): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+app/api/debug-catalogs/route.ts(12,12): error TS2552: Cannot find name 'NextResponse'. Did you mean 'Response'?
+app/api/debug-samuel/route.ts(6,35): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+app/api/debug-schema/route.ts(5,35): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+app/api/debug-schema/route.ts(10,12): error TS2552: Cannot find name 'NextResponse'. Did you mean 'Response'?
+components/contratos/ConstructorClient.tsx(88,17): error TS2322: Type '(node: HTMLElement) => boolean' is not assignable to type '(node: Node) => boolean'.
+scripts/debug_visibility.ts(36,138): error TS2339: Property 'puesto' does not exist on type '{ puesto: any; }[]'.
