@@ -27,7 +27,11 @@ import {
     Shield,
     UserCircle,
     MessageCircle,
-    Truck
+    Truck,
+    Heart,
+    Stethoscope,
+    Pill,
+    Hospital
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/components/AuthProvider'
@@ -76,6 +80,15 @@ const navigationGroups = [
             { name: 'Usuarios', href: '/usuarios', icon: Shield, roles: ['Administrativo'] },
             { name: 'Configuración', href: '/configuracion', icon: Settings, roles: ['Administrativo'] },
             { name: 'Acerca de', href: '/acerca-de', icon: Info, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+        ]
+    },
+    {
+        title: "Módulo Médico",
+        items: [
+            { name: 'Consultas Médicas', href: '/medico/consultas', icon: Stethoscope, roles: ['Administrativo', 'Médico'] },
+            { name: 'Pacientes', href: '/medico/pacientes', icon: Heart, roles: ['Administrativo', 'Médico'] },
+            { name: 'Inventario', href: '/medico/inventario', icon: Pill, roles: ['Administrativo', 'Médico'] },
+            { name: 'Clínicas y Pases', href: '/medico/clinicas', icon: Hospital, roles: ['Administrativo', 'Médico'] },
         ]
     }
 ]
