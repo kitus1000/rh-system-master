@@ -31,7 +31,8 @@ import {
     Heart,
     Stethoscope,
     Pill,
-    Hospital
+    Hospital,
+    ShieldCheck
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/components/AuthProvider'
@@ -59,6 +60,7 @@ const navigationGroups = [
         title: "Operaciones",
         items: [
             { name: 'Campamentos', href: '/campamentos', icon: Home, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Control Accesos', href: '/logistica/accesos', icon: ShieldCheck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Logística', href: '/logistica', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Transporte', href: '/transporte', icon: Truck },
             { name: 'Portal Choferes', href: '/logistica/choferes', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
