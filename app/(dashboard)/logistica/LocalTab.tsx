@@ -18,8 +18,7 @@ export default function LocalTab() {
         id_camion: '',
         id_punto: '',
         turno: 'Día',
-        fecha_inicio: new Date().toISOString().split('T')[0],
-        fecha_fin: new Date().toISOString().split('T')[0],
+        fecha: new Date().toISOString().split('T')[0],
         hora_salida: '',
         hora_llegada: '',
         sentido: 'Ida',
@@ -61,8 +60,7 @@ export default function LocalTab() {
                     logistica_camiones(numero_economico),
                     logistica_puntos_mina(nombre_punto)
                 `)
-                .lte('fecha_inicio', fechaFiltro)
-                .gte('fecha_fin', fechaFiltro)
+                .eq('fecha', fechaFiltro)
                 .order('turno')
                 .order('creado_el', { ascending: false })
 
@@ -85,9 +83,9 @@ export default function LocalTab() {
             setFormData({
                 ...formData,
                 id_empleado: '', id_camion: '', id_punto: '', hora_salida: '', hora_llegada: '', observaciones: ''
-                // Mantenemos 'sentido' y fechas iguales para facilitar la carga rápida
+                // Mantenemos 'sentido' y 'fecha' iguales para facilitar la carga rápida
             })
-            if (fechaFiltro >= formData.fecha_inicio && fechaFiltro <= formData.fecha_fin) {
+            if (formData.fecha === fechaFiltro) {
                 fetchAsignaciones()
             }
         } catch (error) {
@@ -124,7 +122,7 @@ export default function LocalTab() {
                 </div>
                 <button
                     onClick={() => {
-                        setFormData({...formData, fecha_inicio: fechaFiltro, fecha_fin: fechaFiltro})
+                        setFormData({...formData, fecha: fechaFiltro})
                         setIsModalOpen(true)
                     }}
                     className="flex items-center px-4 py-2 bg-black text-white rounded-md hover:bg-zinc-800 text-sm"
@@ -143,7 +141,6 @@ export default function LocalTab() {
                             <tr>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-zinc-500 uppercase">Sentido</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-zinc-500 uppercase">Turno</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-zinc-500 uppercase">Periodo</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-zinc-500 uppercase">Punto en Mina</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-zinc-500 uppercase">Horario</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-zinc-500 uppercase">Chofer</th>
@@ -163,9 +160,6 @@ export default function LocalTab() {
                                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-100 text-zinc-800">
                                             {a.turno}
                                         </span>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-xs font-medium text-zinc-500">
-                                        Del {a.fecha_inicio} <br /> al {a.fecha_fin}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-zinc-900">
                                         {a.logistica_puntos_mina?.nombre_punto}
@@ -207,27 +201,16 @@ export default function LocalTab() {
                     <div className="bg-white rounded-lg p-6 w-full max-w-lg shadow-xl">
                         <h3 className="text-lg font-bold mb-4">Programar Viaje (Local)</h3>
                         <form onSubmit={handleSubmit} className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4 border-b border-zinc-200 pb-4">
+                            <div className="grid grid-cols-3 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-zinc-700 mb-1">Día de Inicio</label>
+                                    <label className="block text-sm font-medium text-zinc-700 mb-1">Fecha</label>
                                     <input 
                                         type="date" required
                                         className="w-full border-zinc-300 rounded-md shadow-sm focus:ring-black focus:border-black sm:text-sm"
-                                        value={formData.fecha_inicio}
-                                        onChange={e => setFormData({...formData, fecha_inicio: e.target.value})}
+                                        value={formData.fecha}
+                                        onChange={e => setFormData({...formData, fecha: e.target.value})}
                                     />
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-zinc-700 mb-1">Día de Finalización</label>
-                                    <input 
-                                        type="date" required min={formData.fecha_inicio}
-                                        className="w-full border-zinc-300 rounded-md shadow-sm focus:ring-black focus:border-black sm:text-sm"
-                                        value={formData.fecha_fin}
-                                        onChange={e => setFormData({...formData, fecha_fin: e.target.value})}
-                                    />
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-zinc-700 mb-1">Turno</label>
                                     <select 

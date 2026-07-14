@@ -34,5 +34,25 @@ ALTER TABLE transporte_personal_asientos ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Permitir todo a transporte_personal_asientos" ON transporte_personal_asientos;
 CREATE POLICY "Permitir todo a transporte_personal_asientos" ON transporte_personal_asientos FOR ALL USING (true);
 
--- 3. Forzar refresco de caché
+-- 3. Tabla de Solicitudes de Viaje (Auto-Servicio)
+CREATE TABLE IF NOT EXISTS transporte_personal_solicitudes (
+    id_solicitud UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nombre_completo VARCHAR(255) NOT NULL,
+    departamento VARCHAR(255) NOT NULL,
+    celular_whatsapp VARCHAR(50) NOT NULL,
+    tipo_vehiculo VARCHAR(50) NOT NULL, -- 'Autobús', 'Avioneta'
+    fecha_sugerida DATE NOT NULL,
+    estatus VARCHAR(50) DEFAULT 'Pendiente', -- 'Pendiente', 'Asignado', 'Rechazado'
+    clave_confirmacion VARCHAR(50), -- La clave que le envían por whatsapp
+    id_viaje UUID REFERENCES transporte_personal_viajes(id_viaje) ON DELETE SET NULL,
+    numero_asiento INTEGER,
+    chofer_nombre VARCHAR(255),
+    creado_el TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+ALTER TABLE transporte_personal_solicitudes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permitir todo a transporte_personal_solicitudes" ON transporte_personal_solicitudes;
+CREATE POLICY "Permitir todo a transporte_personal_solicitudes" ON transporte_personal_solicitudes FOR ALL USING (true);
+
+-- 4. Forzar refresco de caché
 NOTIFY pgrst, 'reload schema';

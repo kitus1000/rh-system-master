@@ -39,22 +39,22 @@ export default function SobrecalendarioViajes() {
     const [generating, setGenerating] = useState(false)
     const [previewViajes, setPreviewViajes] = useState<any[]>([])
     
-    // Default hours and routes for rules
+    // Default hours and routes for rules (Durango - Bacis)
     const [rulesConfig, setRulesConfig] = useState({
         medicalEntryTime: '08:00',
-        medicalEntryRoute: 'Hermosillo - Mina (Pase Médico)',
+        medicalEntryRoute: 'Durango - Bacis (Pase Médico)',
         medicalEntryVehicle: 'Autobús',
         
         medicalExitTime: '16:00',
-        medicalExitRoute: 'Mina - Hermosillo (Revisión Médica)',
+        medicalExitRoute: 'Bacis - Durango (Revisión Médica)',
         medicalExitVehicle: 'Autobús',
         
         rotationExitTime: '12:00',
-        rotationExitRoute: 'Mina - Hermosillo (Salida de Personal)',
+        rotationExitRoute: 'Bacis - Durango (Salida de Personal)',
         rotationExitVehicle: 'Autobús',
         
         rotationEntryTime: '07:00',
-        rotationEntryRoute: 'Hermosillo - Mina (Regreso de Personal)',
+        rotationEntryRoute: 'Durango - Bacis (Regreso de Personal)',
         rotationEntryVehicle: 'Autobús'
     })
 

@@ -37,9 +37,7 @@ export default function MapaTab() {
                     *,
                     empleados(nombre, apellido_paterno),
                     logistica_camiones(numero_economico)
-                `)
-                .lte('fecha_inicio', today)
-                .gte('fecha_fin', today)
+                `).eq('fecha', today)
             ])
             
             if (puntosRes.error) throw puntosRes.error
