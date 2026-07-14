@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Bus, Plane, Car, Plus, Calendar, Clock, MapPin, Users, ArrowRight } from 'lucide-react'
+import { Bus, Plane, Car, Plus, Calendar, Clock, MapPin, Users, ArrowRight, ExternalLink, Copy, Check } from 'lucide-react'
 import Link from 'next/link'
 
 interface Viaje {
@@ -28,6 +28,14 @@ export default function TransporteDashboard() {
     const [fecha, setFecha] = useState('')
     const [hora, setHora] = useState('')
     const [capacidad, setCapacidad] = useState('37')
+    const [copied, setCopied] = useState(false)
+
+    const handleCopyLink = () => {
+        const url = `${window.location.origin}/reservar-viaje`
+        navigator.clipboard.writeText(url)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+    }
 
     const fetchViajes = async () => {
         setLoading(true)
@@ -81,12 +89,58 @@ export default function TransporteDashboard() {
                     </h1>
                     <p className="text-zinc-500 mt-1 font-medium">Sistema de Reservas y Asignación de Asientos</p>
                 </div>
-                <button 
-                    onClick={() => setShowForm(!showForm)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2"
-                >
-                    <Plus className="w-5 h-5" /> Programar Viaje
-                </button>
+                <div className="flex gap-2.5">
+                    <Link
+                        href="/transporte/calendario"
+                        className="bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 text-sm"
+                    >
+                        <Calendar className="w-4 h-4 text-amber-500" /> Sobrecalendario de Rutas
+                    </Link>
+                    <button 
+                        onClick={() => setShowForm(!showForm)}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2 text-sm"
+                    >
+                        <Plus className="w-4 h-4" /> Programar Viaje
+                    </button>
+                </div>
+            </div>
+
+            {/* Portal link sharing banner */}
+            <div className="bg-gradient-to-r from-zinc-950 to-zinc-900 border border-zinc-800 text-zinc-300 p-4 rounded-2xl flex flex-col md:flex-row justify-between items-center gap-4 shadow-md">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-lg">
+                        <ExternalLink className="w-5 h-5 animate-pulse" />
+                    </div>
+                    <div>
+                        <h4 className="font-bold text-sm text-white uppercase tracking-wider">Portal de Auto-Servicio para Trabajadores</h4>
+                        <p className="text-xs text-zinc-500 mt-0.5">Los empleados pueden reservar vuelos y autobuses de manera independiente y segura.</p>
+                    </div>
+                </div>
+                <div className="flex gap-2 w-full md:w-auto">
+                    <button 
+                        onClick={handleCopyLink}
+                        className="flex-1 md:flex-none border border-zinc-850 bg-zinc-900/60 hover:bg-zinc-850 hover:text-white px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
+                    >
+                        {copied ? (
+                            <>
+                                <Check className="w-4 h-4 text-green-500" />
+                                COPIADO
+                            </>
+                        ) : (
+                            <>
+                                <Copy className="w-4 h-4" />
+                                COPIAR ENLACE
+                            </>
+                        )}
+                    </button>
+                    <Link 
+                        href="/reservar-viaje"
+                        target="_blank"
+                        className="flex-1 md:flex-none bg-amber-500 hover:bg-amber-600 text-black px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2"
+                    >
+                        ABRIR PORTAL
+                    </Link>
+                </div>
             </div>
 
             {showForm && (
@@ -98,11 +152,11 @@ export default function TransporteDashboard() {
                             <select value={tipo} onChange={e => {
                                 setTipo(e.target.value)
                                 if(e.target.value === 'Autobús') setCapacidad('37')
-                                if(e.target.value === 'Avioneta') setCapacidad('12')
+                                if(e.target.value === 'Avioneta') setCapacidad('8')
                                 if(e.target.value === 'Camioneta') setCapacidad('4')
                             }} className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50 font-bold">
                                 <option value="Autobús">Autobús (37 lgs)</option>
-                                <option value="Avioneta">Avioneta (12 lgs)</option>
+                                <option value="Avioneta">Avioneta (8 lgs)</option>
                                 <option value="Camioneta">Camioneta (4 lgs)</option>
                             </select>
                         </div>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Stethoscope, Plus, Search, FileText, Pill, Users, UserPlus } from 'lucide-react'
+import { Stethoscope, Plus, Search, FileText, Pill } from 'lucide-react'
 
 export default function ConsultasPage() {
     const [consultas, setConsultas] = useState<any[]>([])
@@ -10,39 +10,25 @@ export default function ConsultasPage() {
     const [showForm, setShowForm] = useState(false)
 
     // Form data
-    const [tipoPaciente, setTipoPaciente] = useState<'Trabajador' | 'Poblacion General'>('Trabajador')
     const [formData, setFormData] = useState({
-        id_empleado_titular: '',
-        paciente_seleccionado: '', // Puede ser "titular", o un id_paciente, o vacio
+        id_paciente: '',
         diagnostico: '',
         costo_consulta: 0,
         medicamentos_recetados: [] as any[]
     })
 
-    const [empleados, setEmpleados] = useState<any[]>([])
-    const [beneficiariosActuales, setBeneficiariosActuales] = useState<any[]>([])
-    const [poblacionGeneral, setPoblacionGeneral] = useState<any[]>([])
+    const [pacientes, setPacientes] = useState<any[]>([])
     const [medicamentosCat, setMedicamentosCat] = useState<any[]>([])
-
-    // Quick add beneficiary
-    const [showQuickAdd, setShowQuickAdd] = useState(false)
-    const [quickAddData, setQuickAddData] = useState({ nombre: '', parentesco: 'Hijo(a)' })
 
     useEffect(() => {
         fetchConsultas()
-        fetchCatalogosBase()
+        fetchCatalogos()
     }, [])
 
-    const fetchCatalogosBase = async () => {
-        // Empleados
-        const { data: eData } = await supabase.from('empleados').select('id_empleado, nombre, apellido_paterno, apellido_materno').order('nombre')
-        if (eData) setEmpleados(eData)
+    const fetchCatalogos = async () => {
+        const { data: pData } = await supabase.from('pacientes').select('*')
+        if (pData) setPacientes(pData)
 
-        // Poblacion General
-        const { data: pData } = await supabase.from('pacientes').select('*').eq('es_poblacion_general', true).order('nombre_completo')
-        if (pData) setPoblacionGeneral(pData)
-
-        // Medicamentos
         const { data: mData } = await supabase.from('cat_medicamentos').select('*')
         if (mData) setMedicamentosCat(mData)
     }
@@ -50,43 +36,10 @@ export default function ConsultasPage() {
     const fetchConsultas = async () => {
         const { data, error } = await supabase.from('consultas_medicas').select(`
             *,
-            empleados (nombre, apellido_paterno),
             pacientes (nombre_completo, es_poblacion_general)
         `).order('fecha', { ascending: false })
         if (data) setConsultas(data)
         setLoading(false)
-    }
-
-    const loadBeneficiarios = async (id_empleado: string) => {
-        if (!id_empleado) {
-            setBeneficiariosActuales([])
-            return
-        }
-        const { data } = await supabase.from('pacientes').select('*').eq('id_empleado', id_empleado)
-        if (data) setBeneficiariosActuales(data)
-    }
-
-    const handleEmpleadoChange = (val: string) => {
-        setFormData({ ...formData, id_empleado_titular: val, paciente_seleccionado: '' })
-        loadBeneficiarios(val)
-    }
-
-    const handleQuickAdd = async () => {
-        if (!quickAddData.nombre || !formData.id_empleado_titular) return
-        
-        const { data, error } = await supabase.from('pacientes').insert([{
-            id_empleado: formData.id_empleado_titular,
-            nombre_completo: quickAddData.nombre,
-            parentesco: quickAddData.parentesco,
-            es_poblacion_general: false
-        }]).select()
-
-        if (data && data.length > 0) {
-            await loadBeneficiarios(formData.id_empleado_titular)
-            setFormData({...formData, paciente_seleccionado: data[0].id_paciente})
-            setShowQuickAdd(false)
-            setQuickAddData({ nombre: '', parentesco: 'Hijo(a)' })
-        }
     }
 
     const handleAddMedicamento = () => {
@@ -100,10 +53,11 @@ export default function ConsultasPage() {
         const newMed = [...formData.medicamentos_recetados]
         newMed[index][field] = value
         
-        // Auto-fill price
+        // Auto-fill price if it's general population
         if (field === 'id_medicamento') {
             const med = medicamentosCat.find(m => m.id_medicamento === value)
-            if (med && tipoPaciente === 'Poblacion General') {
+            const pac = pacientes.find(p => p.id_paciente === formData.id_paciente)
+            if (med && pac?.es_poblacion_general) {
                 newMed[index].costo_unitario = med.precio_venta
             } else {
                 newMed[index].costo_unitario = 0
@@ -116,24 +70,9 @@ export default function ConsultasPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         
-        let id_emp = null;
-        let id_pac = null;
-
-        if (tipoPaciente === 'Trabajador') {
-            if (formData.paciente_seleccionado === 'titular') {
-                id_emp = formData.id_empleado_titular;
-            } else {
-                id_emp = formData.id_empleado_titular;
-                id_pac = formData.paciente_seleccionado;
-            }
-        } else {
-            id_pac = formData.paciente_seleccionado;
-        }
-
         // 1. Insertar Consulta
         const { data: consultaData, error: consultaError } = await supabase.from('consultas_medicas').insert([{
-            id_empleado: id_emp,
-            id_paciente: id_pac,
+            id_paciente: formData.id_paciente,
             diagnostico: formData.diagnostico,
             costo_consulta: formData.costo_consulta
         }]).select()
@@ -152,8 +91,18 @@ export default function ConsultasPage() {
         }
 
         setShowForm(false)
-        setFormData({ id_empleado_titular: '', paciente_seleccionado: '', diagnostico: '', costo_consulta: 0, medicamentos_recetados: [] })
+        setFormData({ id_paciente: '', diagnostico: '', costo_consulta: 0, medicamentos_recetados: [] })
         fetchConsultas()
+    }
+
+    // Auto update consultation cost when patient changes
+    const handlePacienteChange = (val: string) => {
+        const pac = pacientes.find(p => p.id_paciente === val)
+        setFormData({
+            ...formData,
+            id_paciente: val,
+            costo_consulta: pac?.es_poblacion_general ? 200 : 0 // Ejemplo de costo base 200 para público general
+        })
     }
 
     return (
@@ -162,9 +111,9 @@ export default function ConsultasPage() {
                 <div>
                     <h1 className="text-2xl font-bold text-zinc-800 flex items-center gap-2">
                         <Stethoscope className="w-6 h-6 text-amber-500" />
-                        Consultas Médicas
+                        Consultas y Recetas
                     </h1>
-                    <p className="text-zinc-500 text-sm mt-1">Registro clínico de trabajadores y beneficiarios</p>
+                    <p className="text-zinc-500 text-sm mt-1">Registro de atención médica y dispensación de medicamentos</p>
                 </div>
                 <button
                     onClick={() => setShowForm(!showForm)}
@@ -177,111 +126,28 @@ export default function ConsultasPage() {
 
             {showForm && (
                 <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100 space-y-6">
-                    <div className="flex items-center gap-4 border-b pb-4">
-                        <h2 className="text-lg font-bold text-zinc-800">Tipo de Paciente:</h2>
-                        <div className="flex bg-zinc-100 p-1 rounded-lg">
-                            <button 
-                                type="button"
-                                className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${tipoPaciente === 'Trabajador' ? 'bg-white shadow-sm text-amber-600' : 'text-zinc-500'}`}
-                                onClick={() => { setTipoPaciente('Trabajador'); setFormData({...formData, costo_consulta: 0, paciente_seleccionado: ''}) }}
-                            >
-                                Personal / Beneficiario
-                            </button>
-                            <button 
-                                type="button"
-                                className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${tipoPaciente === 'Poblacion General' ? 'bg-white shadow-sm text-amber-600' : 'text-zinc-500'}`}
-                                onClick={() => { setTipoPaciente('Poblacion General'); setFormData({...formData, costo_consulta: 200, paciente_seleccionado: ''}) }}
-                            >
-                                Población General
-                            </button>
-                        </div>
+                    <div className="flex items-center justify-between border-b pb-4">
+                        <h2 className="text-lg font-bold text-zinc-800">Registrar Consulta Médica</h2>
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-4">
-                            
-                            {tipoPaciente === 'Trabajador' ? (
-                                <>
-                                    <div className="bg-amber-50 p-4 rounded-xl border border-amber-100/50">
-                                        <label className="block text-sm font-bold text-amber-900 mb-1">Paso 1: Buscar Trabajador Titular</label>
-                                        <select 
-                                            required
-                                            className="w-full rounded-xl border-amber-200 bg-white px-4 py-2 text-sm"
-                                            value={formData.id_empleado_titular}
-                                            onChange={e => handleEmpleadoChange(e.target.value)}
-                                        >
-                                            <option value="">Seleccione el trabajador...</option>
-                                            {empleados.map(emp => (
-                                                <option key={emp.id_empleado} value={emp.id_empleado}>
-                                                    {emp.nombre} {emp.apellido_paterno} {emp.apellido_materno}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-
-                                    {formData.id_empleado_titular && (
-                                        <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100/50">
-                                            <div className="flex justify-between items-center mb-2">
-                                                <label className="block text-sm font-bold text-emerald-900">Paso 2: ¿Quién recibe la consulta?</label>
-                                                <button type="button" onClick={() => setShowQuickAdd(!showQuickAdd)} className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-md hover:bg-emerald-200 flex items-center gap-1">
-                                                    <UserPlus className="w-3 h-3" /> Añadir Beneficiario
-                                                </button>
-                                            </div>
-                                            
-                                            {showQuickAdd && (
-                                                <div className="mb-3 p-3 bg-white rounded-lg border border-emerald-200 flex gap-2 items-end">
-                                                    <div className="flex-1">
-                                                        <label className="text-xs text-zinc-500">Nombre Completo</label>
-                                                        <input type="text" className="w-full text-sm border-zinc-200 rounded-md" value={quickAddData.nombre} onChange={e=>setQuickAddData({...quickAddData, nombre: e.target.value})} />
-                                                    </div>
-                                                    <div className="w-32">
-                                                        <label className="text-xs text-zinc-500">Parentesco</label>
-                                                        <select className="w-full text-sm border-zinc-200 rounded-md" value={quickAddData.parentesco} onChange={e=>setQuickAddData({...quickAddData, parentesco: e.target.value})}>
-                                                            <option>Esposo(a)</option>
-                                                            <option>Hijo(a)</option>
-                                                            <option>Padre/Madre</option>
-                                                        </select>
-                                                    </div>
-                                                    <button type="button" onClick={handleQuickAdd} className="bg-emerald-600 text-white px-3 py-2 rounded-md text-sm font-bold">Crear</button>
-                                                </div>
-                                            )}
-
-                                            <select 
-                                                required
-                                                className="w-full rounded-xl border-emerald-200 bg-white px-4 py-2 text-sm"
-                                                value={formData.paciente_seleccionado}
-                                                onChange={e => setFormData({...formData, paciente_seleccionado: e.target.value})}
-                                            >
-                                                <option value="">Seleccione el paciente final...</option>
-                                                <option value="titular">👉 El Trabajador Mismo</option>
-                                                {beneficiariosActuales.map(ben => (
-                                                    <option key={ben.id_paciente} value={ben.id_paciente}>
-                                                        Familia: {ben.nombre_completo} ({ben.parentesco})
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                <div>
-                                    <label className="block text-sm font-semibold text-zinc-700 mb-1">Seleccionar Paciente (Población General)</label>
-                                    <select 
-                                        required
-                                        className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2"
-                                        value={formData.paciente_seleccionado}
-                                        onChange={e => setFormData({...formData, paciente_seleccionado: e.target.value})}
-                                    >
-                                        <option value="">Seleccione...</option>
-                                        {poblacionGeneral.map(p => (
-                                            <option key={p.id_paciente} value={p.id_paciente}>
-                                                {p.nombre_completo}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <p className="text-xs text-amber-600 font-bold mt-1">Si el paciente no existe, debe registrarlo primero en la pestaña de Pacientes.</p>
-                                </div>
-                            )}
+                            <div>
+                                <label className="block text-sm font-semibold text-zinc-700 mb-1">Paciente</label>
+                                <select 
+                                    required
+                                    className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2"
+                                    value={formData.id_paciente}
+                                    onChange={e => handlePacienteChange(e.target.value)}
+                                >
+                                    <option value="">Seleccione un paciente...</option>
+                                    {pacientes.map(p => (
+                                        <option key={p.id_paciente} value={p.id_paciente}>
+                                            {p.nombre_completo} {p.es_poblacion_general ? '(Público)' : '(Trabajador/Benef)'}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                             
                             <div>
                                 <label className="block text-sm font-semibold text-zinc-700 mb-1">Costo de Consulta ($)</label>
@@ -292,9 +158,10 @@ export default function ConsultasPage() {
                                         className="w-full rounded-xl border-zinc-200 bg-zinc-50 pl-8 pr-4 py-2"
                                         value={formData.costo_consulta}
                                         onChange={e => setFormData({...formData, costo_consulta: parseFloat(e.target.value)})}
-                                        readOnly={tipoPaciente === 'Trabajador'}
+                                        readOnly={!pacientes.find(p => p.id_paciente === formData.id_paciente)?.es_poblacion_general}
                                     />
                                 </div>
+                                <p className="text-xs text-zinc-500 mt-1">Gratis para trabajadores y beneficiarios.</p>
                             </div>
 
                             <div>
@@ -304,7 +171,7 @@ export default function ConsultasPage() {
                                     className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 resize-none"
                                     value={formData.diagnostico}
                                     onChange={e => setFormData({...formData, diagnostico: e.target.value})}
-                                    placeholder="Describa el diagnóstico..."
+                                    placeholder="Describa el diagnóstico o motivo de la consulta..."
                                 />
                             </div>
                         </div>
@@ -339,13 +206,13 @@ export default function ConsultasPage() {
                                             </select>
                                             <input 
                                                 type="number" min="1" placeholder="Cant."
-                                                className="w-16 rounded-md border-zinc-200 text-sm py-1.5"
+                                                className="w-20 rounded-md border-zinc-200 text-sm py-1.5"
                                                 value={med.cantidad}
                                                 onChange={e => updateMedicamento(idx, 'cantidad', parseInt(e.target.value))}
                                                 required
                                             />
                                             {med.costo_unitario > 0 && (
-                                                <span className="text-xs font-bold text-amber-600 w-12 text-right">
+                                                <span className="text-xs font-bold text-amber-600 w-16 text-right">
                                                     ${med.costo_unitario * med.cantidad}
                                                 </span>
                                             )}
@@ -371,7 +238,7 @@ export default function ConsultasPage() {
 
                     <div className="flex justify-end pt-4 border-t border-zinc-100">
                         <button type="submit" className="bg-amber-500 text-black px-8 py-2.5 rounded-xl text-sm font-black hover:bg-amber-400">
-                            Guardar Consulta
+                            Finalizar Consulta
                         </button>
                     </div>
                 </form>
@@ -386,9 +253,9 @@ export default function ConsultasPage() {
                         <thead className="bg-zinc-50 text-zinc-500 font-medium border-b border-zinc-100">
                             <tr>
                                 <th className="px-6 py-4">Fecha</th>
-                                <th className="px-6 py-4">Paciente Final</th>
-                                <th className="px-6 py-4">Sponsor (Trabajador)</th>
+                                <th className="px-6 py-4">Paciente</th>
                                 <th className="px-6 py-4">Diagnóstico</th>
+                                <th className="px-6 py-4">Costo Consulta</th>
                                 <th className="px-6 py-4">Acciones</th>
                             </tr>
                         </thead>
@@ -404,20 +271,22 @@ export default function ConsultasPage() {
                                             {new Date(c.fecha).toLocaleDateString()}
                                         </td>
                                         <td className="px-6 py-4">
-                                            <div className="font-bold text-zinc-800">
-                                                {c.id_empleado && !c.id_paciente ? '👤 ' + c.empleados?.nombre + ' (Trabajador)' : ''}
-                                                {c.id_paciente ? '👪 ' + c.pacientes?.nombre_completo : ''}
-                                            </div>
+                                            <div className="font-semibold text-zinc-800">{c.pacientes?.nombre_completo || 'Paciente Eliminado'}</div>
+                                            <div className="text-xs text-zinc-500">{c.pacientes?.es_poblacion_general ? 'Público General' : 'Trabajador/Beneficiario'}</div>
                                         </td>
-                                        <td className="px-6 py-4 text-zinc-500">
-                                            {c.id_paciente && c.id_empleado ? c.empleados?.nombre + ' (Titular)' : '-'}
-                                        </td>
-                                        <td className="px-6 py-4 text-zinc-600 max-w-xs truncate">
+                                        <td className="px-6 py-4 text-zinc-600 max-w-xs truncate" title={c.diagnostico}>
                                             {c.diagnostico}
                                         </td>
                                         <td className="px-6 py-4">
+                                            {c.costo_consulta > 0 ? (
+                                                <span className="text-amber-600 font-bold">${c.costo_consulta}</span>
+                                            ) : (
+                                                <span className="text-emerald-600 font-bold">Gratis</span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4">
                                             <button className="text-amber-500 hover:text-amber-600 font-medium flex items-center gap-1">
-                                                <FileText className="w-4 h-4" /> Receta
+                                                <FileText className="w-4 h-4" /> Ver Receta
                                             </button>
                                         </td>
                                     </tr>

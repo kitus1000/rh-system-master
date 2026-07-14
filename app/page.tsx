@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/utils/supabase/client'
+import Link from 'next/link'
 import { 
   FolderLock, 
   ShieldCheck, 
@@ -185,6 +186,13 @@ export default function LoginPage() {
                             {!loading && <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />}
                         </button>
                     </form>
+
+                    <Link
+                        href="/reservar-viaje"
+                        className="mt-4 w-full border border-zinc-800 hover:border-amber-500/50 hover:text-amber-400 text-zinc-500 text-[9px] font-black py-3 rounded-xl transition-all text-center uppercase tracking-widest block font-mono bg-zinc-950/20"
+                    >
+                        [ PORTAL DE AUTO-RESERVACIÓN DE VIAJES ]
+                    </Link>
 
                     {/* Bottom HUD Metadata */}
                     <div className="pt-6 mt-6 border-t border-zinc-800/80 flex justify-between items-center text-[8px] text-zinc-600 font-black tracking-widest font-mono">

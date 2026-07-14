@@ -205,8 +205,9 @@ export default function TransporteReserva() {
     }
 
     const renderAvionetaLayout = () => {
-        // Avioneta: 12 seats, 6 rows of 1-1
-        const rows = Array.from({ length: 6 }, (_, i) => i)
+        // Avioneta: capacity / 2 rows
+        const numRows = Math.ceil(totalAsientos / 2)
+        const rows = Array.from({ length: numRows }, (_, i) => i)
         return (
             <div className="relative max-w-sm mx-auto my-8">
                 {/* Alas del avión */}
