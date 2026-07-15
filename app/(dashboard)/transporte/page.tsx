@@ -662,7 +662,7 @@ ${window.location.origin}/reservar-viaje`
                             <button
                                 type="button"
                                 onClick={handleConfirmAssignment}
-                                disabled={savingAssignment || !assignTripId || !assignSeat || !assignEmpleadoId}
+                                disabled={savingAssignment || !assignTripId || !assignSeat}
                                 className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2 rounded-lg shadow-md disabled:opacity-50"
                             >
                                 {savingAssignment ? 'Asignando...' : 'Confirmar Asignación'}

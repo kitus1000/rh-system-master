@@ -27,7 +27,11 @@ import {
     Shield,
     UserCircle,
     MessageCircle,
-    Truck
+    Truck,
+    Heart,
+    Stethoscope,
+    Pill,
+    Hospital
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/components/AuthProvider'
@@ -56,9 +60,17 @@ const navigationGroups = [
         items: [
             { name: 'Campamentos', href: '/campamentos', icon: Home, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Logística', href: '/logistica', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Transporte', href: '/transporte', icon: Truck },
+            { name: 'Portal Choferes', href: '/logistica/choferes', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Evaluaciones', href: '/evaluaciones', icon: Award, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Comedor', href: '/comedor', icon: Coffee, roles: ['Administrativo', 'Superintendente'] },
             { name: 'Documentos', href: '/documentos', icon: Files, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+        ]
+    },
+    {
+        title: "Logística Nube",
+        items: [
+            { name: 'Supervisión', href: '/logistica/reportes', icon: ClipboardList, roles: ['Recursos Humanos', 'Administrativo', 'Superintendente', 'Jefe de Departamento', 'Sistemas'] }
         ]
     },
     {
@@ -69,15 +81,26 @@ const navigationGroups = [
             { name: 'Configuración', href: '/configuracion', icon: Settings, roles: ['Administrativo'] },
             { name: 'Acerca de', href: '/acerca-de', icon: Info, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
         ]
+    },
+    {
+        title: "Módulo Médico",
+        items: [
+            { name: 'Consultas Médicas', href: '/medico/consultas', icon: Stethoscope, roles: ['Administrativo', 'Médico'] },
+            { name: 'Pacientes', href: '/medico/pacientes', icon: Heart, roles: ['Administrativo', 'Médico'] },
+            { name: 'Inventario', href: '/medico/inventario', icon: Pill, roles: ['Administrativo', 'Médico'] },
+            { name: 'Clínicas y Pases', href: '/medico/clinicas', icon: Hospital, roles: ['Administrativo', 'Médico'] },
+        ]
     }
 ]
 
 interface SidebarProps {
     collapsed: boolean
     onToggle: () => void
+    mobileOpen?: boolean
+    onCloseMobile?: () => void
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }: SidebarProps) {
     const pathname = usePathname()
     const { profile, hasAccess } = useAuth()
 
@@ -88,12 +111,16 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
     return (
         <div className={cn(
-            "flex h-screen flex-col bg-zinc-950 text-zinc-300 border-r border-zinc-900 transition-all duration-300 relative",
-            collapsed ? "w-20" : "w-64"
+            "flex h-screen flex-col bg-zinc-950 text-zinc-300 border-r border-zinc-900 transition-all duration-300 relative z-50",
+            // Mobile positioning: fixed and transforms
+            "fixed inset-y-0 left-0 md:relative",
+            mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+            // Desktop width
+            collapsed ? "md:w-20 w-64" : "w-64"
         )}>
             <button
                 onClick={onToggle}
-                className="absolute -right-3 top-24 bg-zinc-900 hover:bg-amber-500 hover:text-black border border-zinc-800 text-zinc-400 p-1 rounded-full shadow-md z-45 transition-colors duration-200"
+                className="hidden md:flex absolute -right-3 top-24 bg-zinc-900 hover:bg-amber-500 hover:text-black border border-zinc-800 text-zinc-400 p-1 rounded-full shadow-md z-45 transition-colors duration-200 items-center justify-center"
                 title={collapsed ? "Expandir menú" : "Colapsar menú"}
             >
                 {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
@@ -120,7 +147,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 <nav className="space-y-6 px-3">
                     {navigationGroups.map((group, idx) => {
                         // Filter items the user has access to
-                        const availableItems = group.items.filter(item => hasAccess(item.roles))
+                        const availableItems = group.items.filter(item => !item.roles || hasAccess(item.roles))
                         
                         if (availableItems.length === 0) return null
 
@@ -142,6 +169,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                                         <Link
                                             key={item.name}
                                             href={item.href}
+                                            onClick={() => {
+                                                if (onCloseMobile) onCloseMobile()
+                                            }}
                                             title={collapsed ? item.name : undefined}
                                             className={cn(
                                                 'group flex items-center rounded-lg py-2.5 transition-all duration-200 border-l-2',
@@ -154,12 +184,17 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                                             <item.icon
                                                 className={cn(
                                                     'h-5 w-5 flex-shrink-0 transition-colors',
-                                                    collapsed ? '' : 'mr-3',
+                                                    collapsed ? 'md:mr-0 mr-3' : 'mr-3',
                                                     isActive ? 'text-amber-500' : 'text-zinc-500 group-hover:text-amber-500'
                                                 )}
                                                 aria-hidden="true"
                                             />
-                                            {!collapsed && <span className="animate-in fade-in duration-200 text-sm font-semibold">{item.name}</span>}
+                                            <span className={cn(
+                                                "animate-in fade-in duration-200 text-sm font-semibold",
+                                                collapsed ? "md:hidden block" : "block"
+                                            )}>
+                                                {item.name}
+                                            </span>
                                         </Link>
                                     )
                                 })}
