@@ -185,8 +185,8 @@ export default function TransporteDashboard() {
     }
 
     const handleConfirmAssignment = async () => {
-        if (!selectedSol || !assignTripId || !assignSeat || !assignEmpleadoId) {
-            alert('Por favor selecciona el viaje, asiento y vincula al empleado correspondiente.')
+        if (!selectedSol || !assignTripId || !assignSeat) {
+            alert('Por favor selecciona el viaje y el asiento.')
             return
         }
 
@@ -194,17 +194,25 @@ export default function TransporteDashboard() {
 
         try {
             // 1. Insert reservation into seats table
+            const seatPayload: any = {
+                id_viaje: assignTripId,
+                numero_asiento: assignSeat
+            }
+            
+            if (assignEmpleadoId) {
+                seatPayload.id_empleado = assignEmpleadoId
+            } else {
+                seatPayload.nombre_pasajero = selectedSol.nombre_completo
+                seatPayload.departamento_pasajero = selectedSol.departamento
+            }
+
             const { error: seatError } = await supabase
                 .from('transporte_personal_asientos')
-                .insert([{
-                    id_viaje: assignTripId,
-                    id_empleado: assignEmpleadoId,
-                    numero_asiento: assignSeat
-                }])
+                .insert([seatPayload])
 
             if (seatError) {
-                // If it fails, could be seat taken or employee already has seat
-                throw new Error('El asiento ya está ocupado o el empleado ya cuenta con reservación en este viaje.')
+                // If it fails, could be seat taken or passenger already has seat
+                throw new Error('El asiento ya está ocupado o el pasajero ya cuenta con reservación en este viaje.')
             }
 
             // 2. Update the request with details

@@ -54,5 +54,10 @@ ALTER TABLE transporte_personal_solicitudes ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Permitir todo a transporte_personal_solicitudes" ON transporte_personal_solicitudes;
 CREATE POLICY "Permitir todo a transporte_personal_solicitudes" ON transporte_personal_solicitudes FOR ALL USING (true);
 
--- 4. Forzar refresco de caché
+-- 4. Permitir que id_empleado sea nulo en las reservas y guardar campos de texto
+ALTER TABLE transporte_personal_asientos ALTER COLUMN id_empleado DROP NOT NULL;
+ALTER TABLE transporte_personal_asientos ADD COLUMN IF NOT EXISTS nombre_pasajero VARCHAR(255);
+ALTER TABLE transporte_personal_asientos ADD COLUMN IF NOT EXISTS departamento_pasajero VARCHAR(255);
+
+-- 5. Forzar refresco de caché
 NOTIFY pgrst, 'reload schema';
