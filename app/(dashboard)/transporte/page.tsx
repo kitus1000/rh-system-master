@@ -67,6 +67,15 @@ export default function TransporteDashboard() {
     // List of occupied seats for selected assign trip
     const [occupiedSeats, setOccupiedSeats] = useState<number[]>([])
 
+    // Modal Editar Viaje
+    const [editingViaje, setEditingViaje] = useState<Viaje | null>(null)
+    const [editTipo, setEditTipo] = useState('')
+    const [editRuta, setEditRuta] = useState('')
+    const [editFecha, setEditFecha] = useState('')
+    const [editHora, setEditHora] = useState('')
+    const [editCapacidad, setEditCapacidad] = useState('37')
+    const [savingEdit, setSavingEdit] = useState(false)
+
     const fetchViajes = async () => {
         const { data, error } = await supabase
             .from('transporte_personal_viajes')
@@ -143,6 +152,57 @@ export default function TransporteDashboard() {
             setHora('')
             fetchViajes()
         }
+    }
+
+    const handleCancelViaje = async (id_viaje: string) => {
+        if (!confirm('¿Seguro que deseas cancelar este viaje? Se marcará como Cancelado.')) return
+
+        const { error } = await supabase
+            .from('transporte_personal_viajes')
+            .update({ estado: 'Cancelado' })
+            .eq('id_viaje', id_viaje)
+
+        if (error) {
+            console.error(error)
+            alert('Error al cancelar el viaje.')
+        } else {
+            alert('Viaje marcado como Cancelado exitosamente.')
+            fetchViajes()
+        }
+    }
+
+    const handleOpenEditModal = (v: Viaje) => {
+        setEditingViaje(v)
+        setEditTipo(v.tipo_vehiculo)
+        setEditRuta(v.nombre_ruta)
+        setEditFecha(v.fecha)
+        setEditHora(v.hora.substring(0, 5))
+        setEditCapacidad(v.capacidad_total.toString())
+    }
+
+    const handleConfirmEdit = async () => {
+        if (!editingViaje || !editRuta || !editFecha || !editHora || !editCapacidad) return alert('Llena todos los campos')
+        setSavingEdit(true)
+
+        const { error } = await supabase
+            .from('transporte_personal_viajes')
+            .update({
+                tipo_vehiculo: editTipo,
+                nombre_ruta: editRuta,
+                fecha: editFecha,
+                hora: editHora,
+                capacidad_total: parseInt(editCapacidad)
+            })
+            .eq('id_viaje', editingViaje.id_viaje)
+
+        if (error) {
+            console.error(error)
+            alert('Error al modificar el viaje.')
+        } else {
+            setEditingViaje(null)
+            fetchViajes()
+        }
+        setSavingEdit(false)
     }
 
     // Load occupied seats when trip changes in assignment modal
@@ -259,31 +319,136 @@ ${window.location.origin}/reservar-viaje`
         window.open(waUrl, '_blank')
     }
 
-    // Render seats in admin assignment modal
-    const renderSeatGrid = (capacity: number) => {
+    // Render seats in admin assignment modal (Bus / Plane / Van layouts)
+    const renderSeatGrid = (capacity: number, vehicleType: string) => {
         const seats = Array.from({ length: capacity }, (_, i) => i + 1)
+        
+        if (vehicleType === 'Autobús') {
+            return (
+                <div className="bg-zinc-150 bg-zinc-100 p-3.5 rounded-2xl border border-zinc-200 max-w-[270px] mx-auto max-h-[190px] overflow-y-auto shadow-inner space-y-2">
+                    <div className="text-[9px] font-black text-zinc-400 uppercase text-center border-b pb-1">Frente del Autobús</div>
+                    <div className="grid grid-cols-4 gap-2">
+                        {seats.map(num => {
+                            const isOccupied = occupiedSeats.includes(num)
+                            const isSelected = assignSeat === num
+                            const isAisleLeft = num % 4 === 2 && num !== capacity
+                            return (
+                                <button
+                                    key={num}
+                                    type="button"
+                                    disabled={isOccupied}
+                                    onClick={() => setAssignSeat(num)}
+                                    className={`p-1 rounded-lg text-[9px] font-black border transition-all text-center flex flex-col items-center justify-center aspect-square
+                                        ${isAisleLeft ? 'mr-3' : ''}
+                                        ${isOccupied 
+                                            ? 'bg-red-50 border-red-200 text-red-400 cursor-not-allowed'
+                                            : (isSelected
+                                                ? 'bg-cyan-500 border-cyan-600 text-white shadow-md'
+                                                : 'bg-white border-zinc-200 text-zinc-550 hover:border-zinc-450')}`}
+                                >
+                                    <Armchair className="w-3.5 h-3.5 mb-0.5" />
+                                    {num}
+                                </button>
+                            )
+                        })}
+                    </div>
+                </div>
+            )
+        }
+        
+        if (vehicleType === 'Avioneta') {
+            const numRows = Math.ceil(capacity / 2)
+            const rows = Array.from({ length: numRows }, (_, i) => i)
+            return (
+                <div className="bg-zinc-100 p-3.5 rounded-2xl border border-zinc-200 max-w-[230px] mx-auto max-h-[190px] overflow-y-auto shadow-inner space-y-2">
+                    <div className="text-[9px] font-black text-zinc-400 uppercase text-center border-b pb-1">Cabina Pilotos</div>
+                    <div className="space-y-1.5 mt-2">
+                        {rows.map(r => {
+                            const seatL = r * 2 + 1
+                            const seatR = r * 2 + 2
+                            return (
+                                <div key={r} className="grid grid-cols-3 gap-2 items-center">
+                                    {/* Asiento Izquierdo */}
+                                    {seatL <= capacity && (() => {
+                                        const isOccupied = occupiedSeats.includes(seatL)
+                                        const isSelected = assignSeat === seatL
+                                        return (
+                                            <button
+                                                type="button"
+                                                disabled={isOccupied}
+                                                onClick={() => setAssignSeat(seatL)}
+                                                className={`p-1 rounded-lg text-[9px] font-black border transition-all text-center flex flex-col items-center justify-center aspect-square
+                                                    ${isOccupied 
+                                                        ? 'bg-red-50 border-red-200 text-red-400 cursor-not-allowed'
+                                                        : (isSelected
+                                                            ? 'bg-cyan-500 border-cyan-600 text-white shadow-md'
+                                                            : 'bg-white border-zinc-200 text-zinc-550 hover:border-zinc-450')}`}
+                                            >
+                                                <Armchair className="w-3.5 h-3.5 mb-0.5" />
+                                                {seatL}
+                                            </button>
+                                        )
+                                    })()}
+                                    
+                                    {/* Pasillo */}
+                                    <div className="text-[8px] font-black text-zinc-300 text-center tracking-wider">P</div>
+
+                                    {/* Asiento Derecho */}
+                                    {seatR <= capacity && (() => {
+                                        const isOccupied = occupiedSeats.includes(seatR)
+                                        const isSelected = assignSeat === seatR
+                                        return (
+                                            <button
+                                                type="button"
+                                                disabled={isOccupied}
+                                                onClick={() => setAssignSeat(seatR)}
+                                                className={`p-1 rounded-lg text-[9px] font-black border transition-all text-center flex flex-col items-center justify-center aspect-square
+                                                    ${isOccupied 
+                                                        ? 'bg-red-50 border-red-200 text-red-400 cursor-not-allowed'
+                                                        : (isSelected
+                                                            ? 'bg-cyan-500 border-cyan-600 text-white shadow-md'
+                                                            : 'bg-white border-zinc-200 text-zinc-550 hover:border-zinc-450')}`}
+                                            >
+                                                <Armchair className="w-3.5 h-3.5 mb-0.5" />
+                                                {seatR}
+                                            </button>
+                                        )
+                                    })()}
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            )
+        }
+
+        // Camioneta/Van
         return (
-            <div className="grid grid-cols-5 gap-2 max-h-[160px] overflow-y-auto p-2 border border-zinc-200 rounded-xl bg-zinc-50">
-                {seats.map(num => {
-                    const isOccupied = occupiedSeats.includes(num)
-                    const isSelected = assignSeat === num
-                    return (
-                        <button
-                            key={num}
-                            type="button"
-                            disabled={isOccupied}
-                            onClick={() => setAssignSeat(num)}
-                            className={`p-2 rounded-lg text-xs font-bold border transition-all text-center
-                                ${isOccupied 
-                                    ? 'bg-red-50 border-red-200 text-red-400 cursor-not-allowed'
-                                    : (isSelected
-                                        ? 'bg-cyan-500 border-cyan-600 text-white shadow-md'
-                                        : 'bg-white border-zinc-200 text-zinc-600 hover:border-zinc-400')}`}
-                        >
-                            {num}
-                        </button>
-                    )
-                })}
+            <div className="bg-zinc-100 p-3.5 rounded-2xl border border-zinc-200 max-w-[200px] mx-auto shadow-inner space-y-2">
+                <div className="text-[9px] font-black text-zinc-400 uppercase text-center border-b pb-1">Frente</div>
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                    {seats.map(num => {
+                        const isOccupied = occupiedSeats.includes(num)
+                        const isSelected = assignSeat === num
+                        return (
+                            <button
+                                key={num}
+                                type="button"
+                                disabled={isOccupied}
+                                onClick={() => setAssignSeat(num)}
+                                className={`p-1.5 rounded-lg text-[9px] font-black border transition-all text-center flex flex-col items-center justify-center aspect-square
+                                    ${isOccupied 
+                                        ? 'bg-red-50 border-red-200 text-red-400 cursor-not-allowed'
+                                        : (isSelected
+                                            ? 'bg-cyan-500 border-cyan-600 text-white shadow-md'
+                                            : 'bg-white border-zinc-200 text-zinc-550 hover:border-zinc-450')}`}
+                            >
+                                <Armchair className="w-3.5 h-3.5 mb-0.5" />
+                                {num}
+                            </button>
+                        )
+                    })}
+                </div>
             </div>
         )
     }
@@ -449,10 +614,26 @@ ${window.location.origin}/reservar-viaje`
                                         </div>
                                     </div>
                                     
-                                    <div className="p-4 border-t border-zinc-100 bg-zinc-50">
-                                        <Link href={`/transporte/${v.id_viaje}`} className="w-full bg-white border border-zinc-200 hover:border-indigo-300 hover:text-indigo-700 text-zinc-800 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm">
-                                            Ver Asientos y Reservar <ArrowRight className="w-4 h-4" />
+                                    <div className="p-4 border-t border-zinc-100 bg-zinc-50 flex gap-2">
+                                        <Link href={`/transporte/${v.id_viaje}`} className="flex-1 bg-white border border-zinc-200 hover:border-indigo-305 hover:text-indigo-700 text-zinc-800 font-bold py-2 rounded-xl flex items-center justify-center gap-1 transition-all shadow-sm text-xs">
+                                            Ver Asientos
                                         </Link>
+                                        <button 
+                                            onClick={() => handleOpenEditModal(v)}
+                                            className="bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-700 font-bold px-3 py-2 rounded-xl text-xs transition-all"
+                                        >
+                                            Editar
+                                        </button>
+                                        {v.estado !== 'Cancelado' ? (
+                                            <button 
+                                                onClick={() => handleCancelViaje(v.id_viaje)}
+                                                className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-2 rounded-xl text-xs transition-all"
+                                            >
+                                                Cancelar
+                                            </button>
+                                        ) : (
+                                            <span className="text-[10px] text-zinc-400 font-bold py-2 px-1">Cancelado</span>
+                                        )}
                                     </div>
                                 </div>
                             ))}
@@ -602,7 +783,7 @@ ${window.location.origin}/reservar-viaje`
                                 <label className="text-[10px] font-black text-zinc-500 uppercase">2. Selecciona el Asiento libre</label>
                                 {(() => {
                                     const vDetails = viajes.find(v => v.id_viaje === assignTripId)
-                                    return vDetails ? renderSeatGrid(vDetails.capacidad_total) : null
+                                    return vDetails ? renderSeatGrid(vDetails.capacidad_total, vDetails.tipo_vehiculo) : null
                                 })()}
                             </div>
                         )}
@@ -649,6 +830,88 @@ ${window.location.origin}/reservar-viaje`
                                 className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2 rounded-lg shadow-md disabled:opacity-50"
                             >
                                 {savingAssignment ? 'Asignando...' : 'Confirmar Asignación'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Editar Viaje Modal */}
+            {editingViaje && (
+                <div className="fixed inset-0 bg-black/55 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl animate-in zoom-in-95 border border-zinc-150 space-y-4">
+                        <div className="flex justify-between items-center border-b border-zinc-100 pb-3 mb-2">
+                            <h3 className="text-lg font-black text-zinc-950 flex items-center gap-2">
+                                <Bus className="w-5 h-5 text-indigo-500" />
+                                Modificar Viaje Programado
+                            </h3>
+                            <button onClick={() => setEditingViaje(null)} className="text-zinc-400 hover:text-black font-black text-xl px-1">&times;</button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-xs font-bold text-zinc-500 uppercase">Vehículo</label>
+                                <select 
+                                    value={editTipo} 
+                                    onChange={e => {
+                                        setEditTipo(e.target.value)
+                                        if(e.target.value === 'Autobús') setEditCapacidad('37')
+                                        if(e.target.value === 'Avioneta') setEditCapacidad('8')
+                                        if(e.target.value === 'Camioneta') setEditCapacidad('4')
+                                    }} 
+                                    className="w-full mt-1 p-2.5 border rounded-lg text-sm bg-zinc-50 font-bold"
+                                >
+                                    <option value="Autobús">Autobús (37 lgs)</option>
+                                    <option value="Avioneta">Avioneta (8 lgs)</option>
+                                    <option value="Camioneta">Camioneta (4 lgs)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-zinc-500 uppercase">Ruta / Destino</label>
+                                <input 
+                                    type="text" 
+                                    value={editRuta} 
+                                    onChange={e => setEditRuta(e.target.value)} 
+                                    className="w-full mt-1 p-2.5 border rounded-lg text-sm bg-zinc-50 font-bold" 
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-xs font-bold text-zinc-500 uppercase">Fecha</label>
+                                    <input 
+                                        type="date" 
+                                        value={editFecha} 
+                                        onChange={e => setEditFecha(e.target.value)} 
+                                        className="w-full mt-1 p-2.5 border rounded-lg text-sm bg-zinc-50" 
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-zinc-500 uppercase">Hora Salida</label>
+                                    <input 
+                                        type="time" 
+                                        value={editHora} 
+                                        onChange={e => setEditHora(e.target.value)} 
+                                        className="w-full mt-1 p-2.5 border rounded-lg text-sm bg-zinc-50" 
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="pt-3 border-t flex justify-end gap-2 text-xs">
+                            <button
+                                type="button"
+                                onClick={() => setEditingViaje(null)}
+                                className="px-4 py-2 text-zinc-500 font-bold hover:bg-zinc-100 rounded-lg"
+                                disabled={savingEdit}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleConfirmEdit}
+                                disabled={savingEdit}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2 rounded-lg shadow-md"
+                            >
+                                {savingEdit ? 'Guardando...' : 'Guardar Cambios'}
                             </button>
                         </div>
                     </div>

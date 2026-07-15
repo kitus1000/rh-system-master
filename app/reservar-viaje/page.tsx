@@ -139,6 +139,47 @@ export default function ReservarViajePublico() {
         window.print()
     }
 
+    const handleCancelBooking = async () => {
+        if (!passData) return
+        if (!confirm("⚠️ ¿Estás seguro de que deseas cancelar esta reservación de viaje? Tu asiento se liberará y esta acción no se puede deshacer.")) return
+
+        setLoading(true)
+        try {
+            // 1. Delete occupied seat
+            const { error: seatErr } = await supabase
+                .from('transporte_personal_asientos')
+                .delete()
+                .eq('id_viaje', passData.id_viaje)
+                .eq('numero_asiento', passData.numero_asiento)
+
+            if (seatErr) throw seatErr
+
+            // 2. Mark request as Cancelled in solicitudes table
+            const { error: solErr } = await supabase
+                .from('transporte_personal_solicitudes')
+                .update({
+                    estatus: 'Cancelado',
+                    clave_confirmacion: null,
+                    id_viaje: null,
+                    numero_asiento: null,
+                    chofer_nombre: null
+                })
+                .eq('id_solicitud', passData.id_solicitud)
+
+            if (solErr) throw solErr
+
+            alert("Tu reservación ha sido cancelada con éxito y tu asiento ha sido liberado.")
+            setMode('menu')
+            setPassData(null)
+            setQueryForm({ celular_whatsapp: '', clave_confirmacion: '' })
+        } catch (err: any) {
+            console.error(err)
+            alert("Error al cancelar la reservación: " + (err.message || err))
+        } finally {
+            setLoading(false)
+        }
+    }
+
     return (
         <div className="min-h-screen bg-[#07080a] text-zinc-300 font-mono relative overflow-x-hidden flex flex-col justify-between">
             {/* Cyberpunk HUD grid overlay */}
@@ -510,6 +551,13 @@ export default function ReservarViajePublico() {
                             >
                                 <Printer className="w-4 h-4" />
                                 IMPRIMIR COMPROBANTE
+                            </button>
+                            <button
+                                onClick={handleCancelBooking}
+                                className="w-full sm:w-auto bg-rose-950/20 border border-rose-500/40 hover:bg-rose-600 hover:text-white text-rose-400 font-bold px-6 py-3.5 rounded-xl transition-all text-xs flex items-center justify-center gap-1.5"
+                            >
+                                <X className="w-4 h-4" />
+                                CANCELAR VIAJE
                             </button>
                             <button
                                 onClick={() => {
