@@ -574,26 +574,9 @@ ${window.location.origin}/reservar-viaje`
                             <p><span className="text-zinc-500">Preferencia:</span> {selectedSol.tipo_vehiculo} ({selectedSol.fecha_sugerida})</p>
                         </div>
 
-                        {/* Step 1: Link to database employee */}
+                        {/* Step 1: Select programmed Trip */}
                         <div className="space-y-1">
-                            <label className="text-[10px] font-black text-zinc-500 uppercase">1. Vincular a Ficha del Empleado</label>
-                            <select 
-                                value={assignEmpleadoId}
-                                onChange={e => setAssignEmpleadoId(e.target.value)}
-                                className="w-full p-2 border rounded-lg text-xs bg-zinc-50 font-bold focus:ring-1 focus:ring-indigo-500"
-                            >
-                                <option value="">-- Selecciona el empleado --</option>
-                                {empleados.map(e => (
-                                    <option key={e.id_empleado} value={e.id_empleado}>
-                                        {e.nombre} {e.apellido_paterno} [{e.departamento_id?.departamento || 'N/A'}]
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Step 2: Select programmed Trip */}
-                        <div className="space-y-1">
-                            <label className="text-[10px] font-black text-zinc-500 uppercase">2. Seleccionar Ruta Programada</label>
+                            <label className="text-[10px] font-black text-zinc-500 uppercase">1. Seleccionar Ruta Programada</label>
                             <select
                                 value={assignTripId}
                                 onChange={e => setAssignTripId(e.target.value)}
@@ -613,10 +596,10 @@ ${window.location.origin}/reservar-viaje`
                             )}
                         </div>
 
-                        {/* Step 3: Choose seat */}
+                        {/* Step 2: Choose seat */}
                         {assignTripId && (
                             <div className="space-y-2">
-                                <label className="text-[10px] font-black text-zinc-500 uppercase">3. Selecciona el Asiento libre</label>
+                                <label className="text-[10px] font-black text-zinc-500 uppercase">2. Selecciona el Asiento libre</label>
                                 {(() => {
                                     const vDetails = viajes.find(v => v.id_viaje === assignTripId)
                                     return vDetails ? renderSeatGrid(vDetails.capacidad_total) : null
@@ -627,7 +610,7 @@ ${window.location.origin}/reservar-viaje`
                         <div className="grid grid-cols-2 gap-3">
                             {/* Driver Name */}
                             <div className="space-y-1">
-                                <label className="text-[10px] font-black text-zinc-500 uppercase">4. Nombre Chofer</label>
+                                <label className="text-[10px] font-black text-zinc-500 uppercase">3. Nombre Chofer</label>
                                 <input 
                                     type="text" 
                                     value={assignDriver}
@@ -639,7 +622,7 @@ ${window.location.origin}/reservar-viaje`
 
                             {/* Passcode Confirmation code */}
                             <div className="space-y-1">
-                                <label className="text-[10px] font-black text-zinc-500 uppercase">5. Clave de Confirmación</label>
+                                <label className="text-[10px] font-black text-zinc-500 uppercase">4. Clave de Confirmación</label>
                                 <input 
                                     type="text" 
                                     value={assignClave}
