@@ -476,6 +476,16 @@ export default function ReservarViajePublico() {
                                 </div>
                             </div>
 
+                            {/* Contingencia Warning Notice */}
+                            {passData.viajes.nombre_ruta.toUpperCase().includes('CONTINGENCIA') && (
+                                <div className="mt-4 bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 flex items-start gap-2.5 animate-pulse print:border-black print:text-black">
+                                    <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5 print:hidden" />
+                                    <div className="text-[10px] font-black text-rose-400 print:text-black uppercase tracking-wider leading-relaxed">
+                                        ⚠️ NOTA: ESTE VIAJE ERA DE AVIONETA PERO SE HARA EN CAMIONETA
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Passenger Details */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 my-6">
                                 <div className="space-y-4">

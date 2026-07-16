@@ -76,6 +76,10 @@ export default function TransporteDashboard() {
     const [editCapacidad, setEditCapacidad] = useState('37')
     const [savingEdit, setSavingEdit] = useState(false)
 
+    // Filtros de Solicitudes
+    const [filterFechaStart, setFilterFechaStart] = useState('')
+    const [filterFechaEnd, setFilterFechaEnd] = useState('')
+
     const fetchViajes = async () => {
         const { data, error } = await supabase
             .from('transporte_personal_viajes')
@@ -647,88 +651,130 @@ ${window.location.origin}/reservar-viaje`
 
                     {/* TAB SOLICITUDES */}
                     {adminTab === 'solicitudes' && (
-                        <div className="bg-white border border-zinc-200 rounded-3xl overflow-hidden shadow-sm">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left text-sm text-zinc-600">
-                                    <thead className="bg-zinc-55 bg-zinc-50 text-[10px] text-zinc-500 uppercase font-black border-b border-zinc-200">
-                                        <tr>
-                                            <th className="p-4">Fecha Solicitud</th>
-                                            <th className="p-4">Pasajero</th>
-                                            <th className="p-4">Departamento</th>
-                                            <th className="p-4">Celular (WhatsApp)</th>
-                                            <th className="p-4">Preferencia</th>
-                                            <th className="p-4">Fecha Sugerida</th>
-                                            <th className="p-4">Estatus</th>
-                                            <th className="p-4 text-right">Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-zinc-250 border-zinc-100">
-                                        {solicitudes.map(sol => (
-                                            <tr key={sol.id_solicitud} className="hover:bg-zinc-50/50 transition-colors">
-                                                <td className="p-4 font-mono text-xs text-zinc-400">
-                                                    {new Date(sol.creado_el).toLocaleDateString()}
-                                                </td>
-                                                <td className="p-4 font-bold text-zinc-950">
-                                                    {sol.nombre_completo}
-                                                </td>
-                                                <td className="p-4 font-semibold text-zinc-600">
-                                                    {sol.departamento}
-                                                </td>
-                                                <td className="p-4 font-mono text-xs">
-                                                    {sol.celular_whatsapp}
-                                                </td>
-                                                <td className="p-4">
-                                                    <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-0.5 rounded-full
-                                                        ${sol.tipo_vehiculo === 'Autobús' ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-800'}`}>
-                                                        {sol.tipo_vehiculo}
-                                                    </span>
-                                                </td>
-                                                <td className="p-4 font-bold text-zinc-800">
-                                                    {new Date(sol.fecha_sugerida + 'T12:00:00').toLocaleDateString()}
-                                                </td>
-                                                <td className="p-4">
-                                                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase
-                                                        ${sol.estatus === 'Pendiente' ? 'bg-zinc-100 text-zinc-600 animate-pulse' :
-                                                          sol.estatus === 'Asignado' ? 'bg-emerald-100 text-emerald-700 font-bold' :
-                                                          'bg-red-100 text-red-700'}`}>
-                                                        {sol.estatus}
-                                                    </span>
-                                                </td>
-                                                <td className="p-4 text-right">
-                                                    {sol.estatus === 'Pendiente' ? (
-                                                        <button
-                                                            onClick={() => handleOpenAssignModal(sol)}
-                                                            className="bg-indigo-650 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-1.5 rounded-lg text-xs transition-all shadow-sm"
-                                                        >
-                                                            Asignar Lugar
-                                                        </button>
-                                                    ) : (
-                                                        <div className="flex justify-end gap-2 items-center text-xs">
-                                                            <div className="text-left font-mono text-[9px] text-zinc-400">
-                                                                <div>Asiento: <span className="font-bold text-zinc-700">{sol.numero_asiento}</span></div>
-                                                                <div>Clave: <span className="font-bold text-amber-600">{sol.clave_confirmacion}</span></div>
-                                                            </div>
-                                                            <button
-                                                                onClick={() => handleSendWhatsApp(sol)}
-                                                                className="bg-green-600 hover:bg-green-700 text-white font-bold p-2 rounded-lg flex items-center justify-center"
-                                                                title="Enviar clave y datos por WhatsApp"
-                                                            >
-                                                                <Send className="w-3.5 h-3.5" />
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                        {solicitudes.length === 0 && (
+                        <div className="space-y-4">
+                            {/* Filtros Bar */}
+                            <div className="bg-white border border-zinc-200 rounded-2xl p-4 flex flex-wrap gap-4 items-center shadow-sm">
+                                <div className="text-xs font-black text-zinc-700 uppercase tracking-wide">Filtrar Solicitudes por Fecha de Viaje:</div>
+                                <div className="flex gap-2 items-center text-xs">
+                                    <span className="text-zinc-400 font-bold">Desde:</span>
+                                    <input 
+                                        type="date" 
+                                        value={filterFechaStart}
+                                        onChange={e => setFilterFechaStart(e.target.value)}
+                                        className="p-2 border rounded-xl text-xs bg-zinc-50 font-bold focus:ring-1 focus:ring-indigo-500"
+                                    />
+                                    <span className="text-zinc-400 font-bold ml-2">Hasta:</span>
+                                    <input 
+                                        type="date" 
+                                        value={filterFechaEnd}
+                                        onChange={e => setFilterFechaEnd(e.target.value)}
+                                        className="p-2 border rounded-xl text-xs bg-zinc-50 font-bold focus:ring-1 focus:ring-indigo-500"
+                                    />
+                                </div>
+                                {(filterFechaStart || filterFechaEnd) && (
+                                    <button 
+                                        onClick={() => { setFilterFechaStart(''); setFilterFechaEnd(''); }}
+                                        className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ml-auto"
+                                    >
+                                        Limpiar Filtros
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="bg-white border border-zinc-200 rounded-3xl overflow-hidden shadow-sm">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm text-zinc-600">
+                                        <thead className="bg-zinc-55 bg-zinc-50 text-[10px] text-zinc-500 uppercase font-black border-b border-zinc-200">
                                             <tr>
-                                                <td colSpan={8} className="p-8 text-center text-zinc-400 font-bold">
-                                                    No hay solicitudes cargadas en el portal.
-                                                </td>
+                                                <th className="p-4">Fecha Solicitud</th>
+                                                <th className="p-4">Pasajero</th>
+                                                <th className="p-4">Departamento</th>
+                                                <th className="p-4">Celular (WhatsApp)</th>
+                                                <th className="p-4">Preferencia</th>
+                                                <th className="p-4">Fecha Sugerida</th>
+                                                <th className="p-4">Estatus</th>
+                                                <th className="p-4 text-right">Acciones</th>
                                             </tr>
-                                        )}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody className="divide-y divide-zinc-100">
+                                            {(() => {
+                                                const filtered = solicitudes.filter(sol => {
+                                                    if (filterFechaStart && sol.fecha_sugerida < filterFechaStart) return false
+                                                    if (filterFechaEnd && sol.fecha_sugerida > filterFechaEnd) return false
+                                                    return true
+                                                })
+                                                
+                                                if (filtered.length === 0) {
+                                                    return (
+                                                        <tr>
+                                                            <td colSpan={8} className="p-8 text-center text-zinc-400 font-bold">
+                                                                No se encontraron solicitudes para el rango de fechas seleccionado.
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                }
+
+                                                return filtered.map(sol => (
+                                                    <tr key={sol.id_solicitud} className="hover:bg-zinc-50/50 transition-colors">
+                                                        <td className="p-4 font-mono text-xs text-zinc-400">
+                                                            {new Date(sol.creado_el).toLocaleDateString()}
+                                                        </td>
+                                                        <td className="p-4 font-bold text-zinc-950">
+                                                            {sol.nombre_completo}
+                                                        </td>
+                                                        <td className="p-4 font-semibold text-zinc-600">
+                                                            {sol.departamento}
+                                                        </td>
+                                                        <td className="p-4 font-mono text-xs">
+                                                            {sol.celular_whatsapp}
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-0.5 rounded-full
+                                                                ${sol.tipo_vehiculo === 'Autobús' ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-800'}`}>
+                                                                {sol.tipo_vehiculo}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-4 font-bold text-zinc-800">
+                                                            {new Date(sol.fecha_sugerida + 'T12:00:00').toLocaleDateString()}
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase
+                                                                ${sol.estatus === 'Pendiente' ? 'bg-zinc-100 text-zinc-600 animate-pulse' :
+                                                                  sol.estatus === 'Asignado' ? 'bg-emerald-100 text-emerald-700 font-bold' :
+                                                                  'bg-red-100 text-red-700'}`}>
+                                                                {sol.estatus}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-4 text-right">
+                                                            {sol.estatus === 'Pendiente' ? (
+                                                                <button
+                                                                    onClick={() => handleOpenAssignModal(sol)}
+                                                                    className="bg-indigo-650 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-1.5 rounded-lg text-xs transition-all shadow-sm"
+                                                                >
+                                                                    Asignar Lugar
+                                                                </button>
+                                                            ) : (
+                                                                <div className="flex justify-end gap-2 items-center text-xs">
+                                                                    <div className="text-left font-mono text-[9px] text-zinc-400">
+                                                                        <div>Asiento: <span className="font-bold text-zinc-700">{sol.numero_asiento}</span></div>
+                                                                        <div>Clave: <span className="font-bold text-amber-600">{sol.clave_confirmacion}</span></div>
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={() => handleSendWhatsApp(sol)}
+                                                                        className="bg-green-600 hover:bg-green-700 text-white font-bold p-2 rounded-lg flex items-center justify-center"
+                                                                        title="Enviar clave y datos por WhatsApp"
+                                                                    >
+                                                                        <Send className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            })()}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     )}
