@@ -128,10 +128,24 @@ export default function TransporteReserva() {
         if (!viaje) return
         const totalAsientos = viaje.capacidad_total
         const asientosList = Array.from({ length: totalAsientos }, (_, i) => i + 1)
-        
-        // Build CSV content
-        let csvContent = "No. Asiento,Nombre,Departamento\n"
-        
+
+        const formattedDate = new Date(viaje.fecha + 'T12:00:00').toLocaleDateString('es-ES', {
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric'
+        })
+
+        // Build CSV content matching the exact printout structure
+        let csvContent = ""
+        csvContent += "\"I\",,\n"
+        csvContent += "\"UNIDAD EL HERRERO\",,\n"
+        csvContent += `\"1    ${(viaje.nombre_ruta || '').toUpperCase()}\",,\n`
+        csvContent += "\"RELACION DE PASES MEDICOS Y TRABAJADORES\",,\n"
+        csvContent += `\"${formattedDate.toUpperCase()}\",,\n`
+        csvContent += ",,\n"
+        csvContent += "\"No. ASIENTO\",\"NOMBRE\",\"DEPARTAMENTO\"\n"
+
         asientosList.forEach(num => {
             const res = reservas.find(r => r.numero_asiento === num)
             const nombre = res 
@@ -142,8 +156,8 @@ export default function TransporteReserva() {
                 : ""
             
             // Escape values for CSV
-            const escNombre = `"${(nombre || '').replace(/"/g, '""')}"`
-            const escDepto = `"${(depto || '').replace(/"/g, '""')}"`
+            const escNombre = `"${(nombre || '').toUpperCase().replace(/"/g, '""')}"`
+            const escDepto = `"${(depto || '').toUpperCase().replace(/"/g, '""')}"`
             csvContent += `${num},${escNombre},${escDepto}\n`
         })
 
@@ -347,7 +361,9 @@ export default function TransporteReserva() {
                 insertReservas.push({
                     id_viaje: nuevasCamionetas[vanIdx].id_viaje,
                     id_empleado: passenger.id_empleado,
-                    numero_asiento: seatNum
+                    numero_asiento: seatNum,
+                    nombre_pasajero: passenger.nombre_pasajero,
+                    departamento_pasajero: passenger.departamento_pasajero
                 })
             }
 
