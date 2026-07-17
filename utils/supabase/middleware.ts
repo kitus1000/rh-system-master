@@ -40,12 +40,14 @@ export async function updateSession(request: NextRequest) {
         !user &&
         request.nextUrl.pathname !== '/' &&
         request.nextUrl.pathname !== '/reservar-viaje' &&
-        request.nextUrl.pathname !== '/consulta-medica' &&
         !request.nextUrl.pathname.startsWith('/auth')
     ) {
         // no user, redirect to login page (which is now root '/')
         const url = request.nextUrl.clone()
+        const targetPath = url.pathname + url.search
         url.pathname = '/'
+        url.search = ''
+        url.searchParams.set('next', targetPath)
         return NextResponse.redirect(url)
     }
 

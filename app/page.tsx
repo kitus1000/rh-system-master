@@ -40,15 +40,18 @@ export default function LoginPage() {
                 password,
             })
 
+            const searchParams = new URLSearchParams(window.location.search)
+            const nextPath = searchParams.get('next') || '/inicio'
+
             if (authError) {
                 if (email === 'admin@example.com' && password === 'admin') {
-                    router.push('/inicio')
+                    router.push(nextPath)
                     return
                 }
                 throw authError
             }
 
-            router.push('/inicio')
+            router.push(nextPath)
         } catch (err: any) {
             setError(err.message || 'Credenciales inválidas')
         } finally {
