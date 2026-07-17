@@ -326,4 +326,5 @@ export default function ConsultaMedicaPortal() {
             </div>
         </div>
     )
+}
 
