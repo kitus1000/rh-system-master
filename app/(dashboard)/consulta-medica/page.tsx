@@ -3,17 +3,19 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { useAuth } from '@/components/AuthProvider'
-import { Hospital, Building2, Search, Calendar, Heart, ShieldAlert, Users } from 'lucide-react'
+import { Hospital, Building2, Search, Heart, ShieldAlert, Users, ClipboardList } from 'lucide-react'
 
-export default function PasesDepartamentoPage() {
+export default function ConsultaMedicaPortal() {
     const { profile } = useAuth()
     const [departamentos, setDepartamentos] = useState<any[]>([])
     const [selectedDept, setSelectedDept] = useState('')
     const [pases, setPases] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
 
-    // Roles details
-    const isDoctorOrAdmin = profile?.rol === 'Médico' || profile?.rol === 'Administrativo'
+    // Doctor, HR or Admin have full access to view any department
+    const isDoctorOrAdmin = profile?.rol === 'Médico' || 
+                            profile?.rol === 'Administrativo' || 
+                            (profile?.nombre_completo || '').toUpperCase().includes('RECURSOS')
 
     useEffect(() => {
         if (profile) {
@@ -47,7 +49,7 @@ export default function PasesDepartamentoPage() {
         try {
             let activeDeptId = selectedDept
             
-            // If they are not admin/doctor and have a department, lock to their department
+            // Lock to profile department if not doctor/admin/HR
             if (!isDoctorOrAdmin && profile?.id_departamento) {
                 activeDeptId = profile.id_departamento
             }
@@ -64,7 +66,6 @@ export default function PasesDepartamentoPage() {
                 .eq('compartido_departamentos', true)
                 .order('creado_el', { ascending: false })
 
-            // Filter if department is selected/locked
             if (activeDeptId) {
                 query = query.eq('empleados.id_departamento', activeDeptId)
             }
@@ -73,7 +74,7 @@ export default function PasesDepartamentoPage() {
             if (error) throw error
             setPases(data || [])
         } catch (error) {
-            console.error('Error fetching department pases:', error)
+            console.error('Error fetching clinic pases:', error)
         } finally {
             setLoading(false)
         }
@@ -81,21 +82,21 @@ export default function PasesDepartamentoPage() {
 
     return (
         <div className="space-y-6">
-            {/* Header banner */}
+            {/* Header */}
             <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-zinc-100">
                 <div>
                     <h1 className="text-2xl font-bold text-zinc-800 flex items-center gap-2">
                         <Hospital className="w-6 h-6 text-amber-500" />
-                        Pases Médicos del Departamento
+                        Portal Clínico - Incidencias y Pases
                     </h1>
-                    <p className="text-zinc-500 text-sm mt-1">Control de incidencias de pases médicos y acompañantes compartidos</p>
+                    <p className="text-zinc-500 text-sm mt-1">Consulta y seguimiento de pases médicos y acompañantes autorizados</p>
                 </div>
             </div>
 
-            {/* Filter controls */}
-            {isDoctorOrAdmin && (
+            {/* Filter bar */}
+            {isDoctorOrAdmin ? (
                 <div className="bg-white border border-zinc-100 p-4 rounded-2xl flex flex-wrap gap-4 items-center shadow-sm">
-                    <span className="text-xs font-bold text-zinc-700 uppercase">Filtrar por Departamento:</span>
+                    <span className="text-xs font-bold text-zinc-700 uppercase">Consultar Departamento:</span>
                     <select
                         value={selectedDept}
                         onChange={e => setSelectedDept(e.target.value)}
@@ -107,43 +108,42 @@ export default function PasesDepartamentoPage() {
                         ))}
                     </select>
                 </div>
+            ) : (
+                profile?.id_departamento && (
+                    <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl text-xs font-semibold text-amber-800 flex items-center gap-2">
+                        <Building2 className="w-4 h-4 text-amber-500" />
+                        <span>Visualizando incidencias de su departamento: <strong>{departamentos.find(d => d.id_departamento === profile.id_departamento)?.departamento || 'Cargando...'}</strong></span>
+                    </div>
+                )
             )}
 
-            {/* Locked user department indicator */}
-            {!isDoctorOrAdmin && profile?.id_departamento && (
-                <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl text-xs font-semibold text-amber-800 flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-amber-500" />
-                    <span>Visualizando pases del departamento: <strong>{departamentos.find(d => d.id_departamento === profile.id_departamento)?.departamento || 'Cargando...'}</strong></span>
-                </div>
-            )}
-
-            {/* Table of active shared pases */}
+            {/* Table */}
             <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 overflow-hidden">
                 <div className="p-4 border-b border-zinc-100 bg-zinc-50 flex justify-between items-center">
                     <h3 className="font-semibold text-zinc-800 flex items-center gap-2 text-sm">
                         <Users className="w-4 h-4 text-zinc-400" />
-                        Relación de Incidencias Médicas Activas
+                        Registro de Pases Médicos Activos
                     </h3>
                 </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
-                        <thead className="bg-zinc-50 text-zinc-500 font-medium border-b border-zinc-100 text-xs uppercase">
+                        <thead className="bg-zinc-55 bg-zinc-50 text-zinc-500 font-medium border-b border-zinc-100 text-xs uppercase">
                             <tr>
-                                <th className="px-6 py-4">Empleado / Trabajador</th>
+                                <th className="px-6 py-4">Trabajador / Empleado</th>
                                 <th className="px-6 py-4">Paciente</th>
-                                <th className="px-6 py-4">Tipo</th>
-                                <th className="px-6 py-4">Trayecto Clínico</th>
+                                <th className="px-6 py-4">Relación / Tipo</th>
+                                <th className="px-6 py-4">Destino Médico</th>
                                 <th className="px-6 py-4">Fechas Incidencia</th>
                                 <th className="px-6 py-4">Estatus</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 text-zinc-700">
                             {loading ? (
-                                <tr><td colSpan={6} className="px-6 py-8 text-center text-zinc-500">Cargando pases de departamento...</td></tr>
+                                <tr><td colSpan={6} className="px-6 py-8 text-center text-zinc-500">Cargando datos...</td></tr>
                             ) : pases.length === 0 ? (
                                 <tr>
                                     <td colSpan={6} className="px-6 py-8 text-center text-zinc-400 font-medium">
-                                        No hay incidencias médicas activas registradas para este departamento.
+                                        No hay incidencias médicas activas o compartidas para mostrar.
                                     </td>
                                 </tr>
                             ) : (
@@ -172,12 +172,12 @@ export default function PasesDepartamentoPage() {
                                                 <div className="flex items-center gap-1.5">
                                                     <span className="bg-zinc-100 px-2 py-0.5 rounded font-bold text-zinc-700">{p.clinica_origen?.nombre}</span>
                                                     <span>&rarr;</span>
-                                                    <span className="bg-zinc-100 px-2 py-0.5 rounded font-bold text-zinc-750 text-zinc-700">{p.clinica_destino?.nombre}</span>
+                                                    <span className="bg-zinc-100 px-2 py-0.5 rounded font-bold text-zinc-700">{p.clinica_destino?.nombre}</span>
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4 text-xs text-zinc-600">
-                                                <div>Salida: <span className="font-bold">{p.fecha_salida}</span></div>
-                                                <div>Retorno: <span className="font-bold">{p.fecha_retorno || 'Abierto'}</span></div>
+                                            <td className="px-6 py-4 text-xs text-zinc-600 font-mono">
+                                                <div>Salida: {p.fecha_salida}</div>
+                                                <div>Retorno: {p.fecha_retorno || 'Abierto'}</div>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full text-xs font-semibold uppercase">

@@ -90,7 +90,7 @@ const navigationGroups = [
             { name: 'Inventario', href: '/medico/inventario', icon: Pill, roles: ['Administrativo', 'Médico'] },
             { name: 'Clínicas', href: '/medico/clinicas', icon: Hospital, roles: ['Administrativo', 'Médico'] },
             { name: 'Pases Médicos', href: '/medico/pases', icon: FileText, roles: ['Administrativo', 'Médico'] },
-            { name: 'Pases de Departamento', href: '/medico/pases-departamento', icon: ClipboardList, roles: ['Administrativo', 'Médico', 'Jefe de Departamento', 'Superintendente'] },
+            { name: 'Portal Clínico / Pases', href: '/consulta-medica', icon: ClipboardList, roles: ['Administrativo', 'Médico', 'Jefe de Departamento', 'Superintendente'] },
         ]
     }
 ]
