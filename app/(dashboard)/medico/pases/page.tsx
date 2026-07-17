@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Hospital, Plus, Plane, Building, FileText, Printer, Stethoscope, Users, CheckSquare } from 'lucide-react'
+import { Hospital, Plus, Plane, Building, FileText, Printer, Stethoscope, Users, CheckSquare, FolderLock, Eye } from 'lucide-react'
 import { useAuth } from '@/components/AuthProvider'
 
 export default function PasesPage() {
@@ -10,6 +10,7 @@ export default function PasesPage() {
     const [pases, setPases] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [showForm, setShowForm] = useState(false)
+    const [filterMode, setFilterMode] = useState<'todos' | 'compartidos' | 'solo_medicos'>('todos')
     const [pacientes, setPacientes] = useState<any[]>([])
     const [clinicas, setClinicas] = useState<any[]>([])
     const [empleados, setEmpleados] = useState<any[]>([])
@@ -964,18 +965,55 @@ export default function PasesPage() {
             )}
 
             <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 overflow-hidden">
-                <div className="p-4 border-b border-zinc-100 bg-zinc-50">
-                    <h3 className="font-semibold text-zinc-800">Directorio de Pases Registrados</h3>
+                <div className="p-4 border-b border-zinc-100 bg-zinc-50 flex flex-wrap justify-between items-center gap-4">
+                    <h3 className="font-bold text-zinc-800 text-sm flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-amber-500" />
+                        Directorio de Pases Registrados
+                    </h3>
+                    
+                    <div className="flex flex-wrap items-center gap-1.5 bg-zinc-200/60 p-1 rounded-xl border border-zinc-200">
+                        <span className="text-[9px] font-black text-zinc-500 uppercase px-2 flex items-center gap-1">
+                            <Eye className="w-3 h-3 text-emerald-600" /> Vista:
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setFilterMode('todos')}
+                            className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all ${
+                                filterMode === 'todos' ? 'bg-zinc-900 text-white shadow-xs' : 'text-zinc-600 hover:text-black'
+                            }`}
+                        >
+                            <span>📋 Todos</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setFilterMode('compartidos')}
+                            className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 ${
+                                filterMode === 'compartidos' ? 'bg-white text-emerald-800 shadow-xs border border-emerald-200' : 'text-zinc-600 hover:text-black'
+                            }`}
+                        >
+                            <span>🏢 Compartidos con Depto</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setFilterMode('solo_medicos')}
+                            className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 ${
+                                filterMode === 'solo_medicos' ? 'bg-purple-600 text-white shadow-xs shadow-purple-500/20' : 'text-zinc-600 hover:text-black'
+                            }`}
+                        >
+                            <FolderLock className="w-3 h-3" />
+                            <span>🛡️ Privados (Sólo Médicos)</span>
+                        </button>
+                    </div>
                 </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
-                        <thead className="bg-zinc-55 bg-zinc-50 text-zinc-500 font-medium border-b border-zinc-100 text-xs">
+                        <thead className="bg-zinc-50 text-zinc-500 font-medium border-b border-zinc-100 text-xs">
                             <tr>
                                 <th className="px-6 py-4">Folio</th>
                                 <th className="px-6 py-4">Paciente</th>
                                 <th className="px-6 py-4">Ruta Clínica</th>
                                 <th className="px-6 py-4">Fechas</th>
-                                <th className="px-6 py-4">Compartido</th>
+                                <th className="px-6 py-4">Privacidad</th>
                                 <th className="px-6 py-4">Estatus</th>
                                 <th className="px-6 py-4 text-right">Acciones</th>
                             </tr>
@@ -983,10 +1021,16 @@ export default function PasesPage() {
                         <tbody className="divide-y divide-zinc-100">
                             {loading ? (
                                 <tr><td colSpan={7} className="px-6 py-8 text-center text-zinc-500">Cargando pases médicos...</td></tr>
-                            ) : pases.length === 0 ? (
-                                <tr><td colSpan={7} className="px-6 py-8 text-center text-zinc-500">No hay pases generados</td></tr>
-                            ) : (
-                                pases.map(pase => (
+                            ) : (() => {
+                                const filteredPases = pases.filter(p => {
+                                    if (filterMode === 'compartidos') return p.compartido_departamentos === true
+                                    if (filterMode === 'solo_medicos') return !p.compartido_departamentos
+                                    return true
+                                })
+                                if (filteredPases.length === 0) {
+                                    return <tr><td colSpan={7} className="px-6 py-8 text-center text-zinc-500">No hay pases generados en esta vista</td></tr>
+                                }
+                                return filteredPases.map(pase => (
                                     <tr key={pase.id_pase} className="hover:bg-zinc-50/50 transition-colors">
                                         <td className="px-6 py-4 font-mono font-bold text-amber-600">
                                             {pase.folio || '-'}
@@ -1006,9 +1050,9 @@ export default function PasesPage() {
                                         </td>
                                         <td className="px-6 py-4">
                                             {pase.compartido_departamentos ? (
-                                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[9px] font-black uppercase">Compartido</span>
+                                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[9px] font-black uppercase">✓ Compartido Depto</span>
                                             ) : (
-                                                <span className="text-zinc-400 text-xs">Privado</span>
+                                                <span className="px-2 py-0.5 bg-purple-100 text-purple-800 border border-purple-200 rounded text-[9px] font-black uppercase flex items-center gap-1 w-fit"><FolderLock className="w-2.5 h-2.5" /> Confidencial (Sólo Médicos)</span>
                                             )}
                                         </td>
                                         <td className="px-6 py-4">
@@ -1027,7 +1071,7 @@ export default function PasesPage() {
                                         </td>
                                     </tr>
                                 ))
-                            )}
+                            })()}
                         </tbody>
                     </table>
                 </div>

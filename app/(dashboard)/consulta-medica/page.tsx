@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { useAuth } from '@/components/AuthProvider'
-import { Hospital, Building2, Search, Heart, ShieldAlert, Users, ClipboardList } from 'lucide-react'
+import { Hospital, Building2, Search, Heart, ShieldAlert, Users, ClipboardList, FolderLock, Eye } from 'lucide-react'
 
 export default function ConsultaMedicaPortal() {
     const { profile } = useAuth()
@@ -11,6 +11,7 @@ export default function ConsultaMedicaPortal() {
     const [selectedDept, setSelectedDept] = useState('')
     const [pases, setPases] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
+    const [viewMode, setViewMode] = useState<'compartido' | 'solo_medicos' | 'todos'>('compartido')
 
     // Doctor, HR or Admin have full access to view any department
     const isDoctorOrAdmin = profile?.rol === 'Médico' || 
@@ -28,7 +29,7 @@ export default function ConsultaMedicaPortal() {
         if (profile) {
             fetchPases()
         }
-    }, [selectedDept, profile])
+    }, [selectedDept, profile, viewMode])
 
     const fetchDepartamentos = async () => {
         const { data } = await supabase
@@ -64,11 +65,27 @@ export default function ConsultaMedicaPortal() {
                     clinica_origen:cat_clinicas!pases_medicos_id_clinica_origen_fkey (nombre),
                     clinica_destino:cat_clinicas!pases_medicos_id_clinica_destino_fkey (nombre)
                 `)
-                .eq('compartido_departamentos', true)
                 .order('creado_el', { ascending: false })
 
-            if (activeDeptId) {
-                query = query.eq('empleados.id_departamento', activeDeptId)
+            // Apply view mode and role-based filtering
+            if (!isDoctorOrAdmin) {
+                // Non-medical/HR roles (e.g. Jefe de Departamento) ONLY see shared records of their own department
+                query = query.eq('compartido_departamentos', true)
+                if (activeDeptId) {
+                    query = query.eq('empleados.id_departamento', activeDeptId)
+                }
+            } else {
+                // For Doctors, HR, and Admins: respect selected view mode
+                if (viewMode === 'compartido') {
+                    query = query.eq('compartido_departamentos', true)
+                } else if (viewMode === 'solo_medicos') {
+                    query = query.eq('compartido_departamentos', false)
+                }
+                // if viewMode === 'todos', no compartido_departamentos filter applied
+
+                if (activeDeptId) {
+                    query = query.eq('empleados.id_departamento', activeDeptId)
+                }
             }
 
             const { data, error } = await query
@@ -155,22 +172,65 @@ export default function ConsultaMedicaPortal() {
 
             {/* Filter bar */}
             {isDoctorOrAdmin ? (
-                <div className="bg-white border border-zinc-150 p-5 rounded-3xl flex flex-wrap gap-4 items-center shadow-sm relative overflow-hidden">
+                <div className="bg-white border border-zinc-150 p-5 rounded-3xl flex flex-wrap justify-between gap-4 items-center shadow-sm relative overflow-hidden">
                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500" />
-                    <div className="flex items-center gap-2">
-                        <Users className="w-4 h-4 text-emerald-600" />
-                        <span className="text-xs font-black text-zinc-700 uppercase tracking-wider">Departamento Autorizado:</span>
+                    
+                    <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex items-center gap-2">
+                            <Users className="w-4 h-4 text-emerald-600" />
+                            <span className="text-xs font-black text-zinc-700 uppercase tracking-wider">Departamento:</span>
+                        </div>
+                        <select
+                            value={selectedDept}
+                            onChange={e => setSelectedDept(e.target.value)}
+                            className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-black focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-zinc-700 min-w-[200px]"
+                        >
+                            <option value="">TODOS LOS DEPARTAMENTOS</option>
+                            {departamentos.map(d => (
+                                <option key={d.id_departamento} value={d.id_departamento}>{(d.departamento || '').toUpperCase()}</option>
+                            ))}
+                        </select>
                     </div>
-                    <select
-                        value={selectedDept}
-                        onChange={e => setSelectedDept(e.target.value)}
-                        className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-black focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-zinc-700 min-w-[220px]"
-                    >
-                        <option value="">TODOS LOS DEPARTAMENTOS</option>
-                        {departamentos.map(d => (
-                            <option key={d.id_departamento} value={d.id_departamento}>{(d.departamento || '').toUpperCase()}</option>
-                        ))}
-                    </select>
+
+                    <div className="flex flex-wrap items-center gap-1.5 bg-zinc-100 p-1.5 rounded-2xl border border-zinc-200/80">
+                        <span className="text-[9px] font-black text-zinc-500 uppercase px-2 flex items-center gap-1">
+                            <Eye className="w-3 h-3 text-emerald-600" /> Vista:
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('compartido')}
+                            className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${
+                                viewMode === 'compartido'
+                                    ? 'bg-white text-emerald-800 shadow-sm border border-emerald-200'
+                                    : 'text-zinc-600 hover:text-black hover:bg-zinc-200/50'
+                            }`}
+                        >
+                            <span>🏢 Compartidos con Depto</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('solo_medicos')}
+                            className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${
+                                viewMode === 'solo_medicos'
+                                    ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/20'
+                                    : 'text-zinc-600 hover:text-black hover:bg-zinc-200/50'
+                            }`}
+                        >
+                            <FolderLock className="w-3 h-3" />
+                            <span>🛡️ Privados (Sólo Médicos)</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('todos')}
+                            className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all ${
+                                viewMode === 'todos'
+                                    ? 'bg-zinc-900 text-white shadow-sm'
+                                    : 'text-zinc-600 hover:text-black hover:bg-zinc-200/50'
+                            }`}
+                        >
+                            <span>📋 Ver Todo el Expediente</span>
+                        </button>
+                    </div>
                 </div>
             ) : (
                 profile?.id_departamento && (
@@ -183,50 +243,42 @@ export default function ConsultaMedicaPortal() {
             )}
 
             {/* Table */}
-            <div className="bg-white rounded-3xl shadow-sm border border-zinc-150 overflow-hidden relative">
-                <div className="p-4 border-b border-zinc-150 bg-zinc-50/50 flex justify-between items-center">
-                    <h3 className="font-black text-zinc-700 flex items-center gap-2 text-xs uppercase tracking-widest">
-                        <ClipboardList className="w-4 h-4 text-emerald-600" />
-                        Registro Diario de Traslados Activos
-                    </h3>
-                </div>
+            <div className="bg-white border border-zinc-150 rounded-3xl overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left border-collapse">
-                        <thead className="bg-zinc-50/80 text-zinc-500 font-black border-b border-zinc-150 text-[10px] uppercase tracking-wider">
-                            <tr>
-                                <th className="px-6 py-4">Empleado / Trabajador</th>
-                                <th className="px-6 py-4">Paciente Relacionado</th>
-                                <th className="px-6 py-4">Clasificación / Rol</th>
-                                <th className="px-6 py-4">Trayecto Clínico</th>
-                                <th className="px-6 py-4">Fechas Incidencia</th>
-                                <th className="px-6 py-4">Estatus de Control</th>
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="border-b border-zinc-150 bg-zinc-50/50 text-[10px] font-black text-zinc-400 uppercase tracking-wider">
+                                <th className="px-6 py-4">Beneficiario / Paciente</th>
+                                <th className="px-6 py-4">Departamento / Área</th>
+                                <th className="px-6 py-4">Clasificación</th>
+                                <th className="px-6 py-4">Ruta Clínica</th>
+                                <th className="px-6 py-4">Vigencia</th>
+                                <th className="px-6 py-4">Estatus y Privacidad</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-zinc-100 text-zinc-700">
+                        <tbody className="divide-y divide-zinc-150 text-sm">
                             {pases.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-zinc-400 font-bold bg-zinc-50/10">
-                                        <div className="space-y-2">
-                                            <ShieldAlert className="w-8 h-8 text-zinc-300 mx-auto" />
-                                            <div className="text-xs uppercase tracking-wider">Sin incidencias compartidas</div>
-                                            <div className="text-[10px] text-zinc-400 font-normal">No hay reportes médicos activos en esta sección.</div>
-                                        </div>
+                                    <td colSpan={6} className="px-6 py-12 text-center text-zinc-400 font-medium">
+                                        Sin incidencias en esta vista ({viewMode === 'solo_medicos' ? 'No hay pases confidenciales / privados registrados' : 'No hay reportes médicos activos compartidos en esta sección'}).
                                     </td>
                                 </tr>
                             ) : (
-                                pases.map(p => {
-                                    const isTrabajador = !p.pacientes?.parentesco || 
-                                                         p.pacientes?.parentesco.toUpperCase().includes('ELLA MISMA') || 
-                                                         p.pacientes?.parentesco.toUpperCase().includes('EL MISMO') || 
-                                                         p.pacientes?.parentesco.toUpperCase().includes('TRABAJADOR')
+                                pases.map((p) => {
+                                    const isTrabajador = (p.pacientes?.parentesco || '').toUpperCase() === 'ELLA MISMA' || !p.pacientes?.parentesco
                                     return (
-                                        <tr key={p.id_pase} className="hover:bg-emerald-50/20 transition-all duration-150">
-                                            <td className="px-6 py-4.5 font-black text-zinc-800">
-                                                {p.empleados?.nombre} {p.empleados?.apellido_paterno}
-                                                <div className="text-[9px] text-zinc-400 uppercase font-mono font-bold mt-0.5">{p.empleados?.puesto}</div>
+                                        <tr key={p.id_pase} className="hover:bg-zinc-50/50 transition-colors">
+                                            <td className="px-6 py-4.5">
+                                                <div className="font-black text-zinc-800">{p.pacientes?.nombre_completo}</div>
+                                                <div className="text-[10px] text-zinc-400 font-mono mt-0.5 font-semibold">
+                                                    ID: {p.empleados?.id_empleado || 'EXTERNO'}
+                                                </div>
                                             </td>
-                                            <td className="px-6 py-4.5 font-bold text-zinc-650">
-                                                {p.pacientes?.nombre_completo}
+                                            <td className="px-6 py-4.5">
+                                                <div className="font-bold text-zinc-700">{p.empleados?.puesto || 'Población General'}</div>
+                                                <div className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider mt-0.5">
+                                                    {departamentos.find(d => d.id_departamento === p.empleados?.id_departamento)?.departamento || 'Sin Asignar'}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4.5">
                                                 {isTrabajador ? (
@@ -247,9 +299,22 @@ export default function ConsultaMedicaPortal() {
                                                 <div>Retorno: <span className="font-bold text-zinc-800">{p.fecha_retorno || 'Abierto'}</span></div>
                                             </td>
                                             <td className="px-6 py-4.5">
-                                                <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full text-xs font-black uppercase tracking-wider">
-                                                    {p.estatus}
-                                                </span>
+                                                <div className="flex flex-col items-start gap-1.5">
+                                                    <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full text-xs font-black uppercase tracking-wider">
+                                                        {p.estatus}
+                                                    </span>
+                                                    {isDoctorOrAdmin && (
+                                                        p.compartido_departamentos ? (
+                                                            <span className="text-[8px] font-black text-emerald-600 uppercase bg-emerald-100/60 px-2 py-0.5 rounded border border-emerald-200/60">
+                                                                ✓ Visible en Depto
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[8px] font-black text-purple-700 uppercase bg-purple-100/90 px-2 py-0.5 rounded border border-purple-300 flex items-center gap-1 shadow-xs">
+                                                                <FolderLock className="w-2.5 h-2.5" /> Confidencial (Sólo Médicos)
+                                                            </span>
+                                                        )
+                                                    )}
+                                                </div>
                                             </td>
                                         </tr>
                                     )
@@ -261,5 +326,4 @@ export default function ConsultaMedicaPortal() {
             </div>
         </div>
     )
-}
 
