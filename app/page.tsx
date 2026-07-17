@@ -194,6 +194,13 @@ export default function LoginPage() {
                         [ PORTAL DE AUTO-RESERVACIÓN DE VIAJES ]
                     </Link>
 
+                    <Link
+                        href="/consulta-medica"
+                        className="mt-2 w-full border border-zinc-800 hover:border-amber-500/50 hover:text-amber-400 text-zinc-500 text-[9px] font-black py-3 rounded-xl transition-all text-center uppercase tracking-widest block font-mono bg-zinc-950/20"
+                    >
+                        [ PORTAL CLÍNICO / CONSULTA DE PASES ]
+                    </Link>
+
                     {/* Bottom HUD Metadata */}
                     <div className="pt-6 mt-6 border-t border-zinc-800/80 flex justify-between items-center text-[8px] text-zinc-600 font-black tracking-widest font-mono">
                         <span>ESTADO: ONLINE</span>

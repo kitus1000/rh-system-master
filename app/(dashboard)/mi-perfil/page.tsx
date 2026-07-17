@@ -10,6 +10,8 @@ export default function MiPerfilPage() {
     const [apodo, setApodo] = useState('')
     const [avatarUrl, setAvatarUrl] = useState('')
     const [password, setPassword] = useState('')
+    const [clinicas, setClinicas] = useState<any[]>([])
+    const [idClinica, setIdClinica] = useState('')
     
     const [loading, setLoading] = useState(false)
     const [saving, setSaving] = useState(false)
@@ -20,8 +22,15 @@ export default function MiPerfilPage() {
         if (profile) {
             setApodo((profile as any).apodo || '')
             setAvatarUrl((profile as any).avatar_url || '')
+            setIdClinica((profile as any).id_clinica || '')
         }
+        fetchClinicas()
     }, [profile])
+
+    const fetchClinicas = async () => {
+        const { data } = await supabase.from('cat_clinicas').select('*').order('nombre')
+        if (data) setClinicas(data)
+    }
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || e.target.files.length === 0) return
@@ -62,10 +71,13 @@ export default function MiPerfilPage() {
         setSaving(true)
         setMsg({ type: '', text: '' })
         try {
-            // Guardar Apodo
+            // Guardar Apodo y Clínica
             const { error: profileError } = await supabase
                 .from('perfiles')
-                .update({ apodo })
+                .update({ 
+                    apodo,
+                    id_clinica: idClinica || null
+                })
                 .eq('id', profile?.id)
             
             if (profileError) throw profileError
@@ -153,6 +165,23 @@ export default function MiPerfilPage() {
                             />
                             <p className="text-xs text-zinc-500 mt-2">Así te verán los demás en el muro de actividades y mensajes directos.</p>
                         </div>
+
+                        {(profile.rol === 'Médico' || profile.rol === 'Administrativo') && (
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-900 uppercase mb-2">Clínica Activa de Consulta</label>
+                                <select 
+                                    value={idClinica}
+                                    onChange={e => setIdClinica(e.target.value)}
+                                    className="w-full border border-zinc-300 rounded-xl p-3 text-sm focus:ring-black focus:border-black transition-colors bg-white font-semibold"
+                                >
+                                    <option value="">Seleccione su clínica activa...</option>
+                                    {clinicas.map(c => (
+                                        <option key={c.id_clinica} value={c.id_clinica}>{c.nombre} ({c.tipo})</option>
+                                    ))}
+                                </select>
+                                <p className="text-xs text-zinc-500 mt-2">Esta será tu clínica de consulta activa y origen por defecto al generar recetas y pases.</p>
+                            </div>
+                        )}
 
                         <div className="pt-4 border-t border-zinc-100">
                             <label className="block text-xs font-bold text-zinc-900 uppercase mb-2 flex items-center">

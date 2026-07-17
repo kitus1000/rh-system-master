@@ -6,36 +6,82 @@ import { Heart, Plus, Search, Users } from 'lucide-react'
 
 export default function PacientesPage() {
     const [pacientes, setPacientes] = useState<any[]>([])
+    const [empleados, setEmpleados] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [showForm, setShowForm] = useState(false)
     const [formData, setFormData] = useState({ 
         nombre_completo: '', 
         es_poblacion_general: false, 
-        parentesco: 'Esposo(a)'
+        parentesco: 'Ella misma',
+        id_empleado: ''
     })
 
     useEffect(() => {
         fetchPacientes()
+        fetchEmpleados()
     }, [])
 
     const fetchPacientes = async () => {
-        const { data, error } = await supabase.from('pacientes').select('*').order('nombre_completo')
+        const { data } = await supabase.from('pacientes').select('*').order('nombre_completo')
         if (data) setPacientes(data)
         setLoading(false)
+    }
+
+    const fetchEmpleados = async () => {
+        const { data } = await supabase
+            .from('empleados')
+            .select('id_empleado, nombre, apellido_paterno')
+            .order('nombre')
+        if (data) setEmpleados(data)
+    }
+
+    const handleEmpleadoChange = (empId: string) => {
+        const emp = empleados.find(e => e.id_empleado === empId)
+        if (emp && formData.parentesco === 'Ella misma') {
+            setFormData({
+                ...formData,
+                id_empleado: empId,
+                nombre_completo: `${emp.nombre} ${emp.apellido_paterno}`.toUpperCase()
+            })
+        } else {
+            setFormData({
+                ...formData,
+                id_empleado: empId
+            })
+        }
+    }
+
+    const handleParentescoChange = (parentescoVal: string) => {
+        if (parentescoVal === 'Ella misma' && formData.id_empleado) {
+            const emp = empleados.find(e => e.id_empleado === formData.id_empleado)
+            if (emp) {
+                setFormData({
+                    ...formData,
+                    parentesco: parentescoVal,
+                    nombre_completo: `${emp.nombre} ${emp.apellido_paterno}`.toUpperCase()
+                })
+                return
+            }
+        }
+        setFormData({
+            ...formData,
+            parentesco: parentescoVal
+        })
     }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         const { error } = await supabase.from('pacientes').insert([
             {
-                nombre_completo: formData.nombre_completo,
+                nombre_completo: formData.nombre_completo.toUpperCase(),
                 es_poblacion_general: formData.es_poblacion_general,
-                parentesco: formData.es_poblacion_general ? null : formData.parentesco
+                parentesco: formData.es_poblacion_general ? null : formData.parentesco,
+                id_empleado: formData.es_poblacion_general ? null : (formData.id_empleado || null)
             }
         ])
         if (!error) {
             setShowForm(false)
-            setFormData({ nombre_completo: '', es_poblacion_general: false, parentesco: 'Esposo(a)' })
+            setFormData({ nombre_completo: '', es_poblacion_general: false, parentesco: 'Ella misma', id_empleado: '' })
             fetchPacientes()
         }
     }
@@ -84,19 +130,39 @@ export default function PacientesPage() {
                             </label>
                         </div>
                         {!formData.es_poblacion_general && (
-                            <div>
-                                <label className="block text-sm font-medium text-zinc-700 mb-1">Parentesco con Trabajador</label>
-                                <select 
-                                    className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2"
-                                    value={formData.parentesco}
-                                    onChange={e => setFormData({...formData, parentesco: e.target.value})}
-                                >
-                                    <option value="Esposo(a)">Esposo(a)</option>
-                                    <option value="Hijo(a)">Hijo(a)</option>
-                                    <option value="Padre/Madre">Padre/Madre</option>
-                                    <option value="Otro">Otro</option>
-                                </select>
-                            </div>
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium text-zinc-700 mb-1">Trabajador Relacionado</label>
+                                    <select 
+                                        required
+                                        className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 font-bold text-xs"
+                                        value={formData.id_empleado}
+                                        onChange={e => handleEmpleadoChange(e.target.value)}
+                                    >
+                                        <option value="">Seleccione trabajador...</option>
+                                        {empleados.map(emp => (
+                                            <option key={emp.id_empleado} value={emp.id_empleado}>
+                                                {emp.nombre} {emp.apellido_paterno}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-zinc-700 mb-1">Parentesco con Trabajador</label>
+                                    <select 
+                                        className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 font-bold text-xs"
+                                        value={formData.parentesco}
+                                        onChange={e => handleParentescoChange(e.target.value)}
+                                    >
+                                        <option value="Ella misma">El mismo / Ella misma (Trabajador)</option>
+                                        <option value="Esposo(a)">Esposo(a)</option>
+                                        <option value="Hijo(a)">Hijo(a)</option>
+                                        <option value="Padre/Madre">Padre/Madre</option>
+                                        <option value="Acompañante">Acompañante Médico</option>
+                                        <option value="Otro">Otro</option>
+                                    </select>
+                                </div>
+                            </>
                         )}
                     </div>
                     <div className="flex justify-end pt-2">

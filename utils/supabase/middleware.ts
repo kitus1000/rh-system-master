@@ -40,6 +40,7 @@ export async function updateSession(request: NextRequest) {
         !user &&
         request.nextUrl.pathname !== '/' &&
         request.nextUrl.pathname !== '/reservar-viaje' &&
+        request.nextUrl.pathname !== '/consulta-medica' &&
         !request.nextUrl.pathname.startsWith('/auth')
     ) {
         // no user, redirect to login page (which is now root '/')
