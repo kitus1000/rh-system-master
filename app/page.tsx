@@ -22,6 +22,16 @@ export default function LoginPage() {
     const [password, setPassword] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [isMedicalPortal, setIsMedicalPortal] = useState(false)
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search)
+            if (params.get('next')?.includes('/consulta-medica')) {
+                setIsMedicalPortal(true)
+            }
+        }
+    }, [])
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -41,7 +51,7 @@ export default function LoginPage() {
             })
 
             const searchParams = new URLSearchParams(window.location.search)
-            const nextPath = searchParams.get('next') || '/inicio'
+            const nextPath = searchParams.get('next') || (isMedicalPortal ? '/consulta-medica' : '/inicio')
 
             if (authError) {
                 if (email === 'admin@example.com' && password === 'admin') {
@@ -50,6 +60,10 @@ export default function LoginPage() {
                 }
                 throw authError
             }
+
+            // Ensure browser cookie is written before navigating
+            await supabase.auth.getSession()
+            await new Promise(resolve => setTimeout(resolve, 600))
 
             window.location.href = nextPath
         } catch (err: any) {
@@ -134,6 +148,18 @@ export default function LoginPage() {
                     {/* Inner glowing edge indicator */}
                     <div className="absolute top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-amber-500/40 to-transparent" />
                     
+                    {isMedicalPortal && (
+                        <div className="mb-5 bg-emerald-950/40 border border-emerald-500/50 rounded-xl p-4 text-center space-y-1.5 animate-in fade-in zoom-in duration-300 shadow-lg shadow-emerald-950/50">
+                            <div className="flex items-center justify-center gap-2 text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                                <Activity className="w-3.5 h-3.5 animate-pulse text-emerald-500" />
+                                <span>PORTAL CLÍNICO SELECCIONADO</span>
+                            </div>
+                            <p className="text-[9px] text-emerald-200/90 font-mono leading-relaxed">
+                                Ingresa con tu cuenta de Médico, Recursos Humanos o Jefe de Departamento para consultar expedientes y pases autorizados.
+                            </p>
+                        </div>
+                    )}
+
                     <form onSubmit={handleLogin} className="space-y-5">
                         <div className="space-y-1.5">
                             <div className="flex justify-between items-center ml-1">
@@ -180,12 +206,16 @@ export default function LoginPage() {
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full relative overflow-hidden group bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-black py-4 rounded-xl transition-all duration-300 transform active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-amber-500/10 disabled:opacity-50"
+                            className={`w-full relative overflow-hidden group font-black py-4 rounded-xl transition-all duration-300 transform active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 ${
+                                isMedicalPortal 
+                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-emerald-500/20' 
+                                    : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black shadow-amber-500/10'
+                            }`}
                         >
                             {/* Sliding tech glare effect on hover */}
                             <div className="absolute inset-0 w-1/2 h-full bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-[200%] transition-transform duration-1000 ease-out" />
                             
-                            <span className="text-xs uppercase tracking-widest">{loading ? 'VERIFICANDO CREDENCIALES...' : 'ACCEDER AL EXPEDIENTE'}</span>
+                            <span className="text-xs uppercase tracking-widest">{loading ? 'VERIFICANDO CREDENCIALES...' : (isMedicalPortal ? 'INGRESAR A PORTAL CLÍNICO' : 'ACCEDER AL EXPEDIENTE')}</span>
                             {!loading && <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />}
                         </button>
                     </form>
@@ -199,7 +229,16 @@ export default function LoginPage() {
 
                     <Link
                         href="/consulta-medica"
-                        className="mt-2 w-full border border-zinc-800 hover:border-amber-500/50 hover:text-amber-400 text-zinc-500 text-[9px] font-black py-3 rounded-xl transition-all text-center uppercase tracking-widest block font-mono bg-zinc-950/20"
+                        onClick={(e) => {
+                            e.preventDefault()
+                            setIsMedicalPortal(true)
+                            window.history.pushState({}, '', '/?next=/consulta-medica')
+                        }}
+                        className={`mt-2 w-full border text-[9px] font-black py-3 rounded-xl transition-all text-center uppercase tracking-widest block font-mono ${
+                            isMedicalPortal
+                                ? 'border-emerald-500/60 bg-emerald-950/30 text-emerald-400 shadow-sm shadow-emerald-500/10'
+                                : 'border-zinc-800 hover:border-emerald-500/50 hover:text-emerald-400 text-zinc-500 bg-zinc-950/20'
+                        }`}
                     >
                         [ PORTAL CLÍNICO / CONSULTA DE PASES ]
                     </Link>
