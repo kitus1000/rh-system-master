@@ -45,13 +45,13 @@ export default function LoginPage() {
 
             if (authError) {
                 if (email === 'admin@example.com' && password === 'admin') {
-                    router.push(nextPath)
+                    window.location.href = nextPath
                     return
                 }
                 throw authError
             }
 
-            router.push(nextPath)
+            window.location.href = nextPath
         } catch (err: any) {
             setError(err.message || 'Credenciales inválidas')
         } finally {
