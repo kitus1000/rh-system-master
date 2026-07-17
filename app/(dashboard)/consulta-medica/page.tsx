@@ -15,6 +15,7 @@ export default function ConsultaMedicaPortal() {
     // Doctor, HR or Admin have full access to view any department
     const isDoctorOrAdmin = profile?.rol === 'Médico' || 
                             profile?.rol === 'Administrativo' || 
+                            profile?.rol === 'Recursos Humanos' ||
                             (profile?.nombre_completo || '').toUpperCase().includes('RECURSOS')
 
     useEffect(() => {
@@ -167,7 +168,7 @@ export default function ConsultaMedicaPortal() {
                     >
                         <option value="">TODOS LOS DEPARTAMENTOS</option>
                         {departamentos.map(d => (
-                            <option key={d.id_departamento} value={d.id_departamento}>{d.departamento.toUpperCase()}</option>
+                            <option key={d.id_departamento} value={d.id_departamento}>{(d.departamento || '').toUpperCase()}</option>
                         ))}
                     </select>
                 </div>
