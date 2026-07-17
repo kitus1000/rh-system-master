@@ -85,12 +85,12 @@ const navigationGroups = [
     {
         title: "Módulo Médico",
         items: [
-            { name: 'Consultas Médicas', href: '/medico/consultas', icon: Stethoscope, roles: ['Administrativo', 'Médico'] },
-            { name: 'Pacientes', href: '/medico/pacientes', icon: Heart, roles: ['Administrativo', 'Médico'] },
-            { name: 'Inventario', href: '/medico/inventario', icon: Pill, roles: ['Administrativo', 'Médico'] },
-            { name: 'Clínicas', href: '/medico/clinicas', icon: Hospital, roles: ['Administrativo', 'Médico'] },
-            { name: 'Pases Médicos', href: '/medico/pases', icon: FileText, roles: ['Administrativo', 'Médico'] },
-            { name: 'Portal Clínico / Pases', href: '/consulta-medica', icon: ClipboardList, roles: ['Administrativo', 'Médico', 'Jefe de Departamento', 'Superintendente'] },
+            { name: 'Consultas Médicas', href: '/medico/consultas', icon: Stethoscope, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
+            { name: 'Pacientes', href: '/medico/pacientes', icon: Heart, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
+            { name: 'Inventario', href: '/medico/inventario', icon: Pill, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
+            { name: 'Clínicas', href: '/medico/clinicas', icon: Hospital, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
+            { name: 'Pases Médicos', href: '/medico/pases', icon: FileText, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
+            { name: 'Portal Clínico / Pases', href: '/consulta-medica', icon: ClipboardList, roles: ['Administrativo', 'Médico', 'Jefe de Departamento', 'Superintendente', 'Recursos Humanos'] },
         ]
     }
 ]
