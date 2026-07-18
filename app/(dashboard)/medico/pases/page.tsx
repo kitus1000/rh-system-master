@@ -2,18 +2,48 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Hospital, Plus, Plane, Building, FileText, Printer, Stethoscope, Users, CheckSquare, FolderLock, Eye } from 'lucide-react'
+import { Hospital, Plus, Plane, Building, FileText, Printer, Stethoscope, Users, CheckSquare, FolderLock, Lock, Unlock, Eye, Search } from 'lucide-react'
 import { useAuth } from '@/components/AuthProvider'
+
 
 export default function PasesPage() {
     const { profile } = useAuth()
     const [pases, setPases] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [showForm, setShowForm] = useState(false)
+    const [editFolioManual, setEditFolioManual] = useState(false)
+
+    const generateNextFolio = (existingPases: any[]) => {
+        const currentYear = new Date().getFullYear()
+        let maxNumber = 0
+        
+        if (existingPases && Array.isArray(existingPases)) {
+            existingPases.forEach(p => {
+                if (p.folio) {
+                    const match = String(p.folio).match(/(\d+)$/)
+                    if (match) {
+                        const num = parseInt(match[1], 10)
+                        if (!isNaN(num) && num > maxNumber) {
+                            maxNumber = num
+                        }
+                    }
+                }
+            })
+        }
+        
+        return `PM-${currentYear}-${String(maxNumber + 1).padStart(4, '0')}`
+    }
     const [filterMode, setFilterMode] = useState<'todos' | 'compartidos' | 'solo_medicos'>('todos')
     const [pacientes, setPacientes] = useState<any[]>([])
     const [clinicas, setClinicas] = useState<any[]>([])
     const [empleados, setEmpleados] = useState<any[]>([])
+    const [searchQuery, setSearchQuery] = useState('')
+    const [filterPatientName, setFilterPatientName] = useState('')
+
+    const filteredPacientesForDropdown = pacientes.filter(p => 
+        (p.nombre_completo || '').toLowerCase().includes(filterPatientName.toLowerCase())
+    )
+
 
     const [formData, setFormData] = useState({
         id_paciente: '',
@@ -98,11 +128,16 @@ export default function PasesPage() {
         const { data, error } = await supabase.from('pases_medicos').select(`
             *,
             pacientes (nombre_completo, parentesco, es_poblacion_general, id_empleado),
-            clinica_origen:cat_clinicas!pases_medicos_id_clinica_origen_fkey (nombre),
-            clinica_destino:cat_clinicas!pases_medicos_id_clinica_destino_fkey (nombre)
+            clinica_origen:cat_clinicas!pases_medicos_id_clinica_origen_fkey (nombre, ubicacion),
+            clinica_destino:cat_clinicas!pases_medicos_id_clinica_destino_fkey (nombre, ubicacion)
         `).order('creado_el', { ascending: false })
         
-        if (data) setPases(data)
+        if (data) {
+            setPases(data)
+            if (showForm && !formData.folio) {
+                setFormData(prev => ({ ...prev, folio: generateNextFolio(data) }))
+            }
+        }
         setLoading(false)
     }
 
@@ -161,11 +196,14 @@ export default function PasesPage() {
         
         if (!error) {
             setShowForm(false)
+            setEditFolioManual(false)
+            const updatedPases = [{ folio: formData.folio }, ...pases]
+            const nextAutoFolio = generateNextFolio(updatedPases)
             setFormData(prev => ({
                 id_paciente: '', id_clinica_origen: prev.id_clinica_origen, id_clinica_destino: '',
                 motivo: '', requiere_hotel: false, hotel_nombre: '',
                 fecha_salida: '', fecha_retorno: '',
-                folio: '', urgencia: 'NO', parentesco: '', nombre_trabajador: '', edad: '',
+                folio: nextAutoFolio, urgencia: 'NO', parentesco: '', nombre_trabajador: '', edad: '',
                 unidad_refiere: 'UNIDAD MEDICA BACIS', unidad_se_refiere: 'CONSULTORIO MEDICO INDUSTRIAL',
                 servicio_se_envia: '', medico_acepta: '', acompanante: 'NO REQUIERE',
                 sv_ta: '', sv_temp: '', sv_fr: '', sv_fc: '', sv_peso: '', sv_talla: '',
@@ -198,6 +236,18 @@ export default function PasesPage() {
         const formattedFechaConsulta = pase.fecha_consulta ? new Date(pase.fecha_consulta + 'T12:00:00').toLocaleDateString('es-ES', {
             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
         }) : ''
+
+        const origenNombre = pase.clinica_origen?.nombre || ''
+        const origenUbicacion = pase.clinica_origen?.ubicacion ? ` (${pase.clinica_origen.ubicacion})` : ''
+        const unidadRefiereTexto = (pase.unidad_refiere && pase.unidad_refiere !== 'UNIDAD MEDICA BACIS')
+            ? pase.unidad_refiere.toUpperCase()
+            : (origenNombre ? `${origenNombre}${origenUbicacion}` : (pase.unidad_refiere || 'UNIDAD MÉDICA BACIS / MINA')).toUpperCase()
+
+        const destinoNombre = pase.clinica_destino?.nombre || ''
+        const destinoUbicacion = pase.clinica_destino?.ubicacion ? ` - ${pase.clinica_destino.ubicacion}` : ''
+        const unidadSeRefiereTexto = (pase.unidad_se_refiere && pase.unidad_se_refiere !== 'CONSULTORIO MEDICO INDUSTRIAL')
+            ? pase.unidad_se_refiere.toUpperCase()
+            : (destinoNombre ? `${destinoNombre}${destinoUbicacion}` : (pase.unidad_se_refiere || 'CONSULTORIO MÉDICO INDUSTRIAL / DURANGO')).toUpperCase()
 
         printWindow.document.write(`
             <html>
@@ -427,11 +477,11 @@ export default function PasesPage() {
                                     <td class="field-label">Edad</td>
                                     <td class="field-value">${pase.edad || ''}</td>
                                     <td class="field-label">Unidad a la que se refiere</td>
-                                    <td class="field-value">${(pase.unidad_se_refiere || '').toUpperCase()}</td>
+                                    <td class="field-value">${unidadSeRefiereTexto}</td>
                                 </tr>
                                 <tr>
                                     <td class="field-label">Unidad que refiere</td>
-                                    <td class="field-value">${(pase.unidad_refiere || '').toUpperCase()}</td>
+                                    <td class="field-value">${unidadRefiereTexto}</td>
                                     <td class="field-label">Médico que acepta la referencia</td>
                                     <td class="field-value">${(pase.medico_acepta || '').toUpperCase()}</td>
                                 </tr>
@@ -634,6 +684,255 @@ export default function PasesPage() {
         printWindow.document.close()
     }
 
+    const handlePrintHotelPase = (pase: any) => {
+        const printWindow = window.open('', '_blank', 'width=850,height=1100')
+        if (!printWindow) return
+
+        const pacienteNombre = (pase.pacientes?.nombre_completo || pase.nombre_trabajador || '').toUpperCase()
+        const acompananteNombre = (pase.acompanante && pase.acompanante !== 'NO REQUIERE' && pase.acompanante !== 'SI' && pase.acompanante !== 'NO') 
+            ? pase.acompanante.toUpperCase() 
+            : (pase.acompanante === 'SI' ? 'REQUIERE ACOMPAÑANTE (VERIFICAR EN CLÍNICA)' : 'SIN ACOMPAÑANTE / NO REQUIERE')
+
+        // Formato corto p. ej. 16/07/2026
+        const fechaSalidaCorta = pase.fecha_salida ? new Date(pase.fecha_salida + 'T12:00:00').toLocaleDateString('es-ES', {
+            day: '2-digit', month: '2-digit', year: 'numeric'
+        }) : new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+        // Formato largo p. ej. jueves, 16 de julio de 2026
+        const fechaSalidaLarga = pase.fecha_salida ? new Date(pase.fecha_salida + 'T12:00:00').toLocaleDateString('es-ES', {
+            weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+        }) : new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+
+        const hotelNombre = (pase.hotel_nombre || 'HOTEL DEL CENTRO').toUpperCase()
+
+        printWindow.document.write(`
+            <html>
+                <head>
+                    <title>Pase de Hotel - ${pacienteNombre}</title>
+                    <style>
+                        @page {
+                            size: letter portrait;
+                            margin: 0;
+                        }
+                        body {
+                            font-family: Arial, sans-serif;
+                            margin: 0;
+                            padding: 0;
+                            color: #000;
+                            background: #fff;
+                            box-sizing: border-box;
+                        }
+                        .page-container {
+                            width: 215.9mm;
+                            height: 279.4mm;
+                            display: flex;
+                            flex-direction: column;
+                            justify-content: space-between;
+                            box-sizing: border-box;
+                            padding: 10mm 15mm;
+                            position: relative;
+                        }
+                        .half-ticket {
+                            height: 126mm;
+                            display: flex;
+                            flex-direction: column;
+                            justify-content: space-between;
+                            box-sizing: border-box;
+                            padding: 6mm 6mm;
+                        }
+                        .header-text {
+                            text-align: center;
+                            font-weight: bold;
+                            font-size: 15px;
+                            line-height: 1.4;
+                            margin-bottom: 20px;
+                            letter-spacing: 0.5px;
+                        }
+                        .sub-title {
+                            text-align: center;
+                            font-weight: bold;
+                            font-size: 14px;
+                            margin: 15px 0 25px 0;
+                            text-decoration: underline;
+                        }
+                        .table-favor {
+                            width: 100%;
+                            border-collapse: collapse;
+                            margin-bottom: 25px;
+                        }
+                        .table-favor th {
+                            text-align: left;
+                            font-size: 13px;
+                            font-weight: bold;
+                            padding: 6px 10px;
+                            width: 180px;
+                        }
+                        .table-favor td {
+                            text-align: left;
+                            font-size: 13px;
+                            padding: 6px 10px;
+                            border-bottom: 1px solid #000;
+                            font-weight: normal;
+                        }
+                        .row-salida {
+                            display: flex;
+                            align-items: center;
+                            margin-top: 15px;
+                            margin-bottom: 35px;
+                            font-size: 13px;
+                            font-weight: bold;
+                        }
+                        .row-salida .salida-val {
+                            flex-grow: 1;
+                            max-width: 320px;
+                            border-bottom: 1px solid #000;
+                            text-align: center;
+                            margin-left: 15px;
+                            font-weight: normal;
+                        }
+                        .signatures {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: flex-end;
+                            margin-top: auto;
+                            padding-top: 25px;
+                        }
+                        .sig-box {
+                            width: 220px;
+                            text-align: center;
+                            font-size: 12px;
+                            font-weight: bold;
+                        }
+                        .sig-line {
+                            border-bottom: 1px solid #000;
+                            height: 30px;
+                            margin-bottom: 6px;
+                        }
+                        .cut-line {
+                            border-top: 2px dashed #333;
+                            margin: 0;
+                            position: relative;
+                            width: 100%;
+                            text-align: center;
+                        }
+                        .cut-icon {
+                            position: absolute;
+                            top: -10px;
+                            left: 50%;
+                            transform: translateX(-50%);
+                            background: #fff;
+                            padding: 0 15px;
+                            font-size: 11px;
+                            color: #555;
+                            font-weight: bold;
+                            letter-spacing: 1px;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="page-container">
+                        <!-- PARTE SUPERIOR (ORIGINAL) -->
+                        <div class="half-ticket">
+                            <div>
+                                <div class="header-text">
+                                    GRUPO MINERO BACIS S.A. DE C.V.<br>
+                                    UNIDAD "EL HERRERO"
+                                </div>
+                                <div class="sub-title">
+                                    HOSPEDAJE EN ${hotelNombre}
+                                </div>
+
+                                <table class="table-favor">
+                                    <tr>
+                                        <th colspan="2">A FAVOR DE</th>
+                                    </tr>
+                                    <tr>
+                                        <th>PASE MEDICO</th>
+                                        <td>${pacienteNombre}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>ACOMPAÑANTE</th>
+                                        <td>${acompananteNombre}</td>
+                                    </tr>
+                                </table>
+
+                                <div class="row-salida">
+                                    <span>SALIDA DE LA UNIDAD</span>
+                                    <span class="salida-val">${fechaSalidaCorta}</span>
+                                </div>
+                            </div>
+
+                            <div class="signatures">
+                                <div class="sig-box">
+                                    <div class="sig-line"></div>
+                                    FIRMA TRABAJADOR
+                                </div>
+                                <div class="sig-box">
+                                    <div class="sig-line"></div>
+                                    FIRMA RH UNIDAD
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- LÍNEA DE CORTE -->
+                        <div class="cut-line">
+                            <span class="cut-icon">✂ -- CORTAR POR AQUÍ (COPIA Y ORIGINAL) -- ✂</span>
+                        </div>
+
+                        <!-- PARTE INFERIOR (COPIA) -->
+                        <div class="half-ticket">
+                            <div>
+                                <div class="header-text">
+                                    GRUPO MINERO BACIS S.A. DE C.V.<br>
+                                    UNIDAD "EL HERRERO"
+                                </div>
+                                <div class="sub-title">
+                                    HOSPEDAJE EN ${hotelNombre}
+                                </div>
+
+                                <table class="table-favor">
+                                    <tr>
+                                        <th colspan="2">A FAVOR DE</th>
+                                    </tr>
+                                    <tr>
+                                        <th>PASE MEDICO</th>
+                                        <td>${pacienteNombre}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>ACOMPAÑANTE</th>
+                                        <td>${acompananteNombre}</td>
+                                    </tr>
+                                </table>
+
+                                <div class="row-salida">
+                                    <span>SALIDA DE LA UNIDAD</span>
+                                    <span class="salida-val">${fechaSalidaLarga}</span>
+                                </div>
+                            </div>
+
+                            <div class="signatures">
+                                <div class="sig-box">
+                                    <div class="sig-line"></div>
+                                    FIRMA TRABAJADOR
+                                </div>
+                                <div class="sig-box">
+                                    <div class="sig-line"></div>
+                                    FIRMA RH UNIDAD
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <script>
+                        window.onload = function() {
+                            window.print();
+                        }
+                    </script>
+                </body>
+            </html>
+        `)
+        printWindow.document.close()
+    }
+
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-zinc-100">
@@ -645,7 +944,17 @@ export default function PasesPage() {
                     <p className="text-zinc-500 text-sm mt-1">Generación y exportación de pases de traslado y viáticos</p>
                 </div>
                 <button
-                    onClick={() => setShowForm(!showForm)}
+                    onClick={() => {
+                        const nextShow = !showForm
+                        setShowForm(nextShow)
+                        if (nextShow) {
+                            setEditFolioManual(false)
+                            setFormData(prev => ({
+                                ...prev,
+                                folio: prev.folio || generateNextFolio(pases)
+                            }))
+                        }
+                    }}
                     className="bg-zinc-900 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-zinc-800 transition-colors"
                 >
                     <Plus className="w-4 h-4" />
@@ -662,15 +971,22 @@ export default function PasesPage() {
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         {/* Paciente y Folio */}
-                        <div className="col-span-1 md:col-span-2">
-                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Paciente</label>
+                        <div className="col-span-1 md:col-span-2 space-y-1.5">
+                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-0.5">Paciente (Filtrar por nombre)</label>
+                            <input 
+                                type="text"
+                                placeholder="Escribe para buscar paciente en la lista..."
+                                className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2 text-xs font-bold shadow-xs focus:ring-1 focus:ring-amber-500"
+                                value={filterPatientName}
+                                onChange={e => setFilterPatientName(e.target.value)}
+                            />
                             <select 
                                 required className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold"
                                 value={formData.id_paciente}
                                 onChange={e => handlePacienteChange(e.target.value)}
                             >
-                                <option value="">Seleccione paciente...</option>
-                                {pacientes.map(p => (
+                                <option value="">Seleccione paciente ({filteredPacientesForDropdown.length} encontrados)...</option>
+                                {filteredPacientesForDropdown.map(p => (
                                     <option key={p.id_paciente} value={p.id_paciente}>
                                         {p.nombre_completo} {p.es_poblacion_general ? '(Público General)' : `(${p.parentesco || 'Trabajador'})`}
                                     </option>
@@ -678,15 +994,53 @@ export default function PasesPage() {
                             </select>
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Folio Pase (ej. A 04482)</label>
-                            <input 
-                                required type="text"
-                                className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold"
-                                value={formData.folio}
-                                onChange={e => setFormData({...formData, folio: e.target.value})}
-                                placeholder="A 04482"
-                            />
+
+                        <div className="bg-amber-50/60 p-3 rounded-2xl border border-amber-200/80 shadow-xs">
+                            <div className="flex items-center justify-between mb-1.5">
+                                <label className="block text-[11px] font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
+                                    <FolderLock className="w-3.5 h-3.5 text-amber-600" />
+                                    Folio Pase (Consecutivo)
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={() => setEditFolioManual(!editFolioManual)}
+                                    className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border transition-all flex items-center gap-1 ${
+                                        editFolioManual 
+                                            ? "bg-red-500 text-white border-red-600 shadow-xs hover:bg-red-600" 
+                                            : "bg-white text-zinc-700 border-zinc-200 hover:border-amber-400"
+                                    }`}
+                                >
+                                    {editFolioManual ? (
+                                        <>
+                                            <Lock className="w-3 h-3" /> Bloquear Folio
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Unlock className="w-3 h-3" /> Editar Manual
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                            <div className="relative">
+                                <input 
+                                    required
+                                    type="text"
+                                    disabled={!editFolioManual}
+                                    className={`w-full rounded-xl px-3.5 py-2 text-xs font-mono font-black transition-all ${
+                                        editFolioManual 
+                                            ? "bg-white border-2 border-red-400 text-red-700 shadow-inner focus:outline-none focus:ring-2 focus:ring-red-500" 
+                                            : "bg-zinc-100/90 border border-zinc-200 text-amber-900 cursor-not-allowed select-none"
+                                    }`}
+                                    value={formData.folio}
+                                    onChange={e => setFormData({...formData, folio: e.target.value.toUpperCase()})}
+                                    placeholder="PM-2026-0001"
+                                />
+                            </div>
+                            <p className="text-[10px] text-zinc-500 mt-1 font-medium leading-tight">
+                                {editFolioManual 
+                                    ? "⚠️ Modo manual: Puedes modificar o ingresar un número de folio personalizado." 
+                                    : "✓ Folio generado en automático para historial cronológico inalterable."}
+                            </p>
                         </div>
 
                         <div>
@@ -729,30 +1083,83 @@ export default function PasesPage() {
 
                         {/* Clínicas y Servicio */}
                         <div>
-                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">De: Clínica Origen</label>
+                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">De: Clínica Origen (En la Mina/Unidad)</label>
                             <select 
-                                required className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold"
+                                required className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-bold"
                                 value={formData.id_clinica_origen}
-                                onChange={e => setFormData({...formData, id_clinica_origen: e.target.value})}
+                                onChange={e => {
+                                    const val = e.target.value
+                                    const c = clinicas.find(x => x.id_clinica === val)
+                                    const nuevoTexto = c ? `${c.nombre}${c.ubicacion ? ` (${c.ubicacion})` : ''}`.toUpperCase() : formData.unidad_refiere
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        id_clinica_origen: val,
+                                        unidad_refiere: nuevoTexto
+                                    }))
+                                }}
                             >
-                                <option value="">Seleccione origen...</option>
-                                {clinicas.filter(c => c.tipo === 'Interna').map(c => (
-                                    <option key={c.id_clinica} value={c.id_clinica}>{c.nombre}</option>
-                                ))}
+                                <option value="">Seleccione clínica origen (ej. Sapiuris / Mina)...</option>
+                                <optgroup label="Clínicas Internas / Mina Bacis">
+                                    {clinicas.filter(c => (c.activo !== false || c.id_clinica === formData.id_clinica_origen) && (c.tipo === 'Interna' || (c.ubicacion && c.ubicacion.toUpperCase().includes('BACIS')))).map(c => (
+                                        <option key={c.id_clinica} value={c.id_clinica}>{c.nombre} {c.ubicacion ? `(${c.ubicacion})` : ''}</option>
+                                    ))}
+                                </optgroup>
+                                <optgroup label="Otras Clínicas Registradas">
+                                    {clinicas.filter(c => (c.activo !== false || c.id_clinica === formData.id_clinica_origen) && !(c.tipo === 'Interna' || (c.ubicacion && c.ubicacion.toUpperCase().includes('BACIS')))).map(c => (
+                                        <option key={c.id_clinica} value={c.id_clinica}>{c.nombre} {c.ubicacion ? `(${c.ubicacion})` : ''}</option>
+                                    ))}
+                                </optgroup>
                             </select>
+                            <div className="mt-1.5">
+                                <label className="block text-[10px] font-black text-amber-800 uppercase mb-0.5">Unidad que refiere (Impresión en Ficha):</label>
+                                <input 
+                                    type="text" required
+                                    className="w-full rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-1.5 text-[11px] font-bold text-amber-950 shadow-inner"
+                                    value={formData.unidad_refiere}
+                                    onChange={e => setFormData({...formData, unidad_refiere: e.target.value.toUpperCase()})}
+                                    placeholder="Ej. SAPIURIS - UNIDAD MINERA BACIS"
+                                />
+                            </div>
                         </div>
+
                         <div>
-                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">A: Clínica Destino</label>
+                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">A: Clínica Destino (Durango/Hospital)</label>
                             <select 
-                                required className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold"
+                                required className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-bold"
                                 value={formData.id_clinica_destino}
-                                onChange={e => setFormData({...formData, id_clinica_destino: e.target.value})}
+                                onChange={e => {
+                                    const val = e.target.value
+                                    const c = clinicas.find(x => x.id_clinica === val)
+                                    const nuevoTexto = c ? `${c.nombre}${c.ubicacion ? ` - ${c.ubicacion}` : ''}`.toUpperCase() : formData.unidad_se_refiere
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        id_clinica_destino: val,
+                                        unidad_se_refiere: nuevoTexto
+                                    }))
+                                }}
                             >
-                                <option value="">Seleccione destino...</option>
-                                {clinicas.filter(c => c.tipo === 'Externa').map(c => (
-                                    <option key={c.id_clinica} value={c.id_clinica}>{c.nombre}</option>
-                                ))}
+                                <option value="">Seleccione clínica destino (ej. Durango)...</option>
+                                <optgroup label="Clínicas Externas / Durango / Hospitales">
+                                    {clinicas.filter(c => (c.activo !== false || c.id_clinica === formData.id_clinica_destino) && (c.tipo === 'Externa' || (c.ubicacion && !c.ubicacion.toUpperCase().includes('BACIS')))).map(c => (
+                                        <option key={c.id_clinica} value={c.id_clinica}>{c.nombre} {c.ubicacion ? `(${c.ubicacion})` : ''}</option>
+                                    ))}
+                                </optgroup>
+                                <optgroup label="Otras Clínicas / Internas">
+                                    {clinicas.filter(c => (c.activo !== false || c.id_clinica === formData.id_clinica_destino) && !(c.tipo === 'Externa' || (c.ubicacion && !c.ubicacion.toUpperCase().includes('BACIS')))).map(c => (
+                                        <option key={c.id_clinica} value={c.id_clinica}>{c.nombre} {c.ubicacion ? `(${c.ubicacion})` : ''}</option>
+                                    ))}
+                                </optgroup>
                             </select>
+                            <div className="mt-1.5">
+                                <label className="block text-[10px] font-black text-amber-800 uppercase mb-0.5">Unidad a la que se refiere (Impresión en Ficha):</label>
+                                <input 
+                                    type="text" required
+                                    className="w-full rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-1.5 text-[11px] font-bold text-amber-950 shadow-inner"
+                                    value={formData.unidad_se_refiere}
+                                    onChange={e => setFormData({...formData, unidad_se_refiere: e.target.value.toUpperCase()})}
+                                    placeholder="Ej. CLINICA CARDOS - DURANGO"
+                                />
+                            </div>
                         </div>
                         <div className="col-span-1 md:col-span-2">
                             <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Servicio Especialidad al que se envía</label>
@@ -966,10 +1373,22 @@ export default function PasesPage() {
 
             <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 overflow-hidden">
                 <div className="p-4 border-b border-zinc-100 bg-zinc-50 flex flex-wrap justify-between items-center gap-4">
-                    <h3 className="font-bold text-zinc-800 text-sm flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-amber-500" />
-                        Directorio de Pases Registrados
-                    </h3>
+                    <div className="flex items-center gap-4 flex-1 min-w-[280px]">
+                        <h3 className="font-bold text-zinc-800 text-sm flex items-center gap-2 shrink-0">
+                            <FileText className="w-4 h-4 text-amber-500" />
+                            Directorio de Pases Registrados
+                        </h3>
+                        <div className="relative flex-1 max-w-xs">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                            <input 
+                                type="text"
+                                placeholder="Buscar por paciente o folio..."
+                                className="w-full pl-9 pr-4 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                            />
+                        </div>
+                    </div>
                     
                     <div className="flex flex-wrap items-center gap-1.5 bg-zinc-200/60 p-1 rounded-xl border border-zinc-200">
                         <span className="text-[9px] font-black text-zinc-500 uppercase px-2 flex items-center gap-1">
@@ -1023,14 +1442,19 @@ export default function PasesPage() {
                                 <tr><td colSpan={7} className="px-6 py-8 text-center text-zinc-500">Cargando pases médicos...</td></tr>
                             ) : (() => {
                                 const filteredPases = pases.filter(p => {
+                                    const matchSearch = (p.pacientes?.nombre_completo || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                                        (p.folio || '').toLowerCase().includes(searchQuery.toLowerCase());
+                                    if (!matchSearch) return false
+
                                     if (filterMode === 'compartidos') return p.compartido_departamentos === true
                                     if (filterMode === 'solo_medicos') return !p.compartido_departamentos
                                     return true
                                 })
                                 if (filteredPases.length === 0) {
-                                    return <tr><td colSpan={7} className="px-6 py-8 text-center text-zinc-500">No hay pases generados en esta vista</td></tr>
+                                    return <tr><td colSpan={7} className="px-6 py-8 text-center text-zinc-500">No se encontraron pases en esta vista</td></tr>
                                 }
                                 return filteredPases.map(pase => (
+
                                     <tr key={pase.id_pase} className="hover:bg-zinc-50/50 transition-colors">
                                         <td className="px-6 py-4 font-mono font-bold text-amber-600">
                                             {pase.folio || '-'}
@@ -1040,9 +1464,9 @@ export default function PasesPage() {
                                             <div className="text-[10px] text-zinc-400 uppercase">{pase.parentesco || 'ELLA MISMA'}</div>
                                         </td>
                                         <td className="px-6 py-4 text-xs">
-                                            <span className="font-semibold text-zinc-700 bg-zinc-100 px-2 py-0.5 rounded">{pase.clinica_origen?.nombre}</span>
+                                            <span className="font-semibold text-zinc-700 bg-zinc-100 px-2 py-0.5 rounded">{pase.clinica_origen?.nombre || pase.unidad_refiere || 'Origen'}</span>
                                             <span className="mx-1 text-zinc-400">&rarr;</span>
-                                            <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{pase.clinica_destino?.nombre}</span>
+                                            <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{pase.clinica_destino?.nombre || pase.unidad_se_refiere || 'Destino'}</span>
                                         </td>
                                         <td className="px-6 py-4 text-zinc-650 text-xs font-mono">
                                             <div>Salida: {pase.fecha_salida}</div>
@@ -1061,13 +1485,24 @@ export default function PasesPage() {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-right">
-                                            <button 
-                                                onClick={() => handlePrintPase(pase)}
-                                                className="bg-amber-500 hover:bg-amber-400 text-black font-black p-2 rounded-xl text-xs flex items-center gap-1.5 ml-auto transition-colors"
-                                            >
-                                                <Printer className="w-3.5 h-3.5" />
-                                                <span>Imprimir PDF</span>
-                                            </button>
+                                            <div className="flex items-center justify-end gap-2">
+                                                <button 
+                                                    onClick={() => handlePrintPase(pase)}
+                                                    className="bg-amber-500 hover:bg-amber-400 text-black font-black px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-xs"
+                                                    title="Imprimir Pase Médico"
+                                                >
+                                                    <Printer className="w-3.5 h-3.5" />
+                                                    <span>Pase Médico</span>
+                                                </button>
+                                                <button 
+                                                    onClick={() => handlePrintHotelPase(pase)}
+                                                    className="bg-purple-600 hover:bg-purple-500 text-white font-black px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-xs"
+                                                    title="Imprimir Pase de Hotel en 2 partes (Copia y Original)"
+                                                >
+                                                    <Building className="w-3.5 h-3.5" />
+                                                    <span>Pase Hotel</span>
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))

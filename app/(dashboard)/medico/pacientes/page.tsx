@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Heart, Plus, Search, Users } from 'lucide-react'
+import { Heart, Plus, Search, Users, Trash2 } from 'lucide-react'
 
 export default function PacientesPage() {
     const [pacientes, setPacientes] = useState<any[]>([])
     const [empleados, setEmpleados] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [showForm, setShowForm] = useState(false)
+    const [searchQuery, setSearchQuery] = useState('')
     const [formData, setFormData] = useState({ 
         nombre_completo: '', 
         es_poblacion_general: false, 
@@ -22,6 +23,7 @@ export default function PacientesPage() {
     }, [])
 
     const fetchPacientes = async () => {
+        setLoading(true)
         const { data } = await supabase.from('pacientes').select('*').order('nombre_completo')
         if (data) setPacientes(data)
         setLoading(false)
@@ -85,6 +87,20 @@ export default function PacientesPage() {
             fetchPacientes()
         }
     }
+
+    const deletePaciente = async (id: string, nombre: string) => {
+        if (!confirm(`¿Está seguro de eliminar al paciente "${nombre}"?`)) return
+        const { error } = await supabase.from('pacientes').delete().eq('id_paciente', id)
+        if (!error) {
+            fetchPacientes()
+        } else {
+            alert('No se pudo eliminar al paciente. Es posible que esté asociado a consultas o pases existentes.')
+        }
+    }
+
+    const filteredPacientes = pacientes.filter(p => 
+        (p.nombre_completo || '').toLowerCase().includes(searchQuery.toLowerCase())
+    )
 
     return (
         <div className="space-y-6">
@@ -179,8 +195,10 @@ export default function PacientesPage() {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                         <input 
                             type="text"
-                            placeholder="Buscar paciente..."
-                            className="w-full pl-10 pr-4 py-2 rounded-xl border-zinc-200 bg-white"
+                            placeholder="Buscar paciente por nombre..."
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border-zinc-200 bg-white text-sm"
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
                         />
                     </div>
                 </div>
@@ -191,16 +209,16 @@ export default function PacientesPage() {
                                 <th className="px-6 py-4">Nombre del Paciente</th>
                                 <th className="px-6 py-4">Tipo</th>
                                 <th className="px-6 py-4">Parentesco</th>
-                                <th className="px-6 py-4">Acciones</th>
+                                <th className="px-6 py-4 text-right">Acciones</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100">
                             {loading ? (
                                 <tr><td colSpan={4} className="px-6 py-8 text-center text-zinc-500">Cargando...</td></tr>
-                            ) : pacientes.length === 0 ? (
-                                <tr><td colSpan={4} className="px-6 py-8 text-center text-zinc-500">No hay pacientes registrados</td></tr>
+                            ) : filteredPacientes.length === 0 ? (
+                                <tr><td colSpan={4} className="px-6 py-8 text-center text-zinc-500">No se encontraron pacientes</td></tr>
                             ) : (
-                                pacientes.map(pac => (
+                                filteredPacientes.map(pac => (
                                     <tr key={pac.id_paciente} className="hover:bg-zinc-50/50 transition-colors">
                                         <td className="px-6 py-4 font-semibold text-zinc-800 flex items-center gap-2">
                                             <div className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500">
@@ -215,9 +233,15 @@ export default function PacientesPage() {
                                                 <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-full text-xs font-semibold">Beneficiario</span>
                                             )}
                                         </td>
-                                        <td className="px-6 py-4 text-zinc-600">{pac.parentesco || '-'}</td>
-                                        <td className="px-6 py-4">
-                                            <button className="text-zinc-400 hover:text-amber-500 font-medium">Ver Historial</button>
+                                        <td className="px-6 py-4 text-zinc-600">{pac.es_poblacion_general ? '-' : (pac.parentesco || 'Titular')}</td>
+                                        <td className="px-6 py-4 text-right">
+                                            <button 
+                                                onClick={() => deletePaciente(pac.id_paciente, pac.nombre_completo)}
+                                                className="text-zinc-400 hover:text-rose-600 font-medium text-xs flex items-center gap-1 ml-auto"
+                                                title="Eliminar Paciente"
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                                            </button>
                                         </td>
                                     </tr>
                                 ))
