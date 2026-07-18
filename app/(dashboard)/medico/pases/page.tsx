@@ -139,6 +139,19 @@ export default function PasesPage() {
     }, [])
 
     useEffect(() => {
+        if (medicos.length > 0 && !formData.medico_responsable_unidad) {
+            const defaultDoc = medicos.find(m => m.nombre_completo.toLowerCase().includes('adriana')) || medicos[0];
+            if (defaultDoc) {
+                setFormData(prev => ({
+                    ...prev,
+                    medico_responsable_unidad: defaultDoc.nombre_completo,
+                    cedula_responsable_unidad: defaultDoc.cedula_profesional || ''
+                }));
+            }
+        }
+    }, [medicos]);
+
+    useEffect(() => {
         if (profile) {
             setFormData(prev => ({
                 ...prev,
@@ -723,8 +736,8 @@ export default function PasesPage() {
                                 <tr>
                                     <td class="signature-cell" style="width: 50%;">
                                         ${sigRespHTML}
-                                        <div class="signature-line">Nombre y firma de quien autoriza</div>
-                                        <div class="signature-sub">Servicios Médicos El Herrero</div>
+                                        <div class="signature-line">${(pase.medico_responsable_unidad || 'MÉDICO RESPONSABLE').toUpperCase()}</div>
+                                        <div class="signature-sub">Nombre y firma de quien autoriza (Médico Responsable)<br/>CÉDULA: ${pase.cedula_responsable_unidad || ''}</div>
                                     </td>
                                     <td class="signature-cell" style="width: 50%;">
                                         ${sigRefiereHTML}
