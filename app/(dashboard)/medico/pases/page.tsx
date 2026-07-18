@@ -188,8 +188,24 @@ export default function PasesPage() {
         const pac = pacientes.find(p => p.id_paciente === formData.id_paciente)
         const employeeId = pac?.id_empleado || null
 
+        // Clean all empty string date fields to null
+        const sanitizedData = { ...formData }
+        const dateFields = [
+            'fecha_salida',
+            'fecha_retorno',
+            'fecha_salida_unidad',
+            'fecha_consulta',
+            'fecha_presento_consulta',
+            'fecha_cita'
+        ]
+        dateFields.forEach(field => {
+            if ((sanitizedData as any)[field] === '') {
+                (sanitizedData as any)[field] = null;
+            }
+        });
+
         const { error } = await supabase.from('pases_medicos').insert([{
-            ...formData,
+            ...sanitizedData,
             id_empleado: employeeId,
             hotel_nombre: formData.requiere_hotel ? formData.hotel_nombre : null
         }])
