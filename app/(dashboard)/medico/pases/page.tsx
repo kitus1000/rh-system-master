@@ -2,48 +2,80 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Hospital, Plus, Plane, Building, FileText, Printer, Stethoscope, Users, CheckSquare, FolderLock, Lock, Unlock, Eye, Search } from 'lucide-react'
 import { useAuth } from '@/components/AuthProvider'
+import { 
+    Hospital, Plus, Search, Users, Trash2, ShieldAlert,
+    Printer, Plane, Stethoscope, Building, Lock, Unlock, FolderLock
+} from 'lucide-react'
 
+// Helper function to normalize parentesco and extract worker name if input is like "hijo de ..."
+const parseRelationAndWorker = (parentescoStr: string, defaultWorkerName: string) => {
+    let cleanParentesco = 'TRABAJADOR';
+    let cleanWorker = defaultWorkerName || '';
+    
+    if (parentescoStr) {
+        const raw = parentescoStr.toUpperCase().trim();
+        if (raw.includes(' DE ')) {
+            const parts = raw.split(' DE ');
+            const rel = parts[0].trim();
+            const worker = parts.slice(1).join(' DE ').trim();
+            
+            if (rel.includes('HIJO')) cleanParentesco = 'HIJO';
+            else if (rel.includes('HIJA')) cleanParentesco = 'HIJA';
+            else if (rel.includes('ESPOSA')) cleanParentesco = 'ESPOSA';
+            else if (rel.includes('ESPOSO')) cleanParentesco = 'ESPOSO';
+            else if (rel.includes('MADRE') || rel.includes('MAMA')) cleanParentesco = 'MADRE';
+            else if (rel.includes('PADRE') || rel.includes('PAPA')) cleanParentesco = 'PADRE';
+            else cleanParentesco = rel;
+            
+            if (!cleanWorker) {
+                cleanWorker = worker;
+            }
+        } else {
+            if (raw.includes('HIJO')) cleanParentesco = 'HIJO';
+            else if (raw.includes('HIJA')) cleanParentesco = 'HIJA';
+            else if (raw.includes('ESPOSA')) cleanParentesco = 'ESPOSA';
+            else if (raw.includes('ESPOSO')) cleanParentesco = 'ESPOSO';
+            else if (raw.includes('MADRE') || raw.includes('MAMA')) cleanParentesco = 'MADRE';
+            else if (raw.includes('PADRE') || raw.includes('PAPA')) cleanParentesco = 'PADRE';
+            else if (raw === 'ELLA MISMA' || raw === 'ELLO MISMO' || raw === 'TRABAJADOR') cleanParentesco = 'TRABAJADOR';
+            else cleanParentesco = raw;
+        }
+    }
+    
+    return { parentesco: cleanParentesco, nombre_trabajador: cleanWorker };
+}
+
+// Calculate age helper
+const calculateAge = (dateStr: string) => {
+    if (!dateStr) return '';
+    const birth = new Date(dateStr);
+    const today = new Date();
+    let years = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+        years--;
+    }
+    return `${years} AÑOS`;
+}
 
 export default function PasesPage() {
     const { profile } = useAuth()
     const [pases, setPases] = useState<any[]>([])
-    const [loading, setLoading] = useState(true)
-    const [showForm, setShowForm] = useState(false)
-    const [editFolioManual, setEditFolioManual] = useState(false)
-
-    const generateNextFolio = (existingPases: any[]) => {
-        const currentYear = new Date().getFullYear()
-        let maxNumber = 0
-        
-        if (existingPases && Array.isArray(existingPases)) {
-            existingPases.forEach(p => {
-                if (p.folio) {
-                    const match = String(p.folio).match(/(\d+)$/)
-                    if (match) {
-                        const num = parseInt(match[1], 10)
-                        if (!isNaN(num) && num > maxNumber) {
-                            maxNumber = num
-                        }
-                    }
-                }
-            })
-        }
-        
-        return `PM-${currentYear}-${String(maxNumber + 1).padStart(4, '0')}`
-    }
-    const [filterMode, setFilterMode] = useState<'todos' | 'compartidos' | 'solo_medicos'>('todos')
     const [pacientes, setPacientes] = useState<any[]>([])
     const [clinicas, setClinicas] = useState<any[]>([])
     const [empleados, setEmpleados] = useState<any[]>([])
+    const [medicos, setMedicos] = useState<any[]>([])
+    const [loading, setLoading] = useState(true)
+    const [showForm, setShowForm] = useState(false)
+    const [editFolioManual, setEditFolioManual] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
     const [filterPatientName, setFilterPatientName] = useState('')
+    const [filterMode, setFilterMode] = useState<'todos' | 'compartidos' | 'solo_medicos'>('todos')
 
     const filteredPacientesForDropdown = pacientes.filter(p => 
         (p.nombre_completo || '').toLowerCase().includes(filterPatientName.toLowerCase())
     )
-
 
     const [formData, setFormData] = useState({
         id_paciente: '',
@@ -54,8 +86,6 @@ export default function PasesPage() {
         hotel_nombre: '',
         fecha_salida: '',
         fecha_retorno: '',
-        
-        // New PDF Fields
         folio: '',
         urgencia: 'NO',
         parentesco: '',
@@ -93,7 +123,12 @@ export default function PasesPage() {
         requiere_especialista: false,
         fecha_cita: '',
         
-        // Visibilidad
+        // Custom UI helpers (we strip these before insert)
+        fecha_nacimiento_trabajador: '',
+        edad_trabajador: '',
+        antiguedad: '',
+        
+        // Visibility
         compartido_departamentos: false
     })
 
@@ -104,14 +139,35 @@ export default function PasesPage() {
 
     useEffect(() => {
         if (profile) {
-            // Predeterminar clínica de origen y médico
             setFormData(prev => ({
                 ...prev,
                 id_clinica_origen: (profile as any).id_clinica || '',
                 medico_refiere: profile.nombre_completo || '',
+                cedula_refiere: (profile as any).cedula_profesional || ''
             }))
         }
     }, [profile])
+
+    const generateNextFolio = (existingPases: any[]) => {
+        const currentYear = new Date().getFullYear()
+        let maxNumber = 0
+        
+        if (existingPases && Array.isArray(existingPases)) {
+            existingPases.forEach(p => {
+                if (p.folio) {
+                    const match = String(p.folio).match(/(\d+)$/)
+                    if (match) {
+                        const num = parseInt(match[1], 10)
+                        if (!isNaN(num) && num > maxNumber) {
+                            maxNumber = num
+                        }
+                    }
+                }
+            })
+        }
+        
+        return `PM-${currentYear}-${String(maxNumber + 1).padStart(4, '0')}`
+    }
 
     const fetchCatalogos = async () => {
         const { data: pData } = await supabase.from('pacientes').select('*').order('nombre_completo')
@@ -122,12 +178,16 @@ export default function PasesPage() {
 
         const { data: eData } = await supabase.from('empleados').select('*').order('nombre')
         if (eData) setEmpleados(eData)
+
+        const { data: mData } = await supabase.from('perfiles').select('*').order('nombre_completo')
+        if (mData) setMedicos(mData.filter((u: any) => u.rol === 'Médico'))
     }
 
     const fetchPases = async () => {
+        setLoading(true)
         const { data, error } = await supabase.from('pases_medicos').select(`
             *,
-            pacientes (nombre_completo, parentesco, es_poblacion_general, id_empleado),
+            pacientes (nombre_completo, parentesco, es_poblacion_general, id_empleado, acompanante),
             clinica_origen:cat_clinicas!pases_medicos_id_clinica_origen_fkey (nombre, ubicacion),
             clinica_destino:cat_clinicas!pases_medicos_id_clinica_destino_fkey (nombre, ubicacion)
         `).order('creado_el', { ascending: false })
@@ -145,64 +205,96 @@ export default function PasesPage() {
         const pac = pacientes.find(p => p.id_paciente === pacId)
         if (!pac) return
 
-        // Calculate age
         let edadStr = ''
         if (pac.fecha_nacimiento) {
-            const birth = new Date(pac.fecha_nacimiento)
-            const today = new Date()
-            let years = today.getFullYear() - birth.getFullYear()
-            const m = today.getMonth() - birth.getMonth()
-            if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
-                years--
-            }
-            edadStr = `${years} AÑOS`
+            edadStr = calculateAge(pac.fecha_nacimiento)
         }
 
-        // Parentesco details
         const parentesco = pac.parentesco || (pac.es_poblacion_general ? 'PÚBLICO GENERAL' : 'ELLA MISMA')
         
-        // Find worker name
         let workerName = ''
+        let workerBirth = ''
+        let workerAge = ''
         if (pac.id_empleado) {
             const emp = empleados.find(e => e.id_empleado === pac.id_empleado)
             if (emp) {
                 workerName = `${emp.nombre} ${emp.apellido_paterno}`.toUpperCase()
+                workerBirth = emp.fecha_nacimiento || ''
+                if (emp.fecha_nacimiento) {
+                    workerAge = calculateAge(emp.fecha_nacimiento)
+                }
             }
         } else if (pac.es_poblacion_general) {
             workerName = 'PÚBLICO GENERAL'
         }
 
+        const parsed = parseRelationAndWorker(parentesco, workerName)
+
         setFormData(prev => ({
             ...prev,
             id_paciente: pacId,
             edad: edadStr,
-            parentesco: parentesco.toUpperCase(),
-            nombre_trabajador: parentesco.toUpperCase() === 'ELLA MISMA' ? pac.nombre_completo.toUpperCase() : workerName
+            parentesco: parsed.parentesco,
+            nombre_trabajador: parsed.nombre_trabajador,
+            fecha_nacimiento_trabajador: workerBirth,
+            edad_trabajador: workerAge,
+            acompanante: pac.acompanante || prev.acompanante || 'NO REQUIERE',
+            antiguedad: ''
+        }))
+    }
+
+    const handleDoctorRefiereSelect = (docName: string) => {
+        const doc = medicos.find(m => m.nombre_completo === docName)
+        setFormData(prev => ({
+            ...prev,
+            medico_refiere: docName,
+            cedula_refiere: doc ? doc.cedula_profesional || '' : ''
+        }))
+    }
+
+    const handleDoctorResponsableSelect = (docName: string) => {
+        const doc = medicos.find(m => m.nombre_completo === docName)
+        setFormData(prev => ({
+            ...prev,
+            medico_responsable_unidad: docName,
+            cedula_responsable_unidad: doc ? doc.cedula_profesional || '' : ''
+        }))
+    }
+
+    const handleWorkerBirthdateChange = (dateVal: string) => {
+        const pac = pacientes.find(p => p.id_paciente === formData.id_paciente)
+        const ageVal = calculateAge(dateVal)
+        setFormData(prev => ({
+            ...prev,
+            fecha_nacimiento_trabajador: dateVal,
+            edad_trabajador: ageVal
         }))
     }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
-        
-        // Find employee id from patient
         const pac = pacientes.find(p => p.id_paciente === formData.id_paciente)
         const employeeId = pac?.id_empleado || null
 
-        // Clean all empty string date fields to null
-        const sanitizedData = { ...formData }
-        const dateFields = [
-            'fecha_salida',
-            'fecha_retorno',
-            'fecha_salida_unidad',
-            'fecha_consulta',
-            'fecha_presento_consulta',
-            'fecha_cita'
-        ]
+        // Save worker birthdate back to DB
+        if (employeeId && formData.fecha_nacimiento_trabajador) {
+            await supabase
+                .from('empleados')
+                .update({ fecha_nacimiento: formData.fecha_nacimiento_trabajador })
+                .eq('id_empleado', employeeId)
+        }
+
+        const sanitizedData = { ...formData } as any
+        const dateFields = ['fecha_salida', 'fecha_retorno', 'fecha_salida_unidad', 'fecha_consulta', 'fecha_presento_consulta', 'fecha_cita']
         dateFields.forEach(field => {
-            if ((sanitizedData as any)[field] === '') {
-                (sanitizedData as any)[field] = null;
+            if (sanitizedData[field] === '') {
+                sanitizedData[field] = null
             }
-        });
+        })
+
+        // Delete UI-only attributes
+        delete sanitizedData.fecha_nacimiento_trabajador
+        delete sanitizedData.edad_trabajador
 
         const { error } = await supabase.from('pases_medicos').insert([{
             ...sanitizedData,
@@ -225,10 +317,11 @@ export default function PasesPage() {
                 sv_ta: '', sv_temp: '', sv_fr: '', sv_fc: '', sv_peso: '', sv_talla: '',
                 padecimiento_actual: '', estudios_paraclinicos: 'LOS NECESARIOS PARA SU PADECIMIENTO',
                 impresion_diagnostica: '', comentarios: 'SE ENVIA PARA SEGUIMIENTO Y TRATAMIENTO',
-                medico_refiere: prev.medico_refiere, cedula_refiere: '', fecha_salida_unidad: '',
+                medico_refiere: prev.medico_refiere, cedula_refiere: prev.cedula_refiere, fecha_salida_unidad: '',
                 medio_transporte: 'VIA TERRESTRE', fecha_consulta: '', fecha_presento_consulta: '',
                 medico_responsable_unidad: '', cedula_responsable_unidad: '', requiere_especialista: false,
-                fecha_cita: '', compartido_departamentos: false
+                fecha_cita: '', compartido_departamentos: false,
+                fecha_nacimiento_trabajador: '', edad_trabajador: '', antiguedad: ''
             }))
             fetchPases()
         } else {
@@ -237,21 +330,45 @@ export default function PasesPage() {
         }
     }
 
-    const handlePrintPase = (pase: any) => {
+    const deletePase = async (id: string, folio: string) => {
+        if (!confirm(`¿Seguro que desea eliminar el pase médico folio ${folio}?`)) return
+        const { error } = await supabase.from('pases_medicos').delete().eq('id_pase', id)
+        if (!error) {
+            fetchPases()
+        } else {
+            alert('Error al eliminar pase médico: ' + error.message)
+        }
+    }
+
+    const handlePrintPase = async (pase: any) => {
+        // Fetch full doctor profiles to retrieve signatures
+        let doctorRefiereProfile = null
+        let doctorRespProfile = null
+
+        const drRef = medicos.find(m => m.nombre_completo === pase.medico_refiere)
+        if (drRef) doctorRefiereProfile = drRef
+        
+        const drResp = medicos.find(m => m.nombre_completo === pase.medico_responsable_unidad)
+        if (drResp) doctorRespProfile = drResp
+
         const printWindow = window.open('', '_blank', 'width=900,height=1200')
         if (!printWindow) return
 
-        const formattedFecha = pase.fecha_salida ? new Date(pase.fecha_salida + 'T12:00:00').toLocaleDateString('es-ES', {
-            year: 'numeric', month: '2-digit', day: '2-digit'
-        }) : ''
+        const formattedFecha = new Date(pase.creado_el || Date.now()).toLocaleDateString('es-ES', {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        })
 
         const formattedFechaSalidaUnidad = pase.fecha_salida_unidad ? new Date(pase.fecha_salida_unidad + 'T12:00:00').toLocaleDateString('es-ES', {
             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-        }) : ''
+        }) : 'NO REGISTRADA'
 
         const formattedFechaConsulta = pase.fecha_consulta ? new Date(pase.fecha_consulta + 'T12:00:00').toLocaleDateString('es-ES', {
             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-        }) : ''
+        }) : 'NO REGISTRADA'
+
+        const formattedFechaPresentoConsulta = pase.fecha_presento_consulta ? new Date(pase.fecha_presento_consulta + 'T12:00:00').toLocaleDateString('es-ES', {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        }) : 'NO REGISTRADA'
 
         const origenNombre = pase.clinica_origen?.nombre || ''
         const origenUbicacion = pase.clinica_origen?.ubicacion ? ` (${pase.clinica_origen.ubicacion})` : ''
@@ -306,8 +423,9 @@ export default function PasesPage() {
                             text-align: left;
                         }
                         .logo-img {
-                            width: 65px;
-                            height: auto;
+                            height: 60px;
+                            max-width: 140px;
+                            object-fit: contain;
                         }
                         .header-title {
                             text-align: center;
@@ -409,7 +527,7 @@ export default function PasesPage() {
                             width: 50%;
                             text-align: center;
                             vertical-align: bottom;
-                            padding-top: 40px;
+                            padding-top: 15px;
                         }
                         .signature-line {
                             width: 80%;
@@ -441,6 +559,12 @@ export default function PasesPage() {
                             background-color: #f0f0f0;
                             font-size: 8.5px;
                         }
+                        .signature-image {
+                            max-height: 45px;
+                            object-fit: contain;
+                            margin-bottom: -5px;
+                            background: transparent;
+                        }
                     </style>
                 </head>
                 <body>
@@ -450,7 +574,7 @@ export default function PasesPage() {
                             <table class="header-table">
                                 <tr>
                                     <td class="header-logo">
-                                        <div style="width:65px; height:65px; border:2px solid #000; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:24px; font-family:serif; background-color:#1a2b4c; color:#fff;">GB</div>
+                                        <img src="/logo-bacis.png" class="logo-img" alt="Logo Bacis" />
                                     </td>
                                     <td class="header-title">
                                         GRUPO MINERO BACIS
@@ -520,34 +644,35 @@ export default function PasesPage() {
                                     <td class="field-value" style="width:12%">${pase.sv_fr || ''}</td>
                                     <td class="field-label" style="width:8%">FC:</td>
                                     <td class="field-value" style="width:12%">${pase.sv_fc || ''}</td>
-                                    <td class="field-label" style="width:10%">Peso:</td>
-                                    <td class="field-value" style="width:10%">${pase.sv_peso || ''} kg</td>
-                                    <td class="field-label" style="width:10%">Talla:</td>
-                                    <td class="field-value" style="width:10%">${pase.sv_talla || ''}</td>
+                                </tr>
+                                <tr>
+                                    <td class="field-label">Antropometría:</td>
+                                    <td class="field-label">Peso:</td>
+                                    <td class="field-value">${pase.sv_peso || ''} kg</td>
+                                    <td class="field-label">Talla:</td>
+                                    <td class="field-value" colspan="4">${pase.sv_talla || ''} m</td>
                                 </tr>
                             </table>
                             
-                            <div class="text-block-title">Padecimiento actual:</div>
-                            <div class="text-block-box">${pase.padecimiento_actual || ''}</div>
+                            <div class="text-block-title">Padecimiento Actual y Antecedentes</div>
+                            <div class="text-block-box">${(pase.padecimiento_actual || '').toUpperCase()}</div>
                             
-                            <div class="text-block-title">Estudios paraclínicos:</div>
-                            <div class="text-block-box-small">${pase.estudios_paraclinicos || ''}</div>
+                            <div class="text-block-title">Estudios Paraclínicos Realizados</div>
+                            <div class="text-block-box-small">${(pase.estudios_paraclinicos || 'NINGUNO').toUpperCase()}</div>
                             
-                            <div class="text-block-title">Impresión diagnóstica:</div>
-                            <div class="text-block-box-small">${pase.impresion_diagnostica || ''}</div>
+                            <div class="text-block-title">Impresión Diagnóstica</div>
+                            <div class="text-block-box-small" style="color: blue;">${(pase.impresion_diagnostica || '').toUpperCase()}</div>
                             
-                            <div class="text-block-title">Comentarios:</div>
-                            <div class="text-block-box-small">${pase.comentarios || ''}</div>
+                            <div class="text-block-title">Comentarios de Envío</div>
+                            <div class="text-block-box-small">${(pase.comentarios || '').toUpperCase()}</div>
                         </div>
                         
                         <div>
                             <table class="signature-table">
                                 <tr>
-                                    <td class="signature-cell">
-                                        <div class="signature-line">Nombre y firma de quien autoriza</div>
-                                        <div class="signature-sub">Servicios Médicos El Herrero</div>
-                                    </td>
-                                    <td class="signature-cell">
+                                    <td class="signature-cell" style="width: 50%;"></td>
+                                    <td class="signature-cell" style="width: 50%;">
+                                        ${doctorRefiereProfile?.firma ? `<img src="${doctorRefiereProfile.firma}" class="signature-image" /><br/>` : '<div style="height:35px;"></div>'}
                                         <div class="signature-line">${(pase.medico_refiere || '').toUpperCase()}</div>
                                         <div class="signature-sub">Nombre y firma del médico que refiere<br/>CÉDULA: ${pase.cedula_refiere || ''}</div>
                                     </td>
@@ -562,7 +687,7 @@ export default function PasesPage() {
                             <table class="header-table">
                                 <tr>
                                     <td class="header-logo">
-                                        <div style="width:65px; height:65px; border:2px solid #000; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:24px; font-family:serif; background-color:#1a2b4c; color:#fff;">GB</div>
+                                        <img src="/logo-bacis.png" class="logo-img" alt="Logo Bacis" />
                                     </td>
                                     <td class="header-title">
                                         Grupo Minero Bacís S.A. de C.V.
@@ -589,9 +714,9 @@ export default function PasesPage() {
                                 </tr>
                                 <tr>
                                     <td class="field-label">Puesto:</td>
-                                    <td class="field-value" style="font-size: 8.5px; color:#555;">${(pase.empleados?.puesto || '').toUpperCase()}</td>
-                                    <td class="field-label">Departamento:</td>
-                                    <td class="field-value" style="font-size: 8.5px; color:#555;">${pase.departamento_pasajero || ''}</td>
+                                    <td class="field-value" style="font-size: 8.5px; color:#555;">${(pase.empleados?.puesto || 'N/R').toUpperCase()}</td>
+                                    <td class="field-label">Antigüedad:</td>
+                                    <td class="field-value" style="font-size: 8.5px; color:#555;">${(pase.antiguedad || 'N/R').toUpperCase()}</td>
                                 </tr>
                             </table>
                             
@@ -620,7 +745,7 @@ export default function PasesPage() {
                                 <tbody>
                                     <tr>
                                         <td style="color: blue; padding: 8px; font-size: 11px;">${formattedFechaConsulta.toUpperCase()}</td>
-                                        <td style="padding: 8px; font-size: 11px; color: #ccc;">[ Campo para Firma Médica Externa ]</td>
+                                        <td style="color: blue; padding: 8px; font-size: 11px;">${formattedFechaPresentoConsulta.toUpperCase()}</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -628,7 +753,12 @@ export default function PasesPage() {
                             <table class="fields-table" style="margin-top: 15px;">
                                 <tr>
                                     <td class="field-label" style="width: 40%;">Nombre Firma y cédula de Médico responsable de Unidad</td>
-                                    <td class="field-value" style="width: 60%; font-size: 9.5px; color: blue;">${(pase.medico_responsable_unidad || '').toUpperCase()} CED. PROF. ${pase.cedula_responsable_unidad || ''}</td>
+                                    <td class="field-value" style="width: 60%; font-size: 9.5px; color: blue; position: relative;">
+                                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                                            <span>${(pase.medico_responsable_unidad || '').toUpperCase()} CED. PROF. ${pase.cedula_responsable_unidad || ''}</span>
+                                            ${doctorRespProfile?.firma ? `<img src="${doctorRespProfile.firma}" class="signature-image" style="max-height: 30px; margin-left: 10px;" />` : ''}
+                                        </div>
+                                    </td>
                                 </tr>
                                 <tr>
                                     <td class="field-label">Se requiere atención de especialista:</td>
@@ -638,41 +768,37 @@ export default function PasesPage() {
                                 </tr>
                                 <tr>
                                     <td class="field-label">Fecha de cita:</td>
-                                    <td class="field-value">${pase.fecha_cita || ''}</td>
+                                    <td class="field-value">${pase.fecha_cita || 'NO REGISTRADA'}</td>
                                 </tr>
                             </table>
                             
-                            <div class="text-block-title" style="margin-top: 15px;">Firma y sello de Consultorio Médico Industrial:</div>
-                            <div style="border: 1px solid #000; height: 60px; margin-bottom: 20px; display:flex; align-items:center; justify-content:center; color:#ccc; font-weight:bold;">Consultorio Médico Industrial Stamp Space</div>
+                            <div class="text-block-title" style="margin-top: 10px;">Comentarios del Consultorio Médico:</div>
+                            <div style="border: 1px solid #000; min-height: 45px; padding: 6px; font-size: 9.5px; font-weight: normal; color: blue;">${(pase.comentarios || '').toUpperCase()}</div>
                             
-                            <div style="border-top: 2px dashed #000; margin: 20px 0; text-align: center; font-weight: bold; font-size: 9px; letter-spacing: 2px; color: #555;">USO EXCLUSIVO DE CONTABILIDAD Y R.H.</div>
+                            <div class="text-block-title" style="margin-top: 10px;">Firma y sello del Consultorio Médico Industrial (Santa María):</div>
+                            <div style="border: 1px solid #000; height: 50px; margin-bottom: 10px; display:flex; align-items:center; justify-content:center; color:#555; font-weight:bold; font-size:11px;">
+                                [ CONSULTORIO MÉDICO INDUSTRIAL SANTA MARÍA - SELLO Y FIRMA AUTORIZADA ]
+                            </div>
+                        </div>
+                        
+                        <!-- SECCIÓN EXCLUSIVA - MEJORADA -->
+                        <div>
+                            <div style="border-top: 2px dashed #000; margin: 15px 0 5px 0; text-align: center; font-weight: bold; font-size: 9px; letter-spacing: 2px; color: #333;">USO EXCLUSIVO DE CONTABILIDAD Y R.H.</div>
                             
-                            <table class="p2-table">
-                                <thead>
-                                    <tr>
-                                        <th colspan="3">Viáticos proporcionados en Unidad el Herrero</th>
-                                    </tr>
-                                    <tr>
-                                        <th>Días de viáticos</th>
-                                        <th>Cantidad diaria</th>
-                                        <th>Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr style="height: 35px;">
-                                        <td></td>
-                                        <td></td>
-                                        <td></td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                            <div style="border: 1px solid #000; padding: 12px; display: flex; align-items: center; justify-content: space-between; border-radius: 4px; background-color: #fafafa; margin-bottom: 15px;">
+                                <div style="display:flex; align-items:center; gap: 8px;">
+                                    <span style="font-size: 11px; font-weight: 800; color: #000; text-transform: uppercase;">CENTRO DE COSTOS:</span>
+                                    <span style="font-size: 12px; font-family: monospace; font-weight: bold; border-bottom: 1px solid #000; width: 280px; display: inline-block;">&nbsp;</span>
+                                </div>
+                                <img src="/logo-bacis.png" style="height: 25px; object-fit: contain; opacity: 0.8;" />
+                            </div>
                             
-                            <table class="signature-table" style="margin-top: 10px;">
+                            <table class="signature-table" style="margin-top: 5px;">
                                 <tr>
-                                    <td class="signature-cell" style="padding-top: 25px;">
+                                    <td class="signature-cell" style="padding-top: 15px;">
                                         <div class="signature-line">Nombre y firma de recibido</div>
                                     </td>
-                                    <td class="signature-cell" style="padding-top: 25px;">
+                                    <td class="signature-cell" style="padding-top: 15px;">
                                         <div class="signature-line">Autorizó</div>
                                     </td>
                                 </tr>
@@ -709,12 +835,10 @@ export default function PasesPage() {
             ? pase.acompanante.toUpperCase() 
             : (pase.acompanante === 'SI' ? 'REQUIERE ACOMPAÑANTE (VERIFICAR EN CLÍNICA)' : 'SIN ACOMPAÑANTE / NO REQUIERE')
 
-        // Formato corto p. ej. 16/07/2026
         const fechaSalidaCorta = pase.fecha_salida ? new Date(pase.fecha_salida + 'T12:00:00').toLocaleDateString('es-ES', {
             day: '2-digit', month: '2-digit', year: 'numeric'
         }) : new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
-        // Formato largo p. ej. jueves, 16 de julio de 2026
         const fechaSalidaLarga = pase.fecha_salida ? new Date(pase.fecha_salida + 'T12:00:00').toLocaleDateString('es-ES', {
             weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
         }) : new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
@@ -749,53 +873,62 @@ export default function PasesPage() {
                             position: relative;
                         }
                         .half-ticket {
-                            height: 126mm;
+                            height: 120mm;
                             display: flex;
                             flex-direction: column;
                             justify-content: space-between;
                             box-sizing: border-box;
-                            padding: 6mm 6mm;
+                            padding: 4mm 6mm;
+                        }
+                        .header-box {
+                            display: flex;
+                            align-items: center;
+                            justify-content: space-between;
+                            border-bottom: 2px solid #000;
+                            padding-bottom: 6px;
+                            margin-bottom: 12px;
                         }
                         .header-text {
-                            text-align: center;
                             font-weight: bold;
-                            font-size: 15px;
-                            line-height: 1.4;
-                            margin-bottom: 20px;
-                            letter-spacing: 0.5px;
+                            font-size: 13px;
+                            line-height: 1.3;
+                        }
+                        .header-logo-img {
+                            height: 35px;
+                            object-fit: contain;
                         }
                         .sub-title {
                             text-align: center;
                             font-weight: bold;
-                            font-size: 14px;
-                            margin: 15px 0 25px 0;
+                            font-size: 13px;
+                            margin: 8px 0 15px 0;
                             text-decoration: underline;
                         }
                         .table-favor {
                             width: 100%;
                             border-collapse: collapse;
-                            margin-bottom: 25px;
+                            margin-bottom: 15px;
                         }
                         .table-favor th {
                             text-align: left;
-                            font-size: 13px;
+                            font-size: 12px;
                             font-weight: bold;
-                            padding: 6px 10px;
-                            width: 180px;
+                            padding: 5px 8px;
+                            width: 150px;
                         }
                         .table-favor td {
                             text-align: left;
-                            font-size: 13px;
-                            padding: 6px 10px;
+                            font-size: 12px;
+                            padding: 5px 8px;
                             border-bottom: 1px solid #000;
                             font-weight: normal;
                         }
                         .row-salida {
                             display: flex;
                             align-items: center;
-                            margin-top: 15px;
-                            margin-bottom: 35px;
-                            font-size: 13px;
+                            margin-top: 10px;
+                            margin-bottom: 15px;
+                            font-size: 12px;
                             font-weight: bold;
                         }
                         .row-salida .salida-val {
@@ -811,18 +944,18 @@ export default function PasesPage() {
                             justify-content: space-between;
                             align-items: flex-end;
                             margin-top: auto;
-                            padding-top: 25px;
+                            padding-top: 10px;
                         }
                         .sig-box {
                             width: 220px;
                             text-align: center;
-                            font-size: 12px;
+                            font-size: 11px;
                             font-weight: bold;
                         }
                         .sig-line {
                             border-bottom: 1px solid #000;
-                            height: 30px;
-                            margin-bottom: 6px;
+                            height: 25px;
+                            margin-bottom: 4px;
                         }
                         .cut-line {
                             border-top: 2px dashed #333;
@@ -838,7 +971,7 @@ export default function PasesPage() {
                             transform: translateX(-50%);
                             background: #fff;
                             padding: 0 15px;
-                            font-size: 11px;
+                            font-size: 10px;
                             color: #555;
                             font-weight: bold;
                             letter-spacing: 1px;
@@ -850,17 +983,19 @@ export default function PasesPage() {
                         <!-- PARTE SUPERIOR (ORIGINAL) -->
                         <div class="half-ticket">
                             <div>
-                                <div class="header-text">
-                                    GRUPO MINERO BACIS S.A. DE C.V.<br>
-                                    UNIDAD "EL HERRERO"
+                                <div class="header-box">
+                                    <div class="header-text">
+                                        GRUPO MINERO BACIS S.A. DE C.V.<br>
+                                        UNIDAD "EL HERRERO"
+                                    </div>
+                                    <img src="/logo-bacis.png" class="header-logo-img" />
                                 </div>
                                 <div class="sub-title">
                                     HOSPEDAJE EN ${hotelNombre}
                                 </div>
-
                                 <table class="table-favor">
                                     <tr>
-                                        <th colspan="2">A FAVOR DE</th>
+                                        <th colspan="2" style="border-bottom: 1px solid #000; background:#f5f5f5; font-size:10px;">A FAVOR DE</th>
                                     </tr>
                                     <tr>
                                         <th>PASE MEDICO</th>
@@ -871,13 +1006,11 @@ export default function PasesPage() {
                                         <td>${acompananteNombre}</td>
                                     </tr>
                                 </table>
-
                                 <div class="row-salida">
                                     <span>SALIDA DE LA UNIDAD</span>
-                                    <span class="salida-val">${fechaSalidaCorta}</span>
+                                    <span class="salida-val">${fechaSalidaLarga.toUpperCase()}</span>
                                 </div>
                             </div>
-
                             <div class="signatures">
                                 <div class="sig-box">
                                     <div class="sig-line"></div>
@@ -898,17 +1031,19 @@ export default function PasesPage() {
                         <!-- PARTE INFERIOR (COPIA) -->
                         <div class="half-ticket">
                             <div>
-                                <div class="header-text">
-                                    GRUPO MINERO BACIS S.A. DE C.V.<br>
-                                    UNIDAD "EL HERRERO"
+                                <div class="header-box">
+                                    <div class="header-text">
+                                        GRUPO MINERO BACIS S.A. DE C.V.<br>
+                                        UNIDAD "EL HERRERO"
+                                    </div>
+                                    <img src="/logo-bacis.png" class="header-logo-img" />
                                 </div>
                                 <div class="sub-title">
                                     HOSPEDAJE EN ${hotelNombre}
                                 </div>
-
                                 <table class="table-favor">
                                     <tr>
-                                        <th colspan="2">A FAVOR DE</th>
+                                        <th colspan="2" style="border-bottom: 1px solid #000; background:#f5f5f5; font-size:10px;">A FAVOR DE</th>
                                     </tr>
                                     <tr>
                                         <th>PASE MEDICO</th>
@@ -919,13 +1054,11 @@ export default function PasesPage() {
                                         <td>${acompananteNombre}</td>
                                     </tr>
                                 </table>
-
                                 <div class="row-salida">
                                     <span>SALIDA DE LA UNIDAD</span>
-                                    <span class="salida-val">${fechaSalidaLarga}</span>
+                                    <span class="salida-val">${fechaSalidaLarga.toUpperCase()}</span>
                                 </div>
                             </div>
-
                             <div class="signatures">
                                 <div class="sig-box">
                                     <div class="sig-line"></div>
@@ -941,6 +1074,7 @@ export default function PasesPage() {
                     <script>
                         window.onload = function() {
                             window.print();
+                            window.close();
                         }
                     </script>
                 </body>
@@ -948,6 +1082,16 @@ export default function PasesPage() {
         `)
         printWindow.document.close()
     }
+
+    const filteredPases = pases.filter(p => {
+        const query = searchQuery.toLowerCase()
+        const matchText = (p.pacientes?.nombre_completo || '').toLowerCase().includes(query) ||
+                          (p.folio || '').toLowerCase().includes(query)
+        
+        if (filterMode === 'compartidos') return matchText && p.compartido_departamentos === true
+        if (filterMode === 'solo_medicos') return matchText && p.compartido_departamentos === false
+        return matchText
+    })
 
     return (
         <div className="space-y-6">
@@ -1010,7 +1154,6 @@ export default function PasesPage() {
                             </select>
                         </div>
 
-
                         <div className="bg-amber-50/60 p-3 rounded-2xl border border-amber-200/80 shadow-xs">
                             <div className="flex items-center justify-between mb-1.5">
                                 <label className="block text-[11px] font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -1028,35 +1171,25 @@ export default function PasesPage() {
                                 >
                                     {editFolioManual ? (
                                         <>
-                                            <Lock className="w-3 h-3" /> Bloquear Folio
+                                            <Lock className="w-3 h-3" /> Bloquear
                                         </>
                                     ) : (
                                         <>
-                                            <Unlock className="w-3 h-3" /> Editar Manual
+                                            <Unlock className="w-3 h-3" /> Manual
                                         </>
                                     )}
                                 </button>
                             </div>
-                            <div className="relative">
-                                <input 
-                                    required
-                                    type="text"
-                                    disabled={!editFolioManual}
-                                    className={`w-full rounded-xl px-3.5 py-2 text-xs font-mono font-black transition-all ${
-                                        editFolioManual 
-                                            ? "bg-white border-2 border-red-400 text-red-700 shadow-inner focus:outline-none focus:ring-2 focus:ring-red-500" 
-                                            : "bg-zinc-100/90 border border-zinc-200 text-amber-900 cursor-not-allowed select-none"
-                                    }`}
-                                    value={formData.folio}
-                                    onChange={e => setFormData({...formData, folio: e.target.value.toUpperCase()})}
-                                    placeholder="PM-2026-0001"
-                                />
-                            </div>
-                            <p className="text-[10px] text-zinc-500 mt-1 font-medium leading-tight">
-                                {editFolioManual 
-                                    ? "⚠️ Modo manual: Puedes modificar o ingresar un número de folio personalizado." 
-                                    : "✓ Folio generado en automático para historial cronológico inalterable."}
-                            </p>
+                            <input 
+                                required type="text" disabled={!editFolioManual}
+                                className={`w-full rounded-xl px-3.5 py-2 text-xs font-mono font-black transition-all ${
+                                    editFolioManual 
+                                        ? "bg-white border-2 border-red-400 text-red-700 shadow-inner" 
+                                        : "bg-zinc-100/90 border border-zinc-200 text-amber-900 cursor-not-allowed"
+                                }`}
+                                value={formData.folio}
+                                onChange={e => setFormData({...formData, folio: e.target.value.toUpperCase()})}
+                            />
                         </div>
 
                         <div>
@@ -1071,9 +1204,9 @@ export default function PasesPage() {
                             </select>
                         </div>
 
-                        {/* Campos de la ficha del paciente auto-calculados */}
+                        {/* Ficha paciente */}
                         <div>
-                            <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Parentesco (Lectura)</label>
+                            <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Parentesco</label>
                             <input 
                                 disabled type="text"
                                 className="w-full rounded-xl border-zinc-200 bg-zinc-100 px-4 py-2.5 text-xs text-zinc-500"
@@ -1081,7 +1214,7 @@ export default function PasesPage() {
                             />
                         </div>
                         <div className="col-span-1 md:col-span-2">
-                            <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Nombre Trabajador Relacionado (Lectura)</label>
+                            <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Nombre Trabajador Relacionado</label>
                             <input 
                                 disabled type="text"
                                 className="w-full rounded-xl border-zinc-200 bg-zinc-100 px-4 py-2.5 text-xs text-zinc-500"
@@ -1089,7 +1222,7 @@ export default function PasesPage() {
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Edad Calculada (Lectura)</label>
+                            <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Edad Paciente</label>
                             <input 
                                 disabled type="text"
                                 className="w-full rounded-xl border-zinc-200 bg-zinc-100 px-4 py-2.5 text-xs text-zinc-500"
@@ -1097,109 +1230,34 @@ export default function PasesPage() {
                             />
                         </div>
 
-                        {/* Clínicas y Servicio */}
+                        {/* Edad Trabajador y Antigüedad */}
                         <div>
-                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">De: Clínica Origen (En la Mina/Unidad)</label>
-                            <select 
-                                required className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-bold"
-                                value={formData.id_clinica_origen}
-                                onChange={e => {
-                                    const val = e.target.value
-                                    const c = clinicas.find(x => x.id_clinica === val)
-                                    const nuevoTexto = c ? `${c.nombre}${c.ubicacion ? ` (${c.ubicacion})` : ''}`.toUpperCase() : formData.unidad_refiere
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        id_clinica_origen: val,
-                                        unidad_refiere: nuevoTexto
-                                    }))
-                                }}
-                            >
-                                <option value="">Seleccione clínica origen (ej. Sapiuris / Mina)...</option>
-                                <optgroup label="Clínicas Internas / Mina Bacis">
-                                    {clinicas.filter(c => (c.activo !== false || c.id_clinica === formData.id_clinica_origen) && (c.tipo === 'Interna' || (c.ubicacion && c.ubicacion.toUpperCase().includes('BACIS')))).map(c => (
-                                        <option key={c.id_clinica} value={c.id_clinica}>{c.nombre} {c.ubicacion ? `(${c.ubicacion})` : ''}</option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="Otras Clínicas Registradas">
-                                    {clinicas.filter(c => (c.activo !== false || c.id_clinica === formData.id_clinica_origen) && !(c.tipo === 'Interna' || (c.ubicacion && c.ubicacion.toUpperCase().includes('BACIS')))).map(c => (
-                                        <option key={c.id_clinica} value={c.id_clinica}>{c.nombre} {c.ubicacion ? `(${c.ubicacion})` : ''}</option>
-                                    ))}
-                                </optgroup>
-                            </select>
-                            <div className="mt-1.5">
-                                <label className="block text-[10px] font-black text-amber-800 uppercase mb-0.5">Unidad que refiere (Impresión en Ficha):</label>
-                                <input 
-                                    type="text" required
-                                    className="w-full rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-1.5 text-[11px] font-bold text-amber-950 shadow-inner"
-                                    value={formData.unidad_refiere}
-                                    onChange={e => setFormData({...formData, unidad_refiere: e.target.value.toUpperCase()})}
-                                    placeholder="Ej. SAPIURIS - UNIDAD MINERA BACIS"
-                                />
-                            </div>
+                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">F. Nacimiento Trabajador</label>
+                            <input 
+                                type="date"
+                                className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold"
+                                value={formData.fecha_nacimiento_trabajador}
+                                onChange={e => handleWorkerBirthdateChange(e.target.value)}
+                            />
+                            {formData.edad_trabajador && (
+                                <p className="text-[10px] text-zinc-500 mt-1 font-bold">Edad: {formData.edad_trabajador}</p>
+                            )}
                         </div>
 
                         <div>
-                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">A: Clínica Destino (Durango/Hospital)</label>
-                            <select 
-                                required className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-bold"
-                                value={formData.id_clinica_destino}
-                                onChange={e => {
-                                    const val = e.target.value
-                                    const c = clinicas.find(x => x.id_clinica === val)
-                                    const nuevoTexto = c ? `${c.nombre}${c.ubicacion ? ` - ${c.ubicacion}` : ''}`.toUpperCase() : formData.unidad_se_refiere
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        id_clinica_destino: val,
-                                        unidad_se_refiere: nuevoTexto
-                                    }))
-                                }}
-                            >
-                                <option value="">Seleccione clínica destino (ej. Durango)...</option>
-                                <optgroup label="Clínicas Externas / Durango / Hospitales">
-                                    {clinicas.filter(c => (c.activo !== false || c.id_clinica === formData.id_clinica_destino) && (c.tipo === 'Externa' || (c.ubicacion && !c.ubicacion.toUpperCase().includes('BACIS')))).map(c => (
-                                        <option key={c.id_clinica} value={c.id_clinica}>{c.nombre} {c.ubicacion ? `(${c.ubicacion})` : ''}</option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="Otras Clínicas / Internas">
-                                    {clinicas.filter(c => (c.activo !== false || c.id_clinica === formData.id_clinica_destino) && !(c.tipo === 'Externa' || (c.ubicacion && !c.ubicacion.toUpperCase().includes('BACIS')))).map(c => (
-                                        <option key={c.id_clinica} value={c.id_clinica}>{c.nombre} {c.ubicacion ? `(${c.ubicacion})` : ''}</option>
-                                    ))}
-                                </optgroup>
-                            </select>
-                            <div className="mt-1.5">
-                                <label className="block text-[10px] font-black text-amber-800 uppercase mb-0.5">Unidad a la que se refiere (Impresión en Ficha):</label>
-                                <input 
-                                    type="text" required
-                                    className="w-full rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-1.5 text-[11px] font-bold text-amber-950 shadow-inner"
-                                    value={formData.unidad_se_refiere}
-                                    onChange={e => setFormData({...formData, unidad_se_refiere: e.target.value.toUpperCase()})}
-                                    placeholder="Ej. CLINICA CARDOS - DURANGO"
-                                />
-                            </div>
-                        </div>
-                        <div className="col-span-1 md:col-span-2">
-                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Servicio Especialidad al que se envía</label>
+                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Antigüedad en Trabajo</label>
                             <input 
-                                required type="text"
+                                type="text"
+                                placeholder="Ej. 3 años, 6 meses"
                                 className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold"
-                                value={formData.servicio_se_envia}
-                                onChange={e => setFormData({...formData, servicio_se_envia: e.target.value})}
-                                placeholder="Ej. GINECOLOGIA/CIRUGIA DE COLUMNA"
+                                value={formData.antiguedad}
+                                onChange={e => setFormData({...formData, antiguedad: e.target.value})}
                             />
                         </div>
 
+                        {/* Acompañante */}
                         <div>
-                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Médico que Acepta Referencia</label>
-                            <input 
-                                required type="text"
-                                className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold"
-                                value={formData.medico_acepta}
-                                onChange={e => setFormData({...formData, medico_acepta: e.target.value})}
-                                placeholder="DR. ABEL PEREZ MARTINEZ"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Acompañante Médico</label>
+                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Acompañante de Viaje</label>
                             <input 
                                 type="text"
                                 className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold"
@@ -1208,30 +1266,51 @@ export default function PasesPage() {
                                 placeholder="NO REQUIERE"
                             />
                         </div>
+                    </div>
+
+                    {/* Clínicas y Destinos */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-zinc-50/50 p-4 rounded-xl border border-zinc-150">
                         <div>
-                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha de Salida</label>
-                            <input 
-                                required type="date"
-                                className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold"
-                                value={formData.fecha_salida}
-                                onChange={e => setFormData({...formData, fecha_salida: e.target.value, fecha_salida_unidad: e.target.value})}
-                            />
+                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Clínica de Origen (Fijo)</label>
+                            <select 
+                                required className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold"
+                                value={formData.id_clinica_origen}
+                                onChange={e => setFormData({...formData, id_clinica_origen: e.target.value})}
+                            >
+                                <option value="">Seleccione origen...</option>
+                                {clinicas.filter(c => c.activo !== false).map(c => (
+                                    <option key={c.id_clinica} value={c.id_clinica}>{c.nombre} ({c.tipo})</option>
+                                ))}
+                            </select>
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha Estimada de Retorno</label>
+                            <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Clínica de Destino (Externa)</label>
+                            <select 
+                                required className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold"
+                                value={formData.id_clinica_destino}
+                                onChange={e => setFormData({...formData, id_clinica_destino: e.target.value})}
+                            >
+                                <option value="">Seleccione destino...</option>
+                                {clinicas.filter(c => c.activo !== false).map(c => (
+                                    <option key={c.id_clinica} value={c.id_clinica}>{c.nombre} ({c.tipo})</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="space-y-1">
+                            <label className="block text-[10px] font-black text-amber-800 uppercase mb-0.5">Unidad de Destino (Impresión Ficha):</label>
                             <input 
-                                type="date"
-                                className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold"
-                                value={formData.fecha_retorno}
-                                onChange={e => setFormData({...formData, fecha_retorno: e.target.value})}
+                                type="text" required
+                                className="w-full rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-1.5 text-[11px] font-bold text-amber-950 shadow-inner"
+                                value={formData.unidad_se_refiere}
+                                onChange={e => setFormData({...formData, unidad_se_refiere: e.target.value.toUpperCase()})}
                             />
                         </div>
                     </div>
 
                     {/* Signos Vitales Block */}
                     <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-150 space-y-3">
-                        <h3 className="text-xs font-black text-zinc-700 uppercase tracking-widest flex items-center gap-1">
-                            <Stethoscope className="w-4 h-4 text-amber-500" /> Signos Vitales (SV)
+                        <h3 className="text-xs font-black text-zinc-700 uppercase tracking-widest flex items-center gap-1.5">
+                            <Stethoscope className="w-4 h-4 text-amber-500" /> Signos Vitales
                         </h3>
                         <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                             <div>
@@ -1256,12 +1335,12 @@ export default function PasesPage() {
                             </div>
                             <div>
                                 <label className="block text-[10px] font-bold text-zinc-600 uppercase mb-1">Talla</label>
-                                <input type="text" className="w-full rounded-lg border-zinc-200 bg-white p-2 text-xs font-bold" value={formData.sv_talla} onChange={e => setFormData({...formData, sv_talla: e.target.value})} placeholder="2" />
+                                <input type="text" className="w-full rounded-lg border-zinc-200 bg-white p-2 text-xs font-bold" value={formData.sv_talla} onChange={e => setFormData({...formData, sv_talla: e.target.value})} placeholder="1.70" />
                             </div>
                         </div>
                     </div>
 
-                    {/* Diagnósticos y Antecedentes */}
+                    {/* Diagnósticos */}
                     <div className="space-y-4">
                         <div>
                             <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Padecimiento Actual / Antecedentes</label>
@@ -1270,7 +1349,6 @@ export default function PasesPage() {
                                 className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-bold"
                                 value={formData.padecimiento_actual}
                                 onChange={e => setFormData({...formData, padecimiento_actual: e.target.value})}
-                                placeholder="Paciente femenino de 24 años, embarazo de 32.6 SDG. Antecedente de infección de vías urinarias..."
                             />
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1280,28 +1358,37 @@ export default function PasesPage() {
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Impresión Diagnóstica</label>
-                                <input required type="text" className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold" value={formData.impresion_diagnostica} onChange={e => setFormData({...formData, impresion_diagnostica: e.target.value})} placeholder="EMBARAZO 32.6 SDG" />
+                                <input required type="text" className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold" value={formData.impresion_diagnostica} onChange={e => setFormData({...formData, impresion_diagnostica: e.target.value})} />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Comentarios</label>
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Comentarios de Envío</label>
                                 <input type="text" className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-bold" value={formData.comentarios} onChange={e => setFormData({...formData, comentarios: e.target.value})} />
                             </div>
                         </div>
                     </div>
 
-                    {/* Página 2: Datos de Control y Viáticos */}
+                    {/* Médicos y Viáticos */}
                     <div className="bg-zinc-50/50 p-4 rounded-xl border border-zinc-150 space-y-4">
                         <h3 className="text-xs font-black text-zinc-700 uppercase tracking-widest flex items-center gap-1.5">
-                            <Building className="w-4 h-4 text-emerald-600" /> Control y Viáticos de Traslado (Página 2 del PDF)
+                            <Building className="w-4 h-4 text-emerald-600" /> Control y Médicos Autorizados
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div>
                                 <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Médico que Refiere</label>
-                                <input required type="text" className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold" value={formData.medico_refiere} onChange={e => setFormData({...formData, medico_refiere: e.target.value})} />
+                                <select 
+                                    className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold"
+                                    value={formData.medico_refiere}
+                                    onChange={e => handleDoctorRefiereSelect(e.target.value)}
+                                >
+                                    <option value="">Seleccione médico tratante...</option>
+                                    {medicos.map(m => (
+                                        <option key={m.id} value={m.nombre_completo}>{m.nombre_completo}</option>
+                                    ))}
+                                </select>
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Cédula Médico que Refiere</label>
-                                <input required type="text" className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold" value={formData.cedula_refiere} onChange={e => setFormData({...formData, cedula_refiere: e.target.value})} placeholder="Ej. CP 12204901" />
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Cédula Profesional</label>
+                                <input required type="text" className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold" value={formData.cedula_refiere} onChange={e => setFormData({...formData, cedula_refiere: e.target.value})} />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Medio de Transporte</label>
@@ -1309,18 +1396,44 @@ export default function PasesPage() {
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha de Consulta (En la ciudad)</label>
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha de Salida Unidad</label>
+                                <input required type="date" className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold" value={formData.fecha_salida_unidad} onChange={e => setFormData({...formData, fecha_salida_unidad: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha Programada de Consulta</label>
                                 <input required type="date" className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold" value={formData.fecha_consulta} onChange={e => setFormData({...formData, fecha_consulta: e.target.value})} />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Médico Responsable de Unidad (Firma pág 2)</label>
-                                <input required type="text" className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold" value={formData.medico_responsable_unidad} onChange={e => setFormData({...formData, medico_responsable_unidad: e.target.value})} placeholder="DR. JESUS DEL HOYO RAMIREZ" />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Cédula Médico de Unidad</label>
-                                <input required type="text" className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold" value={formData.cedula_responsable_unidad} onChange={e => setFormData({...formData, cedula_responsable_unidad: e.target.value})} placeholder="5474871 / 10341060" />
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha Real que se Presentó</label>
+                                <input type="date" className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold" value={formData.fecha_presento_consulta} onChange={e => setFormData({...formData, fecha_presento_consulta: e.target.value})} />
                             </div>
 
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Médico Responsable de Unidad</label>
+                                <select 
+                                    className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold"
+                                    value={formData.medico_responsable_unidad}
+                                    onChange={e => handleDoctorResponsableSelect(e.target.value)}
+                                >
+                                    <option value="">Seleccione médico de unidad...</option>
+                                    {medicos.map(m => (
+                                        <option key={m.id} value={m.nombre_completo}>{m.nombre_completo}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Cédula de Médico de Unidad</label>
+                                <input required type="text" className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold" value={formData.cedula_responsable_unidad} onChange={e => setFormData({...formData, cedula_responsable_unidad: e.target.value})} />
+                            </div>
+                            <div className="col-span-1">
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Servicio Especialidad al que se envía</label>
+                                <input required type="text" className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold" value={formData.servicio_se_envia} onChange={e => setFormData({...formData, servicio_se_envia: e.target.value})} />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Médico Acepta Referencia</label>
+                                <input required type="text" className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold" value={formData.medico_acepta} onChange={e => setFormData({...formData, medico_acepta: e.target.value})} />
+                            </div>
                             <div className="flex items-center mt-6">
                                 <label className="flex items-center gap-2 cursor-pointer">
                                     <input 
@@ -1329,200 +1442,161 @@ export default function PasesPage() {
                                         checked={formData.requiere_especialista}
                                         onChange={e => setFormData({...formData, requiere_especialista: e.target.checked})}
                                     />
-                                    <span className="text-xs font-bold text-zinc-700 uppercase">¿Se requiere atención de especialista?</span>
+                                    <span className="text-xs font-bold text-zinc-700 uppercase">¿Atención de especialista?</span>
                                 </label>
                             </div>
                             {formData.requiere_especialista && (
                                 <div>
-                                    <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha de Cita del Especialista</label>
+                                    <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha de Cita</label>
                                     <input type="date" className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold" value={formData.fecha_cita} onChange={e => setFormData({...formData, fecha_cita: e.target.value})} />
                                 </div>
                             )}
-
-                            <div className="flex items-center mt-6 bg-amber-50 border border-amber-200/50 p-2.5 rounded-lg">
-                                <label className="flex items-center gap-2.5 cursor-pointer">
-                                    <input 
-                                        type="checkbox"
-                                        className="rounded border-zinc-300 text-amber-500 focus:ring-amber-500 w-4 h-4"
-                                        checked={formData.compartido_departamentos}
-                                        onChange={e => setFormData({...formData, compartido_departamentos: e.target.checked})}
-                                    />
-                                    <span className="text-xs font-black text-amber-900 uppercase">Tildar Nombre (Compartir con Departamentos)</span>
-                                </label>
-                            </div>
                         </div>
 
-                        {/* Hotel check */}
-                        <div className="pt-4 border-t border-zinc-200 flex flex-wrap gap-6 items-center">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input 
-                                    type="checkbox"
-                                    className="rounded border-zinc-300 text-amber-500 focus:ring-amber-500"
-                                    checked={formData.requiere_hotel}
-                                    onChange={e => setFormData({...formData, requiere_hotel: e.target.checked})}
-                                />
-                                <span className="text-xs font-bold text-zinc-700 uppercase flex items-center gap-1">
-                                    <Building className="w-4 h-4" /> Requiere Alojamiento de Hotel
-                                </span>
-                            </label>
+                        {/* Hotel Fields */}
+                        <div className="pt-4 border-t border-zinc-200 grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="flex items-center">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input 
+                                        type="checkbox"
+                                        className="rounded border-zinc-300 text-amber-500 focus:ring-amber-500"
+                                        checked={formData.requiere_hotel}
+                                        onChange={e => setFormData({...formData, requiere_hotel: e.target.checked})}
+                                    />
+                                    <span className="text-xs font-bold text-zinc-700 uppercase">¿Requiere pase de hotel/hospedaje?</span>
+                                </label>
+                            </div>
                             {formData.requiere_hotel && (
-                                <div className="flex-1 max-w-sm">
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Nombre del Hotel</label>
                                     <input 
                                         required type="text"
-                                        className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2 text-xs font-bold"
+                                        placeholder="Ej. HOTEL DEL CENTRO"
+                                        className="w-full rounded-xl border-zinc-200 bg-white px-4 py-2.5 text-xs font-bold"
                                         value={formData.hotel_nombre}
                                         onChange={e => setFormData({...formData, hotel_nombre: e.target.value})}
-                                        placeholder="Nombre del hotel aprobado"
                                     />
                                 </div>
                             )}
                         </div>
                     </div>
 
-                    <div className="flex justify-end pt-4 border-t border-zinc-100">
-                        <button type="submit" className="bg-amber-500 text-black px-10 py-3 rounded-xl text-xs font-black hover:bg-amber-400 shadow-md">
-                            Guardar y Registrar Pase Médico
+                    <div className="flex justify-between items-center pt-2">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input 
+                                type="checkbox"
+                                className="rounded border-zinc-300 text-amber-500 focus:ring-amber-500"
+                                checked={formData.compartido_departamentos}
+                                onChange={e => setFormData({...formData, compartido_departamentos: e.target.checked})}
+                            />
+                            <span className="text-xs font-bold text-zinc-650 uppercase">Compartir pase en Muro / Departamentos</span>
+                        </label>
+                        <button type="submit" className="bg-amber-500 text-black px-6 py-2.5 rounded-xl text-sm font-black hover:bg-amber-400 transition-colors shadow-md">
+                            Guardar e Registrar Pase Médico
                         </button>
                     </div>
                 </form>
             )}
 
+            {/* List Table */}
             <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 overflow-hidden">
-                <div className="p-4 border-b border-zinc-100 bg-zinc-50 flex flex-wrap justify-between items-center gap-4">
-                    <div className="flex items-center gap-4 flex-1 min-w-[280px]">
-                        <h3 className="font-bold text-zinc-800 text-sm flex items-center gap-2 shrink-0">
-                            <FileText className="w-4 h-4 text-amber-500" />
-                            Directorio de Pases Registrados
-                        </h3>
-                        <div className="relative flex-1 max-w-xs">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                            <input 
-                                type="text"
-                                placeholder="Buscar por paciente o folio..."
-                                className="w-full pl-9 pr-4 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-amber-500"
-                                value={searchQuery}
-                                onChange={e => setSearchQuery(e.target.value)}
-                            />
-                        </div>
+                <div className="p-4 border-b border-zinc-100 flex flex-col md:flex-row justify-between items-center gap-4 bg-zinc-50">
+                    <div className="relative flex-1 w-full">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                        <input 
+                            type="text"
+                            placeholder="Buscar por paciente o folio..."
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border-zinc-200 bg-white text-xs font-semibold"
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                        />
                     </div>
-                    
-                    <div className="flex flex-wrap items-center gap-1.5 bg-zinc-200/60 p-1 rounded-xl border border-zinc-200">
-                        <span className="text-[9px] font-black text-zinc-500 uppercase px-2 flex items-center gap-1">
-                            <Eye className="w-3 h-3 text-emerald-600" /> Vista:
-                        </span>
-                        <button
-                            type="button"
+                    <div className="flex items-center gap-2 w-full md:w-auto">
+                        <button 
                             onClick={() => setFilterMode('todos')}
-                            className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all ${
-                                filterMode === 'todos' ? 'bg-zinc-900 text-white shadow-xs' : 'text-zinc-600 hover:text-black'
-                            }`}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${filterMode === 'todos' ? 'bg-zinc-900 text-white' : 'bg-white border text-zinc-600'}`}
                         >
-                            <span>📋 Todos</span>
+                            Todos
                         </button>
-                        <button
-                            type="button"
+                        <button 
                             onClick={() => setFilterMode('compartidos')}
-                            className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 ${
-                                filterMode === 'compartidos' ? 'bg-white text-emerald-800 shadow-xs border border-emerald-200' : 'text-zinc-600 hover:text-black'
-                            }`}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${filterMode === 'compartidos' ? 'bg-amber-500 text-black' : 'bg-white border text-zinc-600'}`}
                         >
-                            <span>🏢 Compartidos con Depto</span>
+                            Compartidos
                         </button>
-                        <button
-                            type="button"
+                        <button 
                             onClick={() => setFilterMode('solo_medicos')}
-                            className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 ${
-                                filterMode === 'solo_medicos' ? 'bg-purple-600 text-white shadow-xs shadow-purple-500/20' : 'text-zinc-600 hover:text-black'
-                            }`}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${filterMode === 'solo_medicos' ? 'bg-zinc-800 text-white' : 'bg-white border text-zinc-600'}`}
                         >
-                            <FolderLock className="w-3 h-3" />
-                            <span>🛡️ Privados (Sólo Médicos)</span>
+                            Exclusivo Médico
                         </button>
                     </div>
                 </div>
+
                 <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-zinc-50 text-zinc-500 font-medium border-b border-zinc-100 text-xs">
+                    <table className="w-full text-xs text-left">
+                        <thead className="bg-zinc-50 text-zinc-500 font-medium border-b border-zinc-100">
                             <tr>
                                 <th className="px-6 py-4">Folio</th>
-                                <th className="px-6 py-4">Paciente</th>
-                                <th className="px-6 py-4">Ruta Clínica</th>
-                                <th className="px-6 py-4">Fechas</th>
-                                <th className="px-6 py-4">Privacidad</th>
-                                <th className="px-6 py-4">Estatus</th>
+                                <th className="px-6 py-4">Paciente / Trabajador</th>
+                                <th className="px-6 py-4">Clínica Origen</th>
+                                <th className="px-6 py-4">Destino</th>
+                                <th className="px-6 py-4">Motivo / Urgencia</th>
+                                <th className="px-6 py-4">Impresión</th>
                                 <th className="px-6 py-4 text-right">Acciones</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100">
                             {loading ? (
-                                <tr><td colSpan={7} className="px-6 py-8 text-center text-zinc-500">Cargando pases médicos...</td></tr>
-                            ) : (() => {
-                                const filteredPases = pases.filter(p => {
-                                    const matchSearch = (p.pacientes?.nombre_completo || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
-                                                        (p.folio || '').toLowerCase().includes(searchQuery.toLowerCase());
-                                    if (!matchSearch) return false
-
-                                    if (filterMode === 'compartidos') return p.compartido_departamentos === true
-                                    if (filterMode === 'solo_medicos') return !p.compartido_departamentos
-                                    return true
-                                })
-                                if (filteredPases.length === 0) {
-                                    return <tr><td colSpan={7} className="px-6 py-8 text-center text-zinc-500">No se encontraron pases en esta vista</td></tr>
-                                }
-                                return filteredPases.map(pase => (
-
-                                    <tr key={pase.id_pase} className="hover:bg-zinc-50/50 transition-colors">
-                                        <td className="px-6 py-4 font-mono font-bold text-amber-600">
-                                            {pase.folio || '-'}
+                                <tr><td colSpan={7} className="px-6 py-8 text-center text-zinc-400">Cargando registros...</td></tr>
+                            ) : filteredPases.length === 0 ? (
+                                <tr><td colSpan={7} className="px-6 py-8 text-center text-zinc-400">No se encontraron pases registrados</td></tr>
+                            ) : (
+                                filteredPases.map(pase => (
+                                    <tr key={pase.id_pase} className="hover:bg-zinc-50/50 transition-colors font-medium text-zinc-800">
+                                        <td className="px-6 py-4 font-mono font-black text-red-700">{pase.folio}</td>
+                                        <td className="px-6 py-4">
+                                            <div className="font-bold text-zinc-950 uppercase">{pase.pacientes?.nombre_completo || 'Paciente no registrado'}</div>
+                                            <div className="text-[10px] text-zinc-400 uppercase">{pase.parentesco || 'ELLA MISMA'} | TRAB: {pase.nombre_trabajador || '-'}</div>
+                                        </td>
+                                        <td className="px-6 py-4">{pase.clinica_origen?.nombre || 'Clínica Origen'}</td>
+                                        <td className="px-6 py-4 font-bold text-amber-700">{pase.unidad_se_refiere || pase.clinica_destino?.nombre || 'Destino'}</td>
+                                        <td className="px-6 py-4">
+                                            <div className="truncate max-w-xs">{pase.motivo}</div>
+                                            <div className="text-[10px] text-zinc-400 font-bold uppercase">Urgencia: <span className={pase.urgencia === 'SÍ' ? 'text-red-600 font-black' : ''}>{pase.urgencia || 'NO'}</span></div>
                                         </td>
                                         <td className="px-6 py-4">
-                                            <div className="font-bold text-zinc-800">{(pase.pacientes?.nombre_completo || '').toUpperCase()}</div>
-                                            <div className="text-[10px] text-zinc-400 uppercase">{pase.parentesco || 'ELLA MISMA'}</div>
-                                        </td>
-                                        <td className="px-6 py-4 text-xs">
-                                            <span className="font-semibold text-zinc-700 bg-zinc-100 px-2 py-0.5 rounded">{pase.clinica_origen?.nombre || pase.unidad_refiere || 'Origen'}</span>
-                                            <span className="mx-1 text-zinc-400">&rarr;</span>
-                                            <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{pase.clinica_destino?.nombre || pase.unidad_se_refiere || 'Destino'}</span>
-                                        </td>
-                                        <td className="px-6 py-4 text-zinc-650 text-xs font-mono">
-                                            <div>Salida: {pase.fecha_salida}</div>
-                                            {pase.fecha_retorno && <div>Retorno: {pase.fecha_retorno}</div>}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {pase.compartido_departamentos ? (
-                                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[9px] font-black uppercase">✓ Compartido Depto</span>
-                                            ) : (
-                                                <span className="px-2 py-0.5 bg-purple-100 text-purple-800 border border-purple-200 rounded text-[9px] font-black uppercase flex items-center gap-1 w-fit"><FolderLock className="w-2.5 h-2.5" /> Confidencial (Sólo Médicos)</span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className="px-2.5 py-1 bg-zinc-100 text-zinc-700 rounded-full text-xs font-semibold uppercase">
-                                                {pase.estatus}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <div className="flex items-center justify-end gap-2">
+                                            <div className="flex gap-2">
                                                 <button 
                                                     onClick={() => handlePrintPase(pase)}
-                                                    className="bg-amber-500 hover:bg-amber-400 text-black font-black px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-xs"
-                                                    title="Imprimir Pase Médico"
+                                                    className="px-2 py-1 bg-zinc-100 hover:bg-zinc-200 border text-[10px] font-bold rounded-lg flex items-center gap-1 uppercase transition-colors"
+                                                    title="Imprimir Pase de Referencia y Viáticos"
                                                 >
-                                                    <Printer className="w-3.5 h-3.5" />
-                                                    <span>Pase Médico</span>
+                                                    <Printer className="w-3.5 h-3.5" /> Pase
                                                 </button>
-                                                <button 
-                                                    onClick={() => handlePrintHotelPase(pase)}
-                                                    className="bg-purple-600 hover:bg-purple-500 text-white font-black px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-xs"
-                                                    title="Imprimir Pase de Hotel en 2 partes (Copia y Original)"
-                                                >
-                                                    <Building className="w-3.5 h-3.5" />
-                                                    <span>Pase Hotel</span>
-                                                </button>
+                                                {pase.requiere_hotel && (
+                                                    <button 
+                                                        onClick={() => handlePrintHotelPase(pase)}
+                                                        className="px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-[10px] font-bold rounded-lg flex items-center gap-1 uppercase transition-colors"
+                                                        title="Imprimir Pase de Hospedaje en Hotel"
+                                                    >
+                                                        🏨 Hotel
+                                                    </button>
+                                                )}
                                             </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <button 
+                                                onClick={() => deletePase(pase.id_pase, pase.folio)}
+                                                className="text-zinc-400 hover:text-rose-600 transition-colors ml-auto flex items-center gap-1"
+                                                title="Eliminar Pase"
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                                            </button>
                                         </td>
                                     </tr>
                                 ))
-                            })()}
+                            )}
                         </tbody>
                     </table>
                 </div>

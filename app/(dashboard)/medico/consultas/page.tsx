@@ -2,25 +2,25 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Stethoscope, Plus, Search, FileText, Pill, Printer, CheckCircle2, X } from 'lucide-react'
+import { useAuth } from '@/components/AuthProvider'
+import { Heart, Plus, Search, Users, Trash2, Printer, Stethoscope, Pill, CheckCircle } from 'lucide-react'
 
 export default function ConsultasPage() {
+    const { profile } = useAuth()
     const [consultas, setConsultas] = useState<any[]>([])
+    const [pacientes, setPacientes] = useState<any[]>([])
+    const [medicamentosCat, setMedicamentosCat] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [showForm, setShowForm] = useState(false)
     const [filterPatientName, setFilterPatientName] = useState('')
-
-    // Form data
+    
     const [formData, setFormData] = useState({
         id_paciente: '',
         diagnostico: '',
         costo_consulta: 0,
+        acompanante: '',
         medicamentos_recetados: [] as any[]
     })
-
-
-    const [pacientes, setPacientes] = useState<any[]>([])
-    const [medicamentosCat, setMedicamentosCat] = useState<any[]>([])
 
     useEffect(() => {
         fetchConsultas()
@@ -37,10 +37,13 @@ export default function ConsultasPage() {
 
     const fetchConsultas = async () => {
         setLoading(true)
-        const { data, error } = await supabase.from('consultas_medicas').select(`
-            *,
-            pacientes (nombre_completo, es_poblacion_general, parentesco, id_empleado)
-        `).order('fecha', { ascending: false })
+        const { data, error } = await supabase
+            .from('consultas_medicas')
+            .select(`
+                *,
+                pacientes (nombre_completo, es_poblacion_general, parentesco, acompanante)
+            `)
+            .order('fecha', { ascending: false })
         if (data) setConsultas(data)
         setLoading(false)
     }
@@ -56,7 +59,6 @@ export default function ConsultasPage() {
         const newMed = [...formData.medicamentos_recetados]
         newMed[index][field] = value
         
-        // Auto-fill price if it's general population
         if (field === 'id_medicamento') {
             const med = medicamentosCat.find(m => m.id_medicamento === value)
             const pac = pacientes.find(p => p.id_paciente === formData.id_paciente)
@@ -66,7 +68,7 @@ export default function ConsultasPage() {
                 newMed[index].costo_unitario = 0
             }
             if (med && !newMed[index].dosis) {
-                newMed[index].dosis = med.descripcion || '1 tableta cada 8 horas por 5 días'
+                newMed[index].dosis = med.descripcion || '1 TABLETA CADA 8 HORAS POR 5 DÍAS'
             }
         }
         
@@ -92,34 +94,55 @@ export default function ConsultasPage() {
         const { data: consultaData, error: consultaError } = await supabase.from('consultas_medicas').insert([{
             id_paciente: formData.id_paciente,
             diagnostico: diagFinal,
-            costo_consulta: formData.costo_consulta
+            costo_consulta: formData.costo_consulta,
+            medico_id: profile?.id
         }]).select()
 
-        if (consultaData && consultaData.length > 0 && formData.medicamentos_recetados.length > 0) {
+        if (consultaData && consultaData.length > 0) {
             // 2. Insertar Dispensacion
-            const dispPayload = formData.medicamentos_recetados.map(med => ({
-                id_consulta: consultaData[0].id_consulta,
-                id_medicamento: med.id_medicamento,
-                cantidad: med.cantidad,
-                costo_unitario: med.costo_unitario,
-                costo_total: med.cantidad * med.costo_unitario
-            }))
+            if (formData.medicamentos_recetados.length > 0) {
+                const dispPayload = formData.medicamentos_recetados.map(med => ({
+                    id_consulta: consultaData[0].id_consulta,
+                    id_medicamento: med.id_medicamento,
+                    cantidad: med.cantidad,
+                    costo_unitario: med.costo_unitario,
+                    costo_total: med.cantidad * med.costo_unitario,
+                    dosis: med.dosis ? med.dosis.toUpperCase() : null
+                }))
+                await supabase.from('dispensacion_medicamentos').insert(dispPayload)
+            }
 
-            await supabase.from('dispensacion_medicamentos').insert(dispPayload)
+            // 3. Sync companion to patients table if modified
+            if (formData.id_paciente && formData.acompanante) {
+                await supabase.from('pacientes').update({
+                    acompanante: formData.acompanante.toUpperCase()
+                }).eq('id_paciente', formData.id_paciente)
+            }
         }
 
         setShowForm(false)
-        setFormData({ id_paciente: '', diagnostico: '', costo_consulta: 0, medicamentos_recetados: [] })
+        setFormData({ id_paciente: '', diagnostico: '', costo_consulta: 0, acompanante: '', medicamentos_recetados: [] })
         setFilterPatientName('')
         fetchConsultas()
-
+        fetchCatalogos() // Reload companion changes
     }
 
     const handlePrintReceta = async (consulta: any) => {
         const { data: dispensacion } = await supabase
             .from('dispensacion_medicamentos')
-            .select('*, cat_medicamentos(nombre, presentacion, descripcion)')
+            .select('*, cat_medicamentos(nombre, presentacion, sustancia_activa, descripcion)')
             .eq('id_consulta', consulta.id_consulta)
+
+        // Fetch prescribing doctor profile details
+        let doctorProfile = null
+        if (consulta.medico_id) {
+            const { data } = await supabase
+                .from('perfiles')
+                .select('*')
+                .eq('id', consulta.medico_id)
+                .single()
+            if (data) doctorProfile = data
+        }
 
         const printWindow = window.open('', '_blank', 'width=900,height=1150')
         if (!printWindow) return
@@ -131,22 +154,25 @@ export default function ConsultasPage() {
         const diagTexto = (consulta.diagnostico || '').split('[INDICACIONES RECETA]')[0].trim() || 'Valoración médica general'
         const pacienteNombre = (consulta.pacientes?.nombre_completo || 'PACIENTE REGISTRADO').toUpperCase()
         const categoriaPaciente = consulta.pacientes?.es_poblacion_general ? 'POBLACIÓN GENERAL / PARTICULAR' : 'TRABAJADOR / BENEFICIARIO BACIS'
+        const companionName = (consulta.pacientes?.acompanante || '').toUpperCase()
         const folioReceta = `REC-${(consulta.id_consulta || '').toString().slice(0, 8).toUpperCase()}`
 
         const medsRows = (dispensacion && dispensacion.length > 0) ? dispensacion.map((item: any, idx: number) => {
             const m = item.cat_medicamentos || {}
+            const dosisTexto = (item.dosis || item.descripcion || 'Tomar según prescripción médica.').toUpperCase()
             return `
                 <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
-                    <td style="padding: 14px 12px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 800; font-size: 14px; width: 65px; color: #0f172a;">
+                    <td style="padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 800; font-size: 13px; width: 65px; color: #0f172a;">
                         ${item.cantidad || 1}
                     </td>
-                    <td style="padding: 14px 12px; border-bottom: 1px solid #e2e8f0;">
-                        <div style="font-weight: 800; color: #0f172a; font-size: 14px; text-transform: uppercase;">${m.nombre || 'MEDICAMENTO PRESTABLECIDO'}</div>
-                        <div style="font-size: 11px; font-weight: 600; color: #64748b; margin-top: 2px;">Presentación: ${m.presentacion || 'Estándar'}</div>
+                    <td style="padding: 12px; border-bottom: 1px solid #e2e8f0;">
+                        <div style="font-weight: 800; color: #0f172a; font-size: 13px; text-transform: uppercase;">${m.nombre || 'MEDICAMENTO PRESTABLECIDO'}</div>
+                        ${m.sustancia_activa ? `<div style="font-size: 10px; font-weight: 700; color: #b45309; margin-top: 1px;">Sustancia Activa: ${m.sustancia_activa.toUpperCase()}</div>` : ''}
+                        <div style="font-size: 10px; font-weight: 600; color: #64748b; margin-top: 2px;">Presentación: ${m.presentacion || 'Estándar'}</div>
                     </td>
-                    <td style="padding: 14px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; color: #334155; line-height: 1.5;">
-                        <strong style="color: #0f172a; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Posología e Indicaciones:</strong><br/>
-                        ${m.descripcion || 'Tomar según prescripción médica y horario establecido por el doctor tratante.'}
+                    <td style="padding: 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; color: #334155; line-height: 1.4;">
+                        <strong style="color: #0f172a; font-size: 10px; text-transform: uppercase;">Posología e indicaciones:</strong><br/>
+                        ${dosisTexto}
                     </td>
                 </tr>
             `
@@ -182,72 +208,66 @@ export default function ConsultasPage() {
                         box-sizing: border-box;
                         border-radius: 12px;
                     }
-                    .header {
-                        display: flex;
-                        justify-content: space-between;
-                        align-items: flex-start;
-                        border-bottom: 3px double #0f172a;
-                        padding-bottom: 24px;
-                        margin-bottom: 28px;
+                    .header-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        border-bottom: 2px solid #0f172a;
+                        padding-bottom: 15px;
+                        margin-bottom: 20px;
                     }
-                    .header-left {
-                        display: flex;
-                        align-items: center;
-                        gap: 16px;
+                    .logo-img {
+                        height: 60px;
+                        object-fit: contain;
                     }
-                    .logo-box {
-                        width: 64px;
-                        height: 64px;
-                        background: #0f172a;
-                        color: #f59e0b;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        font-weight: 900;
-                        font-size: 26px;
-                        border-radius: 14px;
-                        letter-spacing: -1.5px;
-                        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                    .doctor-meta-block {
+                        vertical-align: top;
+                        padding-left: 20px;
+                        line-height: 1.4;
                     }
-                    .inst-title {
-                        font-size: 19px;
-                        font-weight: 900;
+                    .doctor-name-lbl {
+                        font-size: 14px;
+                        font-weight: 800;
                         color: #0f172a;
-                        margin: 0;
-                        letter-spacing: -0.5px;
                         text-transform: uppercase;
                     }
-                    .inst-subtitle {
-                        font-size: 11px;
+                    .doctor-spec-lbl {
+                        font-size: 9px;
                         font-weight: 700;
-                        color: #64748b;
-                        margin: 4px 0 0 0;
+                        color: #b45309;
                         text-transform: uppercase;
-                        letter-spacing: 0.5px;
+                    }
+                    .doctor-details-text {
+                        font-size: 9px;
+                        color: #64748b;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        margin-top: 4px;
                     }
                     .header-right {
+                        vertical-align: top;
                         text-align: right;
+                        width: 200px;
                     }
                     .receta-badge {
                         background: #f59e0b;
                         color: #000;
-                        padding: 5px 14px;
-                        font-weight: 900;
-                        font-size: 12px;
+                        padding: 4px 10px;
+                        font-weight: 800;
+                        font-size: 10px;
                         text-transform: uppercase;
-                        border-radius: 6px;
+                        border-radius: 4px;
                         display: inline-block;
-                        margin-bottom: 6px;
+                        margin-bottom: 4px;
                         letter-spacing: 0.5px;
                     }
                     .folio-text {
-                        font-size: 17px;
-                        font-weight: 800;
+                        font-size: 15px;
+                        font-weight: 850;
                         font-family: monospace;
                         color: #0f172a;
                     }
                     .fecha-text {
-                        font-size: 11px;
+                        font-size: 9px;
                         font-weight: 600;
                         color: #64748b;
                         margin-top: 4px;
@@ -257,138 +277,132 @@ export default function ConsultasPage() {
                         background: #f8fafc;
                         border: 1px solid #cbd5e1;
                         border-left: 6px solid #0f172a;
-                        padding: 18px 24px;
-                        border-radius: 10px;
-                        margin-bottom: 28px;
+                        padding: 15px 20px;
+                        border-radius: 8px;
+                        margin-bottom: 20px;
                         display: grid;
                         grid-template-columns: 2fr 1fr;
                         gap: 20px;
                     }
                     .patient-name {
-                        font-size: 17px;
+                        font-size: 15px;
                         font-weight: 900;
                         color: #0f172a;
-                        margin: 0 0 6px 0;
-                        letter-spacing: -0.3px;
+                        margin: 0 0 4px 0;
                     }
                     .patient-meta {
-                        font-size: 10px;
+                        font-size: 9px;
                         font-weight: 800;
-                        color: #f59e0b;
+                        color: #ffffff;
                         background: #0f172a;
-                        padding: 3px 10px;
-                        border-radius: 5px;
+                        padding: 2px 8px;
+                        border-radius: 4px;
                         display: inline-block;
                         text-transform: uppercase;
-                        letter-spacing: 0.5px;
                     }
                     .diag-box {
                         border-left: 1px solid #cbd5e1;
                         padding-left: 20px;
                     }
                     .diag-label {
-                        font-size: 10px;
+                        font-size: 9px;
                         font-weight: 800;
                         color: #64748b;
                         text-transform: uppercase;
-                        margin: 0 0 4px 0;
-                        letter-spacing: 0.5px;
+                        margin: 0 0 2px 0;
                     }
                     .diag-text {
-                        font-size: 12px;
+                        font-size: 11px;
                         font-weight: 700;
                         color: #1e293b;
-                        line-height: 1.4;
+                        line-height: 1.3;
                     }
                     .section-header {
-                        font-size: 14px;
+                        font-size: 12px;
                         font-weight: 900;
                         color: #0f172a;
                         text-transform: uppercase;
-                        letter-spacing: 0.5px;
                         border-bottom: 2px solid #0f172a;
-                        padding-bottom: 8px;
-                        margin: 28px 0 16px 0;
-                        display: flex;
-                        align-items: center;
-                        gap: 8px;
+                        padding-bottom: 6px;
+                        margin: 20px 0 12px 0;
                     }
                     .med-table {
                         width: 100%;
                         border-collapse: collapse;
-                        margin-bottom: 28px;
+                        margin-bottom: 20px;
                         border: 1px solid #cbd5e1;
-                        border-radius: 10px;
+                        border-radius: 8px;
                         overflow: hidden;
                     }
                     .med-table th {
                         background: #0f172a;
                         color: #ffffff;
-                        font-size: 11px;
+                        font-size: 10px;
                         font-weight: 800;
                         text-transform: uppercase;
-                        padding: 12px 14px;
+                        padding: 10px;
                         text-align: left;
-                        letter-spacing: 0.5px;
                     }
                     .recommendations-box {
                         background: #fffbeb;
                         border: 1px solid #fde68a;
-                        padding: 18px 20px;
-                        border-radius: 10px;
-                        font-size: 12px;
+                        padding: 15px;
+                        border-radius: 8px;
+                        font-size: 11px;
                         color: #92400e;
-                        margin-bottom: 50px;
+                        margin-bottom: 30px;
                     }
                     .recommendations-title {
                         font-weight: 800;
                         text-transform: uppercase;
-                        margin-bottom: 8px;
+                        margin-bottom: 6px;
                         color: #b45309;
-                        font-size: 11px;
-                        letter-spacing: 0.5px;
+                        font-size: 10px;
                     }
                     .footer-grid {
                         display: grid;
                         grid-template-columns: 1fr 1fr;
-                        gap: 40px;
-                        margin-top: 55px;
-                        padding-top: 35px;
+                        gap: 30px;
+                        margin-top: 35px;
+                        padding-top: 20px;
                         border-top: 1px dashed #cbd5e1;
                     }
                     .signature-box {
                         text-align: center;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: flex-end;
                     }
                     .signature-line {
                         width: 80%;
                         margin: 0 auto;
-                        border-bottom: 2px solid #0f172a;
-                        height: 45px;
+                        border-bottom: 1.5px solid #0f172a;
+                        height: 10px;
                     }
                     .doctor-name {
-                        font-size: 13px;
+                        font-size: 12px;
                         font-weight: 900;
                         color: #0f172a;
-                        margin-top: 10px;
-                        letter-spacing: -0.2px;
+                        margin-top: 8px;
                     }
                     .doctor-cedula {
-                        font-size: 11px;
+                        font-size: 10px;
                         font-weight: 600;
                         color: #64748b;
-                        margin-top: 3px;
+                        margin-top: 2px;
                     }
                     .seal-box {
                         text-align: center;
-                        font-size: 10px;
+                        font-size: 9px;
                         color: #64748b;
                         display: flex;
                         flex-direction: column;
                         justify-content: center;
                         align-items: center;
                         border: 1.5px dashed #cbd5e1;
-                        padding: 18px;
-                        border-radius: 10px;
+                        padding: 12px;
+                        border-radius: 8px;
                         background: #f8fafc;
                     }
                     .watermark {
@@ -396,7 +410,7 @@ export default function ConsultasPage() {
                         top: 50%;
                         left: 50%;
                         transform: translate(-50%, -50%) rotate(-30deg);
-                        font-size: 90px;
+                        font-size: 80px;
                         font-weight: 900;
                         color: rgba(15, 23, 42, 0.025);
                         pointer-events: none;
@@ -404,7 +418,7 @@ export default function ConsultasPage() {
                     }
                     @media print {
                         body { padding: 0; }
-                        .receta-container { border: none; max-width: 100%; padding: 25px; border-radius: 0; }
+                        .receta-container { border: none; max-width: 100%; padding: 15px; border-radius: 0; }
                     }
                 </style>
             </head>
@@ -412,43 +426,52 @@ export default function ConsultasPage() {
                 <div class="receta-container">
                     <div class="watermark">MINERA BACIS</div>
                     
-                    <div class="header">
-                        <div class="header-left">
-                            <div class="logo-box">MB</div>
-                            <div>
-                                <h1 class="inst-title">Grupo Minero Bacis, S.A. de C.V.</h1>
-                                <p class="inst-subtitle">Unidad Minera "El Herrero" — Servicios Médicos y Salud Ocupacional</p>
-                            </div>
-                        </div>
-                        <div class="header-right">
-                            <div class="receta-badge">Receta Médica Oficial</div>
-                            <div class="folio-text">${folioReceta}</div>
-                            <div class="fecha-text">${formattedFecha}</div>
-                        </div>
-                    </div>
+                    <table class="header-table">
+                        <tr>
+                            <td style="width: 140px; vertical-align: middle;">
+                                <img src="/logo-bacis.png" class="logo-img" alt="Logo Bacis" />
+                            </td>
+                            <td class="doctor-meta-block">
+                                <div class="doctor-name-lbl">${doctorProfile?.nombre_completo || 'MÉDICO GENERAL TRATANTE'}</div>
+                                <div class="doctor-spec-lbl">${doctorProfile?.especialidad || 'SERVICIOS MÉDICOS Y SALUD OCUPACIONAL'}</div>
+                                <div class="doctor-details-text">
+                                    CÉDULA PROFESIONAL: ${doctorProfile?.cedula_profesional || 'REGISTRO PENDIENTE'}<br/>
+                                    EMITIDA POR: ${doctorProfile?.universidad || 'UNIV EMISORA'}<br/>
+                                    DOMICILIO: ${doctorProfile?.domicilio_consultorio || 'CONSTITUCION 145, UNIDAD EL HERRERO, DGO'}<br/>
+                                    TELÉFONO: ${doctorProfile?.telefono_consultorio || 'S/T'}
+                                </div>
+                            </td>
+                            <td class="header-right">
+                                <div class="receta-badge">Receta Médica Oficial</div>
+                                <div class="folio-text">${folioReceta}</div>
+                                <div class="fecha-text">${formattedFecha}</div>
+                            </td>
+                        </tr>
+                    </table>
 
                     <div class="patient-box">
                         <div>
-                            <div style="font-size:10px; font-weight:800; color:#64748b; text-transform:uppercase;">Nombre del Paciente</div>
+                            <div style="font-size:9px; font-weight:800; color:#64748b; text-transform:uppercase;">Nombre del Paciente</div>
                             <h2 class="patient-name">${pacienteNombre}</h2>
                             <span class="patient-meta">${categoriaPaciente}</span>
+                            ${companionName ? `<div style="font-size:9px; color:#475569; font-weight:bold; margin-top:5px;">Acompañante: ${companionName}</div>` : ''}
                         </div>
                         <div class="diag-box">
-                            <div class="diag-label">Valoración / Motivo Clínico</div>
+                            <div class="diag-label">Diagnóstico / Sintomatología</div>
                             <div class="diag-text">${diagTexto.replace(/\n/g, '<br/>')}</div>
                         </div>
                     </div>
 
                     <div class="section-header">
-                        <span>💊 Prescripción y Tratamiento Farmacológico</span>
+                        <span>💊 Prescripción Médica de Fármacos</span>
                     </div>
 
                     <table class="med-table">
                         <thead>
                             <tr>
                                 <th style="width: 65px; text-align: center;">Cant.</th>
-                                <th>Medicamento y Presentación</th>
-                                <th>Dosificación, Vía de Administración e Indicaciones</th>
+                                <th>Medicamento, Sustancia Activa y Forma</th>
+                                <th>Dosis, Vía de Administración y Duración</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -457,25 +480,26 @@ export default function ConsultasPage() {
                     </table>
 
                     <div class="recommendations-box">
-                        <div class="recommendations-title">📋 Indicaciones Médicas Generales y Cuidados</div>
-                        <ul style="margin: 0; padding-left: 20px; line-height: 1.6; font-weight: 600;">
+                        <div class="recommendations-title">📋 Indicaciones Médicas de Salud y Cuidados</div>
+                        <ul style="margin: 0; padding-left: 15px; line-height: 1.5; font-weight: 600;">
                             <li>Completar el tratamiento durante los días y horarios indicados puntualmente por el médico tratante.</li>
                             <li>Evitar la automedicación e ingerir abundante agua pura durante la jornada laboral o en domicilio.</li>
-                            <li>En caso de presentar reacciones adversas, fiebre persistente o signos de alarma, acudir al servicio de urgencias de la unidad o clínica más cercana de inmediato.</li>
+                            <li>En caso de presentar reacciones adversas, acudir al servicio de urgencias de la unidad de inmediato.</li>
                         </ul>
                     </div>
 
                     <div class="footer-grid">
                         <div class="signature-box">
+                            ${doctorProfile?.firma ? `<img src="${doctorProfile.firma}" style="max-height: 55px; margin-bottom: 2px;" />` : '<div style="height:55px;"></div>'}
                             <div class="signature-line"></div>
-                            <div class="doctor-name">DR. / DRA. TRATANTE</div>
-                            <div class="doctor-cedula">Servicios Médicos — Unidad El Herrero / Bacis</div>
-                            <div class="doctor-cedula" style="font-size: 10px; margin-top: 3px; font-weight: 700;">Firma del Médico Autorizado</div>
+                            <div class="doctor-name">${(doctorProfile?.nombre_completo || 'MÉDICO AUTORIZADO').toUpperCase()}</div>
+                            <div class="doctor-cedula">Cédula: ${doctorProfile?.cedula_profesional || 'CP S/N'}</div>
+                            <div class="doctor-cedula" style="font-size: 8.5px; font-weight: 700; color: #64748b; margin-top: 1px;">FIRMA DEL MÉDICO PRESCRIPTOR</div>
                         </div>
                         <div class="seal-box">
-                            <strong style="color: #0f172a; font-size: 11px; margin-bottom: 5px; text-transform: uppercase;">SELLO DE FARMACIA / SERVICIOS MÉDICOS</strong>
-                            <span style="font-weight: 600;">Documento clínico oficial para la dispensación en farmacia y justificación de tratamiento.</span>
-                            <span style="margin-top:5px; font-weight:800; color: #f59e0b; background: #0f172a; padding: 2px 8px; border-radius: 4px;">VALIDEZ VIGENTE DURANTE EL TRATAMIENTO</span>
+                            <strong style="color: #0f172a; font-size: 10px; margin-bottom: 4px; text-transform: uppercase;">SELLO DE FARMACIA / SERVICIOS MÉDICOS</strong>
+                            <span style="font-weight: 600; font-size: 9px;">Documento clínico oficial para la dispensación en farmacia y justificación de tratamiento.</span>
+                            <span style="margin-top:5px; font-weight:800; color: #f59e0b; background: #0f172a; padding: 2px 8px; border-radius: 4px; font-size: 8px;">VALIDEZ VIGENTE DURANTE EL TRATAMIENTO</span>
                         </div>
                     </div>
                 </div>
@@ -483,7 +507,8 @@ export default function ConsultasPage() {
                     window.onload = () => {
                         setTimeout(() => {
                             window.print();
-                        }, 600);
+                            window.close();
+                        }, 500);
                     };
                 </script>
             </body>
@@ -492,15 +517,19 @@ export default function ConsultasPage() {
         printWindow.document.close()
     }
 
-    // Auto update consultation cost when patient changes
     const handlePacienteChange = (val: string) => {
         const pac = pacientes.find(p => p.id_paciente === val)
         setFormData({
             ...formData,
             id_paciente: val,
-            costo_consulta: pac?.es_poblacion_general ? 200 : 0 // Ejemplo de costo base 200 para público general
+            acompanante: pac?.acompanante || '',
+            costo_consulta: pac?.es_poblacion_general ? 200 : 0
         })
     }
+
+    const filteredPacientes = pacientes.filter(p => 
+        (p.nombre_completo || '').toLowerCase().includes(filterPatientName.toLowerCase())
+    )
 
     return (
         <div className="space-y-6">
@@ -514,7 +543,7 @@ export default function ConsultasPage() {
                 </div>
                 <button
                     onClick={() => setShowForm(!showForm)}
-                    className="bg-amber-500 text-black px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-amber-400 transition-colors shadow-sm shadow-amber-500/20"
+                    className="bg-amber-500 text-black px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-amber-400 transition-colors shadow-sm"
                 >
                     <Plus className="w-4 h-4" />
                     Nueva Consulta
@@ -540,12 +569,12 @@ export default function ConsultasPage() {
                                 />
                                 <select 
                                     required
-                                    className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2"
+                                    className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-bold"
                                     value={formData.id_paciente}
                                     onChange={e => handlePacienteChange(e.target.value)}
                                 >
-                                    <option value="">Seleccione un paciente ({pacientes.filter(p => (p.nombre_completo || '').toLowerCase().includes(filterPatientName.toLowerCase())).length} encontrados)...</option>
-                                    {pacientes.filter(p => (p.nombre_completo || '').toLowerCase().includes(filterPatientName.toLowerCase())).map(p => (
+                                    <option value="">Seleccione un paciente ({filteredPacientes.length} encontrados)...</option>
+                                    {filteredPacientes.map(p => (
                                         <option key={p.id_paciente} value={p.id_paciente}>
                                             {p.nombre_completo} {p.es_poblacion_general ? '(Público)' : '(Trabajador/Benef)'}
                                         </option>
@@ -553,27 +582,38 @@ export default function ConsultasPage() {
                                 </select>
                             </div>
 
-                            
-                            <div>
-                                <label className="block text-sm font-semibold text-zinc-700 mb-1">Costo de Consulta ($)</label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-medium">$</span>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-semibold text-zinc-700 mb-1">Costo de Consulta ($)</label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-medium">$</span>
+                                        <input 
+                                            type="number" step="0.01" min="0"
+                                            className="w-full rounded-xl border-zinc-200 bg-zinc-50 pl-8 pr-4 py-2 text-xs font-bold"
+                                            value={formData.costo_consulta}
+                                            onChange={e => setFormData({...formData, costo_consulta: parseFloat(e.target.value) || 0})}
+                                            readOnly={!pacientes.find(p => p.id_paciente === formData.id_paciente)?.es_poblacion_general}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-semibold text-zinc-700 mb-1">Acompañante de Consulta</label>
                                     <input 
-                                        type="number" step="0.01" min="0"
-                                        className="w-full rounded-xl border-zinc-200 bg-zinc-50 pl-8 pr-4 py-2"
-                                        value={formData.costo_consulta}
-                                        onChange={e => setFormData({...formData, costo_consulta: parseFloat(e.target.value)})}
-                                        readOnly={!pacientes.find(p => p.id_paciente === formData.id_paciente)?.es_poblacion_general}
+                                        type="text"
+                                        placeholder="Ej. MARIA ARREOLA (MADRE)"
+                                        className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-bold"
+                                        value={formData.acompanante}
+                                        onChange={e => setFormData({...formData, acompanante: e.target.value})}
                                     />
                                 </div>
-                                <p className="text-xs text-zinc-500 mt-1">Gratis para trabajadores y beneficiarios.</p>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-semibold text-zinc-700 mb-1">Diagnóstico / Motivo</label>
+                                <label className="block text-sm font-semibold text-zinc-700 mb-1">Diagnóstico / Sintomatología</label>
                                 <textarea 
                                     required rows={3}
-                                    className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 resize-none"
+                                    className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-bold resize-none"
                                     value={formData.diagnostico}
                                     onChange={e => setFormData({...formData, diagnostico: e.target.value})}
                                     placeholder="Describa el diagnóstico o motivo de la consulta..."
@@ -638,7 +678,7 @@ export default function ConsultasPage() {
                                             <div>
                                                 <input 
                                                     type="text"
-                                                    placeholder="Dosificación / Posología (Ej. 1 tableta cada 8 horas por 5 días después de alimentos)"
+                                                    placeholder="Dosificación / Posología (Ej. 1 TABLETA CADA 8 HORAS POR 5 DÍAS)"
                                                     className="w-full rounded-lg border-amber-200/80 text-[11px] font-semibold py-1.5 px-3 bg-amber-50/50 text-amber-950 placeholder:text-zinc-400 focus:ring-1 focus:ring-amber-500"
                                                     value={med.dosis || ''}
                                                     onChange={e => updateMedicamento(idx, 'dosis', e.target.value)}
@@ -666,7 +706,7 @@ export default function ConsultasPage() {
                             Cancelar
                         </button>
                         <button type="submit" className="bg-amber-500 text-black px-8 py-2.5 rounded-xl text-xs font-black hover:bg-amber-400 transition-colors shadow-sm flex items-center gap-1.5">
-                            <CheckCircle2 className="w-4 h-4" />
+                            <CheckCircle className="w-4 h-4" />
                             Finalizar Consulta y Emitir Receta
                         </button>
                     </div>
@@ -693,9 +733,9 @@ export default function ConsultasPage() {
                         </thead>
                         <tbody className="divide-y divide-zinc-100">
                             {loading ? (
-                                <tr><td colSpan={5} className="px-6 py-10 text-center text-zinc-500 font-medium">Cargando consultas y recetas...</td></tr>
+                                <tr><td colSpan={5} className="px-6 py-10 text-center text-zinc-500 font-medium">Cargando consultas...</td></tr>
                             ) : consultas.length === 0 ? (
-                                <tr><td colSpan={5} className="px-6 py-10 text-center text-zinc-500 font-medium">No hay consultas registradas en la base de datos</td></tr>
+                                <tr><td colSpan={5} className="px-6 py-10 text-center text-zinc-500 font-medium">No hay consultas registradas</td></tr>
                             ) : (
                                 consultas.map(c => (
                                     <tr key={c.id_consulta} className="hover:bg-zinc-50/50 transition-colors">
@@ -705,9 +745,9 @@ export default function ConsultasPage() {
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="font-bold text-zinc-800 text-xs uppercase">{c.pacientes?.nombre_completo || 'PACIENTE ELIMINADO'}</div>
-                                            <div className="text-[10px] font-bold text-zinc-400 uppercase mt-0.5">{c.pacientes?.es_poblacion_general ? 'Público General / Particular' : `Trabajador/Benef (${c.pacientes?.parentesco || 'Titular'})`}</div>
+                                            <div className="text-[10px] font-bold text-zinc-400 uppercase mt-0.5">{c.pacientes?.es_poblacion_general ? 'Público General' : `Beneficiario (${c.pacientes?.parentesco || 'Titular'})`}</div>
                                         </td>
-                                        <td className="px-6 py-4 text-zinc-600 text-xs max-w-xs" title={c.diagnostico}>
+                                        <td className="px-6 py-4 text-zinc-650 text-xs max-w-xs" title={c.diagnostico}>
                                             <div className="font-medium line-clamp-2">{c.diagnostico}</div>
                                         </td>
                                         <td className="px-6 py-4 text-xs font-mono">
@@ -720,11 +760,10 @@ export default function ConsultasPage() {
                                         <td className="px-6 py-4 text-right">
                                             <button 
                                                 onClick={() => handlePrintReceta(c)}
-                                                className="bg-amber-500 hover:bg-amber-400 text-black font-black px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 shadow-xs transition-transform active:scale-95"
-                                                title="Imprimir Receta Médica Oficial con Fármacos e Indicaciones"
+                                                className="bg-amber-500 hover:bg-amber-400 text-black font-black px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 shadow-xs"
                                             >
                                                 <Printer className="w-3.5 h-3.5" />
-                                                <span>Ver / Imprimir Receta</span>
+                                                <span>Imprimir Receta</span>
                                             </button>
                                         </td>
                                     </tr>

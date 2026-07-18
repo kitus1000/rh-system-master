@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { useAuth } from '@/components/AuthProvider'
-import { User, Camera, Lock, Save, Loader2 } from 'lucide-react'
+import { User, Camera, Lock, Save, Loader2, Edit3, Trash2 } from 'lucide-react'
 
 export default function MiPerfilPage() {
     const { profile, user } = useAuth()
@@ -13,16 +13,35 @@ export default function MiPerfilPage() {
     const [clinicas, setClinicas] = useState<any[]>([])
     const [idClinica, setIdClinica] = useState('')
     
-    const [loading, setLoading] = useState(false)
+    // Doctor profile fields
+    const [cedula, setCedula] = useState('')
+    const [universidad, setUniversidad] = useState('')
+    const [especialidad, setEspecialidad] = useState('')
+    const [domicilio, setDomicilio] = useState('')
+    const [telefono, setTelefono] = useState('')
+    const [firmaSaved, setFirmaSaved] = useState('')
+
     const [saving, setSaving] = useState(false)
     const [msg, setMsg] = useState({ type: '', text: '' })
     const fileInputRef = useRef<HTMLInputElement>(null)
+
+    // Canvas drawing states
+    const canvasRef = useRef<HTMLCanvasElement>(null)
+    const [isDrawing, setIsDrawing] = useState(false)
+    const [hasFirma, setHasFirma] = useState(false)
 
     useEffect(() => {
         if (profile) {
             setApodo((profile as any).apodo || '')
             setAvatarUrl((profile as any).avatar_url || '')
             setIdClinica((profile as any).id_clinica || '')
+            
+            setCedula((profile as any).cedula_profesional || '')
+            setUniversidad((profile as any).universidad || '')
+            setEspecialidad((profile as any).especialidad || '')
+            setDomicilio((profile as any).domicilio_consultorio || '')
+            setTelefono((profile as any).telefono_consultorio || '')
+            setFirmaSaved((profile as any).firma || '')
         }
         fetchClinicas()
     }, [profile])
@@ -42,7 +61,6 @@ export default function MiPerfilPage() {
             const fileExt = file.name.split('.').pop()
             const fileName = `avatars/${profile?.id}-${Math.random()}.${fileExt}`
 
-            // Subir al bucket fotos_empleados (usando subcarpeta avatars)
             const { error: uploadError } = await supabase.storage
                 .from('fotos_empleados')
                 .upload(fileName, file)
@@ -56,7 +74,6 @@ export default function MiPerfilPage() {
             const url = publicUrlData.publicUrl
             setAvatarUrl(url)
 
-            // Actualizar BD
             await supabase.from('perfiles').update({ avatar_url: url }).eq('id', profile?.id)
             setMsg({ type: 'success', text: 'Foto de perfil actualizada.' })
         } catch (error: any) {
@@ -67,22 +84,89 @@ export default function MiPerfilPage() {
         }
     }
 
+    // Canvas Signature Functions
+    const startDrawing = (e: any) => {
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.strokeStyle = '#000000'
+        ctx.lineWidth = 3
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        
+        const pos = getPos(e)
+        ctx.beginPath()
+        ctx.moveTo(pos.x, pos.y)
+        setIsDrawing(true)
+    }
+
+    const draw = (e: any) => {
+        if (!isDrawing) return
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        
+        const pos = getPos(e)
+        ctx.lineTo(pos.x, pos.y)
+        ctx.stroke()
+        setHasFirma(true)
+    }
+
+    const stopDrawing = () => {
+        setIsDrawing(false)
+    }
+
+    const getPos = (e: any) => {
+        const canvas = canvasRef.current
+        if (!canvas) return { x: 0, y: 0 }
+        const rect = canvas.getBoundingClientRect()
+        
+        // Handle mobile touch events or mouse clicks
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY
+        
+        return {
+            x: clientX - rect.left,
+            y: clientY - rect.top
+        }
+    }
+
+    const clearCanvas = () => {
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        setHasFirma(false)
+    }
+
     const handleSave = async () => {
         setSaving(true)
         setMsg({ type: '', text: '' })
         try {
-            // Guardar Apodo y Clínica
+            let finalFirma = firmaSaved
+            if (hasFirma && canvasRef.current) {
+                finalFirma = canvasRef.current.toDataURL('image/png')
+            }
+
             const { error: profileError } = await supabase
                 .from('perfiles')
                 .update({ 
                     apodo,
-                    id_clinica: idClinica || null
+                    id_clinica: idClinica || null,
+                    cedula_profesional: cedula,
+                    universidad: universidad,
+                    especialidad: especialidad,
+                    domicilio_consultorio: domicilio,
+                    telefono_consultorio: telefono,
+                    firma: finalFirma
                 })
                 .eq('id', profile?.id)
             
             if (profileError) throw profileError
 
-            // Cambiar contraseña si se escribió algo
             if (password.trim() !== '') {
                 if (password.length < 6) throw new Error('La contraseña debe tener al menos 6 caracteres')
                 const { error: authError } = await supabase.auth.updateUser({
@@ -91,6 +175,8 @@ export default function MiPerfilPage() {
                 if (authError) throw authError
             }
 
+            setFirmaSaved(finalFirma)
+            setHasFirma(false)
             setMsg({ type: 'success', text: 'Perfil actualizado correctamente.' })
             setPassword('')
         } catch (error: any) {
@@ -101,13 +187,34 @@ export default function MiPerfilPage() {
         }
     }
 
+    const clearSavedFirma = async () => {
+        if (!confirm('¿Desea borrar la firma digital guardada?')) return
+        setSaving(true)
+        try {
+            const { error } = await supabase
+                .from('perfiles')
+                .update({ firma: null })
+                .eq('id', profile?.id)
+            if (error) throw error
+            setFirmaSaved('')
+            clearCanvas()
+            setMsg({ type: 'success', text: 'Firma borrada correctamente.' })
+        } catch (error: any) {
+            setMsg({ type: 'error', text: 'Error al borrar firma: ' + error.message })
+        } finally {
+            setSaving(false)
+        }
+    }
+
     if (!profile) return null
 
+    const isMedico = profile.rol === 'Médico'
+
     return (
-        <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in duration-500">
+        <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
             <div>
                 <h2 className="text-2xl font-bold text-zinc-900 uppercase tracking-wide">Mi Perfil</h2>
-                <p className="text-sm text-zinc-500">Personaliza cómo te ven tus compañeros en el chat y el muro.</p>
+                <p className="text-sm text-zinc-500">Personaliza tus datos personales y profesionales para recetas y pases médicos.</p>
             </div>
 
             {msg.text && (
@@ -144,26 +251,27 @@ export default function MiPerfilPage() {
 
                     {/* Formulario */}
                     <div className="flex-1 space-y-6 w-full">
-                        <div>
-                            <label className="block text-xs font-bold text-zinc-500 uppercase mb-2">Nombre Completo (Fijo)</label>
-                            <input 
-                                type="text" 
-                                disabled 
-                                value={profile.nombre_completo} 
-                                className="w-full border-zinc-200 bg-zinc-50 rounded-xl p-3 text-sm text-zinc-500" 
-                            />
-                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-500 uppercase mb-2">Nombre Completo (Fijo)</label>
+                                <input 
+                                    type="text" 
+                                    disabled 
+                                    value={profile.nombre_completo} 
+                                    className="w-full border-zinc-200 bg-zinc-50 rounded-xl p-3 text-sm text-zinc-500" 
+                                />
+                            </div>
 
-                        <div>
-                            <label className="block text-xs font-bold text-zinc-900 uppercase mb-2">Apodo / Alias (Para Chat)</label>
-                            <input 
-                                type="text" 
-                                placeholder="Ej: Inge Juan, El Jefe..."
-                                value={apodo}
-                                onChange={e => setApodo(e.target.value)}
-                                className="w-full border-zinc-300 rounded-xl p-3 text-sm focus:ring-black focus:border-black transition-colors" 
-                            />
-                            <p className="text-xs text-zinc-500 mt-2">Así te verán los demás en el muro de actividades y mensajes directos.</p>
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-900 uppercase mb-2">Apodo / Alias (Para Chat)</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="Ej: Dr. Martinez, Médica Herrero..."
+                                    value={apodo}
+                                    onChange={e => setApodo(e.target.value)}
+                                    className="w-full border-zinc-300 rounded-xl p-3 text-sm focus:ring-black focus:border-black transition-colors" 
+                                />
+                            </div>
                         </div>
 
                         {(profile.rol === 'Médico' || profile.rol === 'Administrativo') && (
@@ -179,7 +287,119 @@ export default function MiPerfilPage() {
                                         <option key={c.id_clinica} value={c.id_clinica}>{c.nombre} ({c.tipo})</option>
                                     ))}
                                 </select>
-                                <p className="text-xs text-zinc-500 mt-2">Esta será tu clínica de consulta activa y origen por defecto al generar recetas y pases.</p>
+                            </div>
+                        )}
+
+                        {isMedico && (
+                            <div className="bg-zinc-50/50 p-6 rounded-2xl border border-zinc-200 space-y-4">
+                                <h3 className="text-xs font-black text-amber-600 uppercase tracking-widest flex items-center gap-1.5 border-b pb-2">
+                                    <Edit3 className="w-4 h-4" /> Datos de Médico Colegiado (Requisito Cofepris)
+                                </h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Cédula Profesional</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Ej. CP 12204901"
+                                            value={cedula}
+                                            onChange={e => setCedula(e.target.value)}
+                                            className="w-full border-zinc-300 rounded-xl p-2.5 text-xs font-bold" 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Institución / Universidad Emisora</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Ej. Universidad Juárez del Estado de Durango"
+                                            value={universidad}
+                                            onChange={e => setUniversidad(e.target.value)}
+                                            className="w-full border-zinc-300 rounded-xl p-2.5 text-xs font-semibold" 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Especialidad Clínica (Opcional)</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Ej. Medicina de Trabajo, Ginecología..."
+                                            value={especialidad}
+                                            onChange={e => setEspecialidad(e.target.value)}
+                                            className="w-full border-zinc-300 rounded-xl p-2.5 text-xs font-semibold" 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Teléfono Consultorio</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Ej. 618-123-4567"
+                                            value={telefono}
+                                            onChange={e => setTelefono(e.target.value)}
+                                            className="w-full border-zinc-300 rounded-xl p-2.5 text-xs font-semibold" 
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Domicilio Completo Consultorio</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Ej. Av. Principal S/N, Unidad Herrero, Durango, Mex."
+                                        value={domicilio}
+                                        onChange={e => setDomicilio(e.target.value)}
+                                        className="w-full border-zinc-300 rounded-xl p-2.5 text-xs font-semibold" 
+                                    />
+                                </div>
+
+                                <div className="pt-2">
+                                    <label className="block text-xs font-black text-zinc-700 uppercase mb-2">Firma Digital Autógrafa</label>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                                        <div className="space-y-2">
+                                            <div className="border border-dashed border-zinc-300 bg-white rounded-xl overflow-hidden touch-none relative shadow-inner">
+                                                <canvas 
+                                                    ref={canvasRef}
+                                                    width={320}
+                                                    height={150}
+                                                    onMouseDown={startDrawing}
+                                                    onMouseMove={draw}
+                                                    onMouseUp={stopDrawing}
+                                                    onMouseLeave={stopDrawing}
+                                                    onTouchStart={startDrawing}
+                                                    onTouchMove={draw}
+                                                    onTouchEnd={stopDrawing}
+                                                    className="w-full cursor-crosshair block"
+                                                />
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button 
+                                                    type="button" 
+                                                    onClick={clearCanvas}
+                                                    className="px-3 py-1.5 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-[10px] font-black uppercase transition-colors"
+                                                >
+                                                    Limpiar
+                                                </button>
+                                                <span className="text-[10px] text-zinc-400 font-bold self-center">Firma en el recuadro</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="border border-zinc-200 bg-zinc-50 p-4 rounded-xl flex flex-col justify-center items-center text-center h-[180px]">
+                                            {firmaSaved ? (
+                                                <div className="relative group w-full h-full flex flex-col justify-between items-center">
+                                                    <img src={firmaSaved} alt="Firma digital" className="max-h-[100px] object-contain bg-white border rounded p-2" />
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={clearSavedFirma}
+                                                        className="text-xs text-rose-600 font-bold hover:text-rose-700 flex items-center gap-1 mt-2"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" /> Eliminar Firma Guardada
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div className="text-zinc-400 text-xs font-bold">
+                                                    Sin firma registrada.<br/>
+                                                    <span className="font-normal text-[11px] text-zinc-550">Usa la pantalla táctil de tu celular o el mouse para dibujar tu firma y guardar cambios.</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         )}
 

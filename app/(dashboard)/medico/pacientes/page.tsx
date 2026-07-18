@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Heart, Plus, Search, Users, Trash2 } from 'lucide-react'
+import { Heart, Plus, Search, Users, Trash2, ShieldAlert } from 'lucide-react'
 
 export default function PacientesPage() {
     const [pacientes, setPacientes] = useState<any[]>([])
@@ -14,7 +14,8 @@ export default function PacientesPage() {
         nombre_completo: '', 
         es_poblacion_general: false, 
         parentesco: 'Ella misma',
-        id_empleado: ''
+        id_empleado: '',
+        acompanante: ''
     })
 
     useEffect(() => {
@@ -78,13 +79,16 @@ export default function PacientesPage() {
                 nombre_completo: formData.nombre_completo.toUpperCase(),
                 es_poblacion_general: formData.es_poblacion_general,
                 parentesco: formData.es_poblacion_general ? null : formData.parentesco,
-                id_empleado: formData.es_poblacion_general ? null : (formData.id_empleado || null)
+                id_empleado: formData.es_poblacion_general ? null : (formData.id_empleado || null),
+                acompanante: formData.acompanante ? formData.acompanante.toUpperCase() : null
             }
         ])
         if (!error) {
             setShowForm(false)
-            setFormData({ nombre_completo: '', es_poblacion_general: false, parentesco: 'Ella misma', id_empleado: '' })
+            setFormData({ nombre_completo: '', es_poblacion_general: false, parentesco: 'Ella misma', id_empleado: '', acompanante: '' })
             fetchPacientes()
+        } else {
+            alert('Error al guardar el paciente: ' + error.message)
         }
     }
 
@@ -126,10 +130,10 @@ export default function PacientesPage() {
                     <h2 className="text-lg font-semibold text-zinc-800 border-b pb-2">Registrar Paciente</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div>
-                            <label className="block text-sm font-medium text-zinc-700 mb-1">Nombre Completo</label>
+                            <label className="block text-sm font-medium text-zinc-700 mb-1">Nombre Completo del Paciente</label>
                             <input 
                                 required type="text"
-                                className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2"
+                                className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-bold"
                                 value={formData.nombre_completo}
                                 onChange={e => setFormData({...formData, nombre_completo: e.target.value})}
                             />
@@ -142,7 +146,7 @@ export default function PacientesPage() {
                                     checked={formData.es_poblacion_general}
                                     onChange={e => setFormData({...formData, es_poblacion_general: e.target.checked})}
                                 />
-                                <span className="text-sm font-medium text-zinc-700">Es Población General (No Trabajador/Beneficiario)</span>
+                                <span className="text-xs font-bold text-zinc-700">Es Población General (No Trabajador/Beneficiario)</span>
                             </label>
                         </div>
                         {!formData.es_poblacion_general && (
@@ -180,6 +184,16 @@ export default function PacientesPage() {
                                 </div>
                             </>
                         )}
+                        <div>
+                            <label className="block text-sm font-medium text-zinc-700 mb-1">Acompañante Habitual (Opcional)</label>
+                            <input 
+                                type="text"
+                                placeholder="Ej. MARIA ARREOLA (MADRE)"
+                                className="w-full rounded-xl border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-bold"
+                                value={formData.acompanante}
+                                onChange={e => setFormData({...formData, acompanante: e.target.value})}
+                            />
+                        </div>
                     </div>
                     <div className="flex justify-end pt-2">
                         <button type="submit" className="bg-amber-500 text-black px-6 py-2 rounded-xl text-sm font-bold hover:bg-amber-400">
@@ -209,14 +223,15 @@ export default function PacientesPage() {
                                 <th className="px-6 py-4">Nombre del Paciente</th>
                                 <th className="px-6 py-4">Tipo</th>
                                 <th className="px-6 py-4">Parentesco</th>
+                                <th className="px-6 py-4">Acompañante Habitual</th>
                                 <th className="px-6 py-4 text-right">Acciones</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100">
                             {loading ? (
-                                <tr><td colSpan={4} className="px-6 py-8 text-center text-zinc-500">Cargando...</td></tr>
+                                <tr><td colSpan={5} className="px-6 py-8 text-center text-zinc-500">Cargando...</td></tr>
                             ) : filteredPacientes.length === 0 ? (
-                                <tr><td colSpan={4} className="px-6 py-8 text-center text-zinc-500">No se encontraron pacientes</td></tr>
+                                <tr><td colSpan={5} className="px-6 py-8 text-center text-zinc-500">No se encontraron pacientes</td></tr>
                             ) : (
                                 filteredPacientes.map(pac => (
                                     <tr key={pac.id_paciente} className="hover:bg-zinc-50/50 transition-colors">
@@ -234,6 +249,7 @@ export default function PacientesPage() {
                                             )}
                                         </td>
                                         <td className="px-6 py-4 text-zinc-600">{pac.es_poblacion_general ? '-' : (pac.parentesco || 'Titular')}</td>
+                                        <td className="px-6 py-4 font-bold text-xs text-zinc-700">{pac.acompanante || '-'}</td>
                                         <td className="px-6 py-4 text-right">
                                             <button 
                                                 onClick={() => deletePaciente(pac.id_paciente, pac.nombre_completo)}
