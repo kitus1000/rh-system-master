@@ -127,6 +127,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (profile.rol !== 'Administrativo') denied = true
         }
 
+        // Médico is restricted to only medical, profile, chat and inicio modules
+        if (profile.rol === 'Médico') {
+            const allowedMedicalPaths = [
+                '/inicio', '/mi-perfil', '/chat', '/acerca-de', '/medico', '/consulta-medica'
+            ]
+            // If the pathname is not starting with any allowed paths, deny access
+            const isAllowed = allowedMedicalPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
+            // If pathname is root / or similar, it redirects normally, but explicitly block HR/Operations paths
+            const forbiddenPaths = [
+                '/dashboard', '/empleados', '/solicitudes', '/autorizaciones', '/campamentos',
+                '/logistica', '/evaluaciones', '/comedor', '/documentos'
+            ]
+            if (forbiddenPaths.some(p => pathname.startsWith(p))) {
+                denied = true
+            }
+        }
+
         // Superintendentes and Admins can see everything else.
         // Jefes de Departamento are restricted.
         if (profile.rol === 'Jefe de Departamento') {

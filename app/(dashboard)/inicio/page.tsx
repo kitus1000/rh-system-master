@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { supabase } from '@/utils/supabase/client'
+import { useAuth } from '@/components/AuthProvider'
 import Link from 'next/link'
 import {
   LayoutDashboard,
@@ -17,14 +16,14 @@ import {
   Settings,
   Info,
   ChevronRight,
-  Sparkles,
-  Terminal,
   Activity,
   Cpu,
-  Layers,
-  ShieldAlert,
   HardHat,
-  Coffee
+  Coffee,
+  Stethoscope,
+  Heart,
+  Pill,
+  Hospital
 } from 'lucide-react'
 
 interface ModuloInicio {
@@ -37,40 +36,79 @@ interface ModuloInicio {
   color: string
   glow: string
   border: string
+  roles?: string[]
 }
 
 export default function InicioPage() {
-  const [userName, setUserName] = useState<string>('Operador')
-  const [role, setRole] = useState<string>('Administrativo')
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    fetchProfile()
-  }, [])
-
-  async function fetchProfile() {
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data: profile } = await supabase
-          .from('perfiles')
-          .select('rol, nombre, apellido_paterno')
-          .eq('id', user.id)
-          .single()
-
-        if (profile) {
-          setUserName(`${profile.nombre} ${profile.apellido_paterno || ''}`)
-          setRole(profile.rol)
-        }
-      }
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const { profile, loading } = useAuth()
+  
+  const userName = profile?.nombre_completo || 'Operador'
+  const role = profile?.rol || 'Jefe de Departamento'
 
   const MODULOS: ModuloInicio[] = [
+    // --- Módulos Médicos ---
+    {
+      name: 'Consultas Médicas',
+      desc: 'Registro de atención médica y dispensación de medicamentos en almacén.',
+      href: '/medico/consultas',
+      icon: Stethoscope,
+      tag: 'CLINIC_CONSULT',
+      sector: 'SECTOR_MED',
+      color: 'text-rose-500 bg-rose-500/10',
+      glow: 'hover:shadow-rose-500/10 hover:border-rose-500/40',
+      border: 'group-hover:border-rose-500/50',
+      roles: ['Administrativo', 'Médico', 'Recursos Humanos']
+    },
+    {
+      name: 'Pacientes y Expedientes',
+      desc: 'Catálogo de expedientes clínicos de trabajadores y sus acompañantes/beneficiarios.',
+      href: '/medico/pacientes',
+      icon: Heart,
+      tag: 'CLINIC_PATIENTS',
+      sector: 'SECTOR_MED',
+      color: 'text-emerald-500 bg-emerald-500/10',
+      glow: 'hover:shadow-emerald-500/10 hover:border-emerald-500/40',
+      border: 'group-hover:border-emerald-500/50',
+      roles: ['Administrativo', 'Médico', 'Recursos Humanos']
+    },
+    {
+      name: 'Pases Médicos y Viáticos',
+      desc: 'Generación de folios de pases médicos, viáticos y hojas de referencia.',
+      href: '/medico/pases',
+      icon: FileText,
+      tag: 'CLINIC_PASSES',
+      sector: 'SECTOR_MED',
+      color: 'text-amber-500 bg-amber-500/10',
+      glow: 'hover:shadow-amber-500/10 hover:border-amber-500/40',
+      border: 'group-hover:border-amber-500/50',
+      roles: ['Administrativo', 'Médico', 'Recursos Humanos']
+    },
+    {
+      name: 'Inventario de Farmacia',
+      desc: 'Control de stock y caducidad de medicamentos en consultorios.',
+      href: '/medico/inventario',
+      icon: Pill,
+      tag: 'CLINIC_INVENTORY',
+      sector: 'SECTOR_MED',
+      color: 'text-blue-500 bg-blue-500/10',
+      glow: 'hover:shadow-blue-500/10 hover:border-blue-500/40',
+      border: 'group-hover:border-blue-500/50',
+      roles: ['Administrativo', 'Médico', 'Recursos Humanos']
+    },
+    {
+      name: 'Clínicas Externas',
+      desc: 'Directorio y configuración de unidades médicas de origen y destino.',
+      href: '/medico/clinicas',
+      icon: Hospital,
+      tag: 'CLINIC_HOSPITALS',
+      sector: 'SECTOR_MED',
+      color: 'text-indigo-500 bg-indigo-500/10',
+      glow: 'hover:shadow-indigo-500/10 hover:border-indigo-500/40',
+      border: 'group-hover:border-indigo-500/50',
+      roles: ['Administrativo', 'Médico', 'Recursos Humanos']
+    },
+
+    // --- Módulos de Capital Humano & Operaciones ---
     {
       name: 'Dashboard Analítico',
       desc: 'Visualiza indicadores, gráficas de incidencias y estadísticas corporativas.',
@@ -80,7 +118,8 @@ export default function InicioPage() {
       sector: 'SECTOR_01',
       color: 'text-amber-500 bg-amber-500/10',
       glow: 'hover:shadow-amber-500/10 hover:border-amber-500/40',
-      border: 'group-hover:border-amber-500/50'
+      border: 'group-hover:border-amber-500/50',
+      roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento']
     },
     {
       name: 'Control Empleados',
@@ -91,7 +130,8 @@ export default function InicioPage() {
       sector: 'SECTOR_02',
       color: 'text-blue-500 bg-blue-500/10',
       glow: 'hover:shadow-blue-500/10 hover:border-blue-500/40',
-      border: 'group-hover:border-blue-500/50'
+      border: 'group-hover:border-blue-500/50',
+      roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento']
     },
     {
       name: 'Buzón Solicitudes',
@@ -102,7 +142,8 @@ export default function InicioPage() {
       sector: 'SECTOR_03',
       color: 'text-emerald-500 bg-emerald-500/10',
       glow: 'hover:shadow-emerald-500/10 hover:border-emerald-500/40',
-      border: 'group-hover:border-emerald-500/50'
+      border: 'group-hover:border-emerald-500/50',
+      roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento']
     },
     {
       name: 'Autorizaciones',
@@ -113,7 +154,8 @@ export default function InicioPage() {
       sector: 'SECTOR_04',
       color: 'text-indigo-500 bg-indigo-500/10',
       glow: 'hover:shadow-indigo-500/10 hover:border-indigo-500/40',
-      border: 'group-hover:border-indigo-500/50'
+      border: 'group-hover:border-indigo-500/50',
+      roles: ['Administrativo', 'Superintendente']
     },
     {
       name: 'Campamentos Residencia',
@@ -124,7 +166,8 @@ export default function InicioPage() {
       sector: 'SECTOR_05',
       color: 'text-teal-500 bg-teal-500/10',
       glow: 'hover:shadow-teal-500/10 hover:border-teal-500/40',
-      border: 'group-hover:border-teal-500/50'
+      border: 'group-hover:border-teal-500/50',
+      roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento']
     },
     {
       name: 'Evaluaciones Desempeño',
@@ -135,7 +178,8 @@ export default function InicioPage() {
       sector: 'SECTOR_06',
       color: 'text-purple-500 bg-purple-500/10',
       glow: 'hover:shadow-purple-500/10 hover:border-purple-500/40',
-      border: 'group-hover:border-purple-500/50'
+      border: 'group-hover:border-purple-500/50',
+      roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento']
     },
     {
       name: 'Comedor de Mina',
@@ -146,7 +190,8 @@ export default function InicioPage() {
       sector: 'SECTOR_07',
       color: 'text-orange-500 bg-orange-500/10',
       glow: 'hover:shadow-orange-500/10 hover:border-orange-500/40',
-      border: 'group-hover:border-orange-500/50'
+      border: 'group-hover:border-orange-500/50',
+      roles: ['Administrativo', 'Superintendente']
     },
     {
       name: 'Calendario y Fechas',
@@ -157,7 +202,8 @@ export default function InicioPage() {
       sector: 'SECTOR_08',
       color: 'text-rose-500 bg-rose-500/10',
       glow: 'hover:shadow-rose-500/10 hover:border-rose-500/40',
-      border: 'group-hover:border-rose-500/50'
+      border: 'group-hover:border-rose-500/50',
+      roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento']
     },
     {
       name: 'Pre-Nómina Incidencias',
@@ -168,7 +214,8 @@ export default function InicioPage() {
       sector: 'SECTOR_09',
       color: 'text-amber-600 bg-amber-600/10',
       glow: 'hover:shadow-amber-600/10 hover:border-amber-600/40',
-      border: 'group-hover:border-amber-600/50'
+      border: 'group-hover:border-amber-600/50',
+      roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento']
     },
     {
       name: 'Repositorio Documental',
@@ -179,7 +226,8 @@ export default function InicioPage() {
       sector: 'SECTOR_10',
       color: 'text-sky-500 bg-sky-500/10',
       glow: 'hover:shadow-sky-500/10 hover:border-sky-500/40',
-      border: 'group-hover:border-sky-500/50'
+      border: 'group-hover:border-sky-500/50',
+      roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento']
     },
     {
       name: 'Catálogos Maestros',
@@ -190,7 +238,8 @@ export default function InicioPage() {
       sector: 'SECTOR_11',
       color: 'text-lime-600 bg-lime-650/10',
       glow: 'hover:shadow-lime-600/10 hover:border-lime-600/40',
-      border: 'group-hover:border-lime-600/50'
+      border: 'group-hover:border-lime-600/50',
+      roles: ['Administrativo']
     },
     {
       name: 'Configuración Sistema',
@@ -201,7 +250,8 @@ export default function InicioPage() {
       sector: 'SECTOR_12',
       color: 'text-zinc-500 bg-zinc-500/10',
       glow: 'hover:shadow-zinc-500/10 hover:border-zinc-500/40',
-      border: 'group-hover:border-zinc-500/50'
+      border: 'group-hover:border-zinc-500/50',
+      roles: ['Administrativo']
     },
     {
       name: 'Acerca del Software',
@@ -212,12 +262,26 @@ export default function InicioPage() {
       sector: 'SECTOR_13',
       color: 'text-fuchsia-500 bg-fuchsia-500/10',
       glow: 'hover:shadow-fuchsia-500/10 hover:border-fuchsia-500/40',
-      border: 'group-hover:border-fuchsia-500/50'
+      border: 'group-hover:border-fuchsia-500/50',
+      roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico']
     }
   ]
 
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-100 font-mono">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500"></div>
+      </div>
+    )
+  }
+
+  const filteredModulos = MODULOS.filter(mod => {
+    if (!mod.roles) return false
+    return mod.roles.includes(role)
+  })
+
   return (
-    <div className="space-y-8 pb-16 font-mono text-zinc-800">
+    <div className="space-y-8 pb-16 font-mono text-zinc-800 animate-in fade-in duration-500">
       
       {/* Immersive Cyber Header Banner */}
       <div className="relative rounded-2xl overflow-hidden bg-zinc-950 p-6 md:p-8 text-white border border-zinc-900 shadow-2xl">
@@ -250,7 +314,7 @@ export default function InicioPage() {
               <h1 className="text-3xl font-black text-white tracking-tight mt-1 uppercase leading-none italic">
                 MENÚ <span className="text-amber-500">PRINCIPAL</span>
               </h1>
-              <p className="text-xs text-zinc-400 mt-1 max-w-lg">
+              <p className="text-xs text-zinc-400 mt-1 max-w-lg font-sans">
                 Consola de enlaces directos para saltar a cualquier módulo del Expediente Corporativo.
               </p>
             </div>
@@ -267,62 +331,70 @@ export default function InicioPage() {
         </div>
       </div>
 
-      {/* Main 12 Modules Tech Link Grid */}
+      {/* Main Modules Link Grid */}
       <div className="space-y-6">
         <div className="flex justify-between items-center border-b border-zinc-200 pb-3">
           <h2 className="text-lg font-extrabold text-zinc-900 flex items-center gap-2 font-sans">
             <Cpu className="w-5 h-5 text-amber-500" />
-            <span>Módulos de Control del Expediente</span>
+            <span>Módulos del Expediente ({role === 'Médico' ? 'Área Médica' : 'Administración'})</span>
           </h2>
-          <span className="bg-zinc-200 text-zinc-800 text-[10px] font-black tracking-widest px-3 py-1 rounded-full font-mono">
-            ESTADO: OK (12/12)
+          <span className="bg-zinc-200 text-zinc-850 text-[10px] font-black tracking-widest px-3 py-1 rounded-full font-mono">
+            MÓDULOS: {filteredModulos.length} DISPONIBLES
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {MODULOS.map((mod) => (
-            <Link
-              href={mod.href}
-              key={mod.name}
-              className={`group relative overflow-hidden rounded-xl border border-zinc-200 bg-white p-5 transition-all duration-300 shadow-xs hover:-translate-y-1.5 hover:shadow-xl flex flex-col justify-between min-h-[190px] ${mod.glow}`}
-            >
-              {/* Corner HUD Bracket decorations on each card */}
-              <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-transparent group-hover:border-amber-500/40 rounded-tl-xs pointer-events-none transition-colors" />
-              <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-transparent group-hover:border-amber-500/40 rounded-tr-xs pointer-events-none transition-colors" />
-              <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-transparent group-hover:border-amber-500/40 rounded-bl-xs pointer-events-none transition-colors" />
-              <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-transparent group-hover:border-amber-500/40 rounded-br-xs pointer-events-none transition-colors" />
+        {filteredModulos.length === 0 ? (
+          <div className="text-center py-16 border-2 border-dashed border-zinc-200 rounded-2xl bg-white/50">
+            <Activity className="w-12 h-12 text-zinc-350 mx-auto mb-3" />
+            <p className="text-sm font-bold text-zinc-600">No hay módulos disponibles asignados a tu rol.</p>
+            <p className="text-xs text-zinc-400 mt-1">Por favor, póngase en contacto con el administrador del sistema.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {filteredModulos.map((mod) => (
+              <Link
+                href={mod.href}
+                key={mod.name}
+                className={`group relative overflow-hidden rounded-xl border border-zinc-200 bg-white p-5 transition-all duration-300 shadow-xs hover:-translate-y-1.5 hover:shadow-xl flex flex-col justify-between min-h-[190px] ${mod.glow}`}
+              >
+                {/* Corner HUD Bracket decorations on each card */}
+                <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-transparent group-hover:border-amber-500/40 rounded-tl-xs pointer-events-none transition-colors" />
+                <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-transparent group-hover:border-amber-500/40 rounded-tr-xs pointer-events-none transition-colors" />
+                <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-transparent group-hover:border-amber-500/40 rounded-bl-xs pointer-events-none transition-colors" />
+                <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-transparent group-hover:border-amber-500/40 rounded-br-xs pointer-events-none transition-colors" />
 
-              <div className="space-y-3">
-                {/* Header card icon / sector tags */}
-                <div className="flex justify-between items-center">
-                  <div className={`p-2.5 rounded-lg shrink-0 transition-colors duration-300 text-zinc-950 bg-zinc-100 group-hover:bg-zinc-950 group-hover:text-amber-500`}>
-                    <mod.icon className="h-5 w-5" />
+                <div className="space-y-3">
+                  {/* Header card icon / sector tags */}
+                  <div className="flex justify-between items-center">
+                    <div className="p-2.5 rounded-lg shrink-0 transition-colors duration-300 text-zinc-950 bg-zinc-100 group-hover:bg-zinc-950 group-hover:text-amber-500">
+                      <mod.icon className="h-5 w-5" />
+                    </div>
+                    <div className="text-right font-mono text-[8px] text-zinc-400 group-hover:text-zinc-500 transition-colors">
+                      <span className="block">{mod.tag}</span>
+                      <span className="block font-bold mt-0.5">{mod.sector}</span>
+                    </div>
                   </div>
-                  <div className="text-right font-mono text-[8px] text-zinc-400 group-hover:text-zinc-600 transition-colors">
-                    <span className="block">{mod.tag}</span>
-                    <span className="block font-bold mt-0.5">{mod.sector}</span>
+
+                  {/* Title & desc */}
+                  <div>
+                    <h3 className="text-sm font-extrabold text-zinc-900 uppercase italic tracking-tight font-sans transition-colors group-hover:text-amber-600">
+                      {mod.name}
+                    </h3>
+                    <p className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed font-sans line-clamp-3">
+                      {mod.desc}
+                    </p>
                   </div>
                 </div>
 
-                {/* Title & desc */}
-                <div>
-                  <h3 className="text-sm font-extrabold text-zinc-900 uppercase italic tracking-tight font-sans transition-colors group-hover:text-amber-600">
-                    {mod.name}
-                  </h3>
-                  <p className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed font-sans line-clamp-3">
-                    {mod.desc}
-                  </p>
+                {/* Action bottom anchor */}
+                <div className="mt-4 pt-3 border-t border-zinc-100 flex items-center justify-between text-[10px] text-zinc-400 group-hover:text-zinc-600 transition-colors">
+                  <span className="font-mono text-[8px] uppercase tracking-widest font-black group-hover:text-amber-600 transition-colors">CONECTAR ENLACE</span>
+                  <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1 text-zinc-400 group-hover:text-amber-500" />
                 </div>
-              </div>
-
-              {/* Action bottom anchor */}
-              <div className="mt-4 pt-3 border-t border-zinc-100 flex items-center justify-between text-[10px] text-zinc-400 group-hover:text-zinc-650 transition-colors">
-                <span className="font-mono text-[8px] uppercase tracking-widest font-black group-hover:text-amber-600 transition-colors">CONECTAR ENLACE</span>
-                <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1 text-zinc-400 group-hover:text-amber-500" />
-              </div>
-            </Link>
-          ))}
-        </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
       
       {/* Footer Disclaimer */}
