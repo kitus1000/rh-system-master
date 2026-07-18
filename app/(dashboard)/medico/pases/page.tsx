@@ -10,43 +10,44 @@ import {
 
 // Helper function to normalize parentesco and extract worker name if input is like "hijo de ..."
 const parseRelationAndWorker = (parentescoStr: string, defaultWorkerName: string) => {
-    let cleanParentesco = 'TRABAJADOR';
+    let cleanParentesco = 'ELLA MISMA';
     let cleanWorker = defaultWorkerName || '';
-    
+
     if (parentescoStr) {
         const raw = parentescoStr.toUpperCase().trim();
-        if (raw.includes(' DE ')) {
-            const parts = raw.split(' DE ');
-            const rel = parts[0].trim();
-            const worker = parts.slice(1).join(' DE ').trim();
-            
-            if (rel.includes('HIJO')) cleanParentesco = 'HIJO';
-            else if (rel.includes('HIJA')) cleanParentesco = 'HIJA';
-            else if (rel.includes('ESPOSA')) cleanParentesco = 'ESPOSA';
-            else if (rel.includes('ESPOSO')) cleanParentesco = 'ESPOSO';
-            else if (rel.includes('MADRE') || rel.includes('MAMA')) cleanParentesco = 'MADRE';
-            else if (rel.includes('PADRE') || rel.includes('PAPA')) cleanParentesco = 'PADRE';
-            else cleanParentesco = rel;
-            
-            if (!cleanWorker) {
-                cleanWorker = worker;
-            }
-        } else {
-            if (raw.includes('HIJO')) cleanParentesco = 'HIJO';
-            else if (raw.includes('HIJA')) cleanParentesco = 'HIJA';
-            else if (raw.includes('ESPOSA')) cleanParentesco = 'ESPOSA';
-            else if (raw.includes('ESPOSO')) cleanParentesco = 'ESPOSO';
-            else if (raw.includes('MADRE') || raw.includes('MAMA')) cleanParentesco = 'MADRE';
-            else if (raw.includes('PADRE') || raw.includes('PAPA')) cleanParentesco = 'PADRE';
-            else if (raw === 'ELLA MISMA' || raw === 'ELLO MISMO' || raw === 'TRABAJADOR') cleanParentesco = 'TRABAJADOR';
-            else cleanParentesco = raw;
+        
+        // Check for worker/titular
+        if (raw.includes('TITULAR') || raw.includes('ELLA MISMA') || raw.includes('ELLO MISMO') || raw === 'TRABAJADOR') {
+            cleanParentesco = 'ELLA MISMA';
+            return { parentesco: cleanParentesco, nombre_trabajador: cleanWorker };
+        }
+        
+        // Detect the relation keyword
+        if (raw.includes('HIJA')) cleanParentesco = 'HIJA';
+        else if (raw.includes('HIJO')) cleanParentesco = 'HIJO';
+        else if (raw.includes('ESPOSA') || raw.includes('CONCUBINA')) cleanParentesco = 'ESPOSA';
+        else if (raw.includes('ESPOSO')) cleanParentesco = 'ESPOSO';
+        else if (raw.includes('MADRE') || raw.includes('MAMA')) cleanParentesco = 'MADRE';
+        else if (raw.includes('PADRE') || raw.includes('PAPA')) cleanParentesco = 'PADRE';
+        else if (raw.includes('ACOMPAÑANTE')) cleanParentesco = 'ACOMPAÑANTE';
+        else cleanParentesco = raw; // fallback
+        
+        // Extract the worker name from the string (e.g. "HIJO DE: ARAGON REYES VICENTE" or "HIJO DE ARAGON REYES VICENTE")
+        const match = raw.match(/(?:HIJO|HIJA|ESPOSA|ESPOSO|CONCUBINA|MADRE|PADRE|MAMA|PAPA|ACOMPAÑANTE)\s*(?:\/|\s+CONCUBINA)?\s*DE\s*:\s*(.+)$/) ||
+                      raw.match(/(?:HIJO|HIJA|ESPOSA|ESPOSO|CONCUBINA|MADRE|PADRE|MAMA|PAPA|ACOMPAÑANTE)\s*(?:\/|\s+CONCUBINA)?\s*DE\s+(.+)$/) ||
+                      raw.match(/(?:HIJO|HIJA|ESPOSA|ESPOSO|CONCUBINA|MADRE|PADRE|MAMA|PAPA|ACOMPAÑANTE)\s*:\s*(.+)$/);
+                      
+        if (match && match[1]) {
+            cleanWorker = match[1].trim();
         }
     }
+    
+    // Clean up any remaining leading punctuation from cleanWorker
+    cleanWorker = cleanWorker.replace(/^[:\-\s]+/, '').trim();
     
     return { parentesco: cleanParentesco, nombre_trabajador: cleanWorker };
 }
 
-// Calculate age helper
 const calculateAge = (dateStr: string) => {
     if (!dateStr) return '';
     const birth = new Date(dateStr);
@@ -356,6 +357,11 @@ export default function PasesPage() {
     }
 
     const handlePrintPase = async (pase: any) => {
+        // Parse relation and worker to always ensure clean printing matching guidelines
+        const parsedRel = parseRelationAndWorker(pase.parentesco, pase.nombre_trabajador);
+        const displayParentesco = parsedRel.parentesco;
+        const displayWorkerName = parsedRel.nombre_trabajador;
+
         // Fetch full doctor profiles to retrieve signatures
         let doctorRefiereProfile = null
         let doctorRespProfile = null
@@ -657,11 +663,11 @@ export default function PasesPage() {
                                     <td class="p1-field-label">Nombre de Paciente</td>
                                     <td class="p1-field-value" style="font-size:10px;">${(pase.pacientes?.nombre_completo || '').toUpperCase()}</td>
                                     <td class="p1-field-label" style="padding-left:20px;">Parentesco</td>
-                                    <td class="p1-field-value">${(pase.parentesco || '').toUpperCase()}</td>
+                                    <td class="p1-field-value">${displayParentesco.toUpperCase()}</td>
                                 </tr>
                                 <tr>
                                     <td class="p1-field-label">Nombre de Trabajador</td>
-                                    <td class="p1-field-value">${(pase.nombre_trabajador || '').toUpperCase()}</td>
+                                    <td class="p1-field-value">${displayWorkerName.toUpperCase()}</td>
                                     <td class="p1-field-label" style="padding-left:20px;">Salida</td>
                                     <td class="p1-field-value">${formattedFecha}</td>
                                 </tr>
@@ -764,7 +770,7 @@ export default function PasesPage() {
                                 <tr>
                                     <td style="border: 1px solid #000; padding: 5px;">
                                         <div style="font-size: 7.5px; font-weight: bold; color: #555; text-transform: uppercase;">Nombre del trabajador</div>
-                                        <div style="font-size: 10px; color: blue; font-weight: 800; text-transform: uppercase; margin-top: 1px;">${(pase.nombre_trabajador || '').toUpperCase()}</div>
+                                        <div style="font-size: 10px; color: blue; font-weight: 800; text-transform: uppercase; margin-top: 1px;">${displayWorkerName.toUpperCase()}</div>
                                     </td>
                                     <td style="border: 1px solid #000; padding: 5px;">
                                         <div style="font-size: 7.5px; font-weight: bold; color: #555; text-transform: uppercase;">Edad:</div>
