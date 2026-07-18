@@ -185,14 +185,29 @@ export default function PasesPage() {
 
     const fetchPases = async () => {
         setLoading(true)
-        const { data, error } = await supabase.from('pases_medicos').select(`
+        let { data, error } = await supabase.from('pases_medicos').select(`
             *,
             pacientes (nombre_completo, parentesco, es_poblacion_general, id_empleado, acompanante),
             clinica_origen:cat_clinicas!pases_medicos_id_clinica_origen_fkey (nombre, ubicacion),
             clinica_destino:cat_clinicas!pases_medicos_id_clinica_destino_fkey (nombre, ubicacion)
         `).order('creado_el', { ascending: false })
         
-        if (data) {
+        if (error) {
+            console.warn("Attempting fallback fetch for pases:", error);
+            const fallback = await supabase.from('pases_medicos').select(`
+                *,
+                pacientes (nombre_completo, parentesco, es_poblacion_general, id_empleado),
+                clinica_origen:cat_clinicas!pases_medicos_id_clinica_origen_fkey (nombre, ubicacion),
+                clinica_destino:cat_clinicas!pases_medicos_id_clinica_destino_fkey (nombre, ubicacion)
+            `).order('creado_el', { ascending: false })
+            
+            if (fallback.data) {
+                setPases(fallback.data)
+                if (showForm && !formData.folio) {
+                    setFormData(prev => ({ ...prev, folio: generateNextFolio(fallback.data) }))
+                }
+            }
+        } else if (data) {
             setPases(data)
             if (showForm && !formData.folio) {
                 setFormData(prev => ({ ...prev, folio: generateNextFolio(data) }))

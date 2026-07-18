@@ -37,14 +37,27 @@ export default function ConsultasPage() {
 
     const fetchConsultas = async () => {
         setLoading(true)
-        const { data, error } = await supabase
+        let { data, error } = await supabase
             .from('consultas_medicas')
             .select(`
                 *,
                 pacientes (nombre_completo, es_poblacion_general, parentesco, acompanante)
             `)
             .order('fecha', { ascending: false })
-        if (data) setConsultas(data)
+        
+        if (error) {
+            console.warn("Attempting fallback fetch for consultas:", error);
+            const fallback = await supabase
+                .from('consultas_medicas')
+                .select(`
+                    *,
+                    pacientes (nombre_completo, es_poblacion_general, parentesco)
+                `)
+                .order('fecha', { ascending: false })
+            if (fallback.data) setConsultas(fallback.data);
+        } else if (data) {
+            setConsultas(data);
+        }
         setLoading(false)
     }
 
