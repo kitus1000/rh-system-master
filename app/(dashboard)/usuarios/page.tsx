@@ -133,6 +133,7 @@ export default function UsuariosPage() {
                                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
                                         u.rol === 'Superintendente' ? 'bg-purple-100 text-purple-800' :
                                         u.rol === 'Administrativo' ? 'bg-blue-100 text-blue-800' :
+                                        u.rol === 'Médico' ? 'bg-emerald-100 text-emerald-800' :
                                         'bg-zinc-100 text-zinc-800'
                                     }`}>
                                         <Shield className="w-3 h-3 mr-1" />
@@ -200,6 +201,7 @@ export default function UsuariosPage() {
                                         <option value="Administrativo">Administrativo (Control Total)</option>
                                         <option value="Superintendente">Superintendente (Visualiza Múltiples Áreas)</option>
                                         <option value="Jefe de Departamento">Jefe de Departamento</option>
+                                        <option value="Médico">Médico (Módulo Médico y Consultas)</option>
                                     </select>
                                 </div>
                             </div>
