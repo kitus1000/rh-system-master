@@ -43,7 +43,7 @@ const navigationGroups = [
         items: [
             { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Chat y Muro', href: '/chat', icon: MessageCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Recursos Humanos', 'Sistemas'] },
         ]
     },
     {
@@ -61,7 +61,7 @@ const navigationGroups = [
         items: [
             { name: 'Campamentos', href: '/campamentos', icon: Home, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Logística', href: '/logistica', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Transporte', href: '/transporte', icon: Truck },
+            { name: 'Transporte', href: '/transporte', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Portal Choferes', href: '/logistica/choferes', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Evaluaciones', href: '/evaluaciones', icon: Award, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Comedor', href: '/comedor', icon: Coffee, roles: ['Administrativo', 'Superintendente'] },
