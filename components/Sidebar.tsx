@@ -31,7 +31,8 @@ import {
     Heart,
     Stethoscope,
     Pill,
-    Hospital
+    Hospital,
+    Building
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/components/AuthProvider'
@@ -90,6 +91,7 @@ const navigationGroups = [
             { name: 'Inventario', href: '/medico/inventario', icon: Pill, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
             { name: 'Clínicas', href: '/medico/clinicas', icon: Hospital, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
             { name: 'Pases Médicos', href: '/medico/pases', icon: FileText, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
+            { name: 'Pase de Hotel', href: '/medico/hotel', icon: Building, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
             { name: 'Portal Clínico / Pases', href: '/consulta-medica', icon: ClipboardList, roles: ['Administrativo', 'Médico', 'Jefe de Departamento', 'Superintendente', 'Recursos Humanos'] },
         ]
     }
