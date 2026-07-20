@@ -238,7 +238,7 @@ export default function TransporteDashboard() {
         
         // Generate a random confirmation key (clean short alphanumeric)
         const randNum = Math.floor(1000 + Math.random() * 9000).toString()
-        const vehChar = sol.tipo_vehiculo === 'Autobús' ? 'C' : 'V'
+        const vehChar = sol.tipo_vehiculo === 'Autobús' ? 'C' : sol.tipo_vehiculo === 'Alterna' ? 'A' : 'V'
         setAssignClave(`${vehChar}-${randNum}`)
 
         // Try to pre-match employee by name similarity
@@ -555,10 +555,12 @@ ${window.location.origin}/reservar-viaje`
                                 if(e.target.value === 'Autobús') setCapacidad('37')
                                 if(e.target.value === 'Avioneta') setCapacidad('8')
                                 if(e.target.value === 'Camioneta') setCapacidad('4')
+                                if(e.target.value === 'Alterna') setCapacidad('8')
                             }} className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50 font-bold">
                                 <option value="Autobús">Autobús (37 lgs)</option>
                                 <option value="Avioneta">Avioneta (8 lgs)</option>
                                 <option value="Camioneta">Camioneta (4 lgs)</option>
+                                <option value="Alterna">Alterna (Contratistas / Particular)</option>
                             </select>
                         </div>
                         <div className="lg:col-span-2">
@@ -596,11 +598,13 @@ ${window.location.origin}/reservar-viaje`
                                                 <div className={`p-2 rounded-lg ${
                                                     v.tipo_vehiculo === 'Autobús' ? 'bg-indigo-100 text-indigo-600' :
                                                     v.tipo_vehiculo === 'Avioneta' ? 'bg-sky-100 text-sky-600' :
+                                                    v.tipo_vehiculo === 'Alterna' ? 'bg-teal-100 text-teal-600' :
                                                     'bg-emerald-100 text-emerald-600'
                                                 }`}>
                                                     {v.tipo_vehiculo === 'Autobús' && <Bus className="w-5 h-5" />}
                                                     {v.tipo_vehiculo === 'Avioneta' && <Plane className="w-5 h-5" />}
                                                     {v.tipo_vehiculo === 'Camioneta' && <Car className="w-5 h-5" />}
+                                                    {v.tipo_vehiculo === 'Alterna' && <Users className="w-5 h-5" />}
                                                 </div>
                                                 <div>
                                                     <div className="text-[10px] font-black text-zinc-400 uppercase tracking-wider">{v.tipo_vehiculo}</div>
@@ -730,7 +734,7 @@ ${window.location.origin}/reservar-viaje`
                                                         </td>
                                                         <td className="p-4">
                                                             <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-0.5 rounded-full
-                                                                ${sol.tipo_vehiculo === 'Autobús' ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-800'}`}>
+                                                                ${sol.tipo_vehiculo === 'Autobús' ? 'bg-sky-100 text-sky-700' : sol.tipo_vehiculo === 'Alterna' ? 'bg-teal-100 text-teal-800' : 'bg-amber-100 text-amber-800'}`}>
                                                                 {sol.tipo_vehiculo}
                                                             </span>
                                                         </td>
@@ -903,12 +907,14 @@ ${window.location.origin}/reservar-viaje`
                                         if(e.target.value === 'Autobús') setEditCapacidad('37')
                                         if(e.target.value === 'Avioneta') setEditCapacidad('8')
                                         if(e.target.value === 'Camioneta') setEditCapacidad('4')
+                                        if(e.target.value === 'Alterna') setEditCapacidad('8')
                                     }} 
                                     className="w-full mt-1 p-2.5 border rounded-lg text-sm bg-zinc-50 font-bold"
                                 >
                                     <option value="Autobús">Autobús (37 lgs)</option>
                                     <option value="Avioneta">Avioneta (8 lgs)</option>
                                     <option value="Camioneta">Camioneta (4 lgs)</option>
+                                    <option value="Alterna">Alterna (Contratistas / Particular)</option>
                                 </select>
                             </div>
                             <div>

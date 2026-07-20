@@ -5,7 +5,7 @@ import { supabase } from '@/utils/supabase/client'
 import { 
     Search, Mail, Phone, ShieldAlert, CheckCircle, Calendar, 
     Clock, Bus, Plane, Car, Lock, Cpu, ChevronRight, 
-    Printer, X, LogOut, MapPin, User, RefreshCw, AlertCircle, 
+    Printer, X, LogOut, MapPin, User, Users, RefreshCw, AlertCircle, 
     ArrowRight, Armchair, HelpCircle, HardHat, FileText, Check, ArrowLeft
 } from 'lucide-react'
 import Link from 'next/link'
@@ -347,6 +347,7 @@ export default function ReservarViajePublico() {
                                         >
                                             <option value="Autobús">Autobús (Camión)</option>
                                             <option value="Avioneta">Avioneta (Vuelo)</option>
+                                            <option value="Alterna">Alterna (Contratistas / Particular)</option>
                                         </select>
                                     </div>
 
@@ -509,6 +510,7 @@ export default function ReservarViajePublico() {
                                             {passData.tipo_vehiculo === 'Autobús' && <Bus className="w-4 h-4 shrink-0" />}
                                             {passData.tipo_vehiculo === 'Avioneta' && <Plane className="w-4 h-4 shrink-0" />}
                                             {passData.tipo_vehiculo === 'Camioneta' && <Car className="w-4 h-4 shrink-0" />}
+                                            {passData.tipo_vehiculo === 'Alterna' && <Users className="w-4 h-4 shrink-0" />}
                                             {passData.tipo_vehiculo}
                                         </span>
                                     </div>
