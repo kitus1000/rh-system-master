@@ -57,14 +57,14 @@ export default function LandingHub() {
                 const { data: profData } = await supabase.from('perfiles').select('rol').eq('id', authData.user.id).single()
                 if (profData?.rol === 'Chofer' || profData?.rol?.toLowerCase().includes('chofer')) {
                     nextPath = '/logistica/choferes'
+                } else {
+                    nextPath = '/inicio'
                 }
             }
 
             if (!nextPath) {
                 if (loginTarget === 'chofer') nextPath = '/logistica/choferes'
-                else if (loginTarget === 'medico') nextPath = '/medico/pases'
-                else if (loginTarget === 'jefes') nextPath = '/consulta-medica'
-                else nextPath = '/dashboard'
+                else nextPath = '/inicio'
             }
 
             if (authError) {
