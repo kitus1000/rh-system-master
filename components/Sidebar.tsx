@@ -185,7 +185,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }: Side
 
     const handleLogout = async () => {
         await supabase.auth.signOut()
-        window.location.href = '/login'
+        window.location.href = '/'
     }
 
     if (!mounted) {

@@ -352,7 +352,7 @@ export default function ReservarViajePublico() {
                         </div>
 
                         <div className="mt-8 text-center pt-4 border-t border-zinc-900">
-                            <Link href="/login" className="text-[10px] text-zinc-600 hover:text-cyan-400 transition-colors uppercase">
+                            <Link href="/" className="text-[10px] text-zinc-600 hover:text-cyan-400 transition-colors uppercase">
                                 [ Acceso Administrativo / RH ]
                             </Link>
                         </div>
