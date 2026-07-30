@@ -2,15 +2,18 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Camera, Car, CheckCircle, Droplet, FileSignature, FileText, Fuel, Upload, User, Save, Download, Truck, Calendar, History, Clock, MapPin, AlertTriangle } from 'lucide-react'
+import { useAuth } from '@/components/AuthProvider'
+import { Camera, Car, CheckCircle, Droplet, FileSignature, FileText, Fuel, Upload, User, Save, Download, Truck, Calendar, History, Clock, MapPin, AlertTriangle, ShieldCheck, ShieldAlert, Ambulance, Cross, Sparkles, Wrench, Radio, Stethoscope } from 'lucide-react'
 import SignatureCanvas from 'react-signature-canvas'
-import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 
 interface Chofer {
   id_empleado: string
   nombre: string
   apellido_paterno: string
+  apellido_materno?: string
+  departamento?: string
+  puesto?: string
 }
 
 interface Viaje {
@@ -21,12 +24,25 @@ interface Viaje {
   estado: string
 }
 
+interface VehiculoFlota {
+  id_camion: string
+  numero_economico: string
+  placas: string
+  activo: boolean
+}
+
 export default function ChoferesClient() {
+  const { profile } = useAuth()
   const [activeTab, setActiveTab] = useState<'reporte' | 'programar' | 'historial'>('reporte')
   
   const [choferes, setChoferes] = useState<Chofer[]>([])
+  const [vehiculosFlota, setVehiculosFlota] = useState<VehiculoFlota[]>([])
   const [selectedChofer, setSelectedChofer] = useState('')
+  const [selectedVehiculoId, setSelectedVehiculoId] = useState('')
   const [camion, setCamion] = useState('')
+  const [tipoVehiculo, setTipoVehiculo] = useState<'Camioneta' | 'Camión' | 'Ambulancia'>('Camioneta')
+  const [motivoViaje, setMotivoViaje] = useState('Viaje Foráneo (Durango / Ciudad)')
+  const [tipoAmbulancia, setTipoAmbulancia] = useState<'Avanzada / Soporte Vital' | 'Básica / Traslado'>('Avanzada / Soporte Vital')
   
   // Programar Viaje State
   const [nuevoDestino, setNuevoDestino] = useState('')
@@ -36,79 +52,156 @@ export default function ChoferesClient() {
   const [selectedViaje, setSelectedViaje] = useState('')
   const [miHistorial, setMiHistorial] = useState<any[]>([])
   
-  // Checklist State
-  const [checklist, setChecklist] = useState({
-    frenos_ok: true, luces_ok: true, llantas_ok: true, niveles_aceite_ok: true,
-    carroceria_ok: true, extintor_ok: true, botiquin_ok: true
+  // Mining Dynamic Checklists
+  const [checklistCamioneta, setChecklistCamioneta] = useState({
+    pertiga_banderola: true,
+    torreta_seguridad: true,
+    cunas_llantas: true,
+    radio_frecuencia_mina: true,
+    aceite_motor_agua: true,
+    liquido_frenos_direccion: true,
+    llantas_presion_at: true,
+    refaccion_gato_cruceta: true,
+    luces_faros_niebla: true,
+    extintor_pqs_6kg: true,
+    botiquin_primeros_auxilios: true,
+    frenos_pie_mano: true
   })
+
+  const [checklistCamion, setChecklistCamion] = useState({
+    frenos_aire_manometros: true,
+    freno_motor_jake: true,
+    salidas_emergencia_martillos: true,
+    cunas_bloqueadoras_pesadas: true,
+    luces_alarma_reversa: true,
+    llantas_desgaste_torque: true,
+    niveles_aceite_agua: true,
+    extintor_abc_9kg: true,
+    botiquin_ruta: true,
+    torreta_toldo: true,
+    cinturones_pasajeros: true
+  })
+
+  const [checklistAmbulancia, setChecklistAmbulancia] = useState({
+    motor_frenos_4x4: true,
+    sirena_estrobos_pa: true,
+    tanque_combustible_lleno: true,
+    oxigeno_fijo_manometro: true,
+    oxigeno_portatil_regulador: true,
+    camilla_principal_cinturones: true,
+    camilla_cuchara_scoop: true,
+    desfibrilador_dea: true,
+    aspirador_secreciones: true,
+    maletin_trauma_medicamentos: true,
+    tabla_espinal_collarines: true
+  })
+
   const [comentariosVehiculo, setComentariosVehiculo] = useState('')
   
   // Gas & KMs
   const [kmInicial, setKmInicial] = useState('')
   const [kmFinal, setKmFinal] = useState('')
-  const [gasInicio, setGasInicio] = useState('1/2')
-  const [gasFin, setGasFin] = useState('1/2')
+  const [gasInicio, setGasInicio] = useState('Lleno')
+  const [gasFin, setGasFin] = useState('3/4')
   const [litros, setLitros] = useState('')
   
   // Caseta / Recorrido
-  const [caseta, setCaseta] = useState('')
+  const [caseta, setCaseta] = useState('Caseta Durango / Bacis')
   const [obsCaseta, setObsCaseta] = useState('')
   const [fotoBase64, setFotoBase64] = useState<string | null>(null)
   
   // Signatures Refs & Data
   const sigChoferRef = useRef<SignatureCanvas>(null)
   const sigGuardiaRef = useRef<SignatureCanvas>(null)
+  const sigRHRef = useRef<SignatureCanvas>(null)
   const [firmaChoferData, setFirmaChoferData] = useState<string | null>(null)
   const [firmaGuardiaData, setFirmaGuardiaData] = useState<string | null>(null)
+  const [firmaRHData, setFirmaRHData] = useState<string | null>(null)
+  const [rhApproved, setRhApproved] = useState(false)
 
   // Loading state
   const [saving, setSaving] = useState(false)
-  const reportRef = useRef<HTMLDivElement>(null)
 
-  // ===============================
-  // LOCAL STORAGE (AUTOGUARDADO)
-  // ===============================
   useEffect(() => {
-    const saved = localStorage.getItem('chofer_draft_v1')
-    if (saved) {
-      try {
-        const data = JSON.parse(saved)
-        if (data.selectedChofer) setSelectedChofer(data.selectedChofer)
-        if (data.camion) setCamion(data.camion)
-        if (data.kmInicial) setKmInicial(data.kmInicial)
-        if (data.kmFinal) setKmFinal(data.kmFinal)
-        if (data.gasInicio) setGasInicio(data.gasInicio)
-        if (data.gasFin) setGasFin(data.gasFin)
-        if (data.litros) setLitros(data.litros)
-        if (data.caseta) setCaseta(data.caseta)
-        if (data.obsCaseta) setObsCaseta(data.obsCaseta)
-        if (data.comentariosVehiculo) setComentariosVehiculo(data.comentariosVehiculo)
-        if (data.checklist) setChecklist(data.checklist)
-        if (data.fotoBase64) setFotoBase64(data.fotoBase64)
-      } catch (e) {
-        console.error("Error al recuperar borrador", e)
-      }
-    }
+    fetchChoferesYFlota()
   }, [])
 
-  useEffect(() => {
-    // Guarda el borrador con cada cambio, excepto firmas (las firmas en base64 pueden saturar la memoria rápido si no tenemos cuidado, aunque es opcional. La foto se guarda).
-    const draft = {
-      selectedChofer, camion, kmInicial, kmFinal, gasInicio, gasFin, litros,
-      caseta, obsCaseta, comentariosVehiculo, checklist, fotoBase64
-    }
-    localStorage.setItem('chofer_draft_v1', JSON.stringify(draft))
-  }, [selectedChofer, camion, kmInicial, kmFinal, gasInicio, gasFin, litros, caseta, obsCaseta, comentariosVehiculo, checklist, fotoBase64])
-  // ===============================
+  const fetchChoferesYFlota = async () => {
+    // 1. Fetch system users registered in /usuarios (perfiles table)
+    const { data: pData } = await supabase
+        .from('perfiles')
+        .select('id, nombre_completo, rol')
+        .order('nombre_completo')
 
-  useEffect(() => {
-    // Fetch drivers
-    const fetchChoferes = async () => {
-      const { data } = await supabase.from('empleados').select('id_empleado, nombre, apellido_paterno').eq('estado_empleado', 'Activo')
-      setChoferes(data || [])
+    let combinedChoferes: Chofer[] = []
+
+    if (pData && pData.length > 0) {
+        const choferesOnly = pData.filter(p => {
+            const r = (p.rol || '').toLowerCase()
+            const n = (p.nombre_completo || '').toLowerCase()
+            return r.includes('chofer') || r.includes('operador') || r.includes('conductor') || n.includes('chofer')
+        })
+
+        choferesOnly.forEach(p => {
+            // Clean up name display if tag exists
+            const cleanName = p.nombre_completo.replace(/\s*\(Chofer\)/gi, '').trim()
+            combinedChoferes.push({
+                id_empleado: p.id,
+                nombre: cleanName,
+                apellido_paterno: '',
+                departamento: 'Chofer Registrado',
+                puesto: 'Chofer'
+            })
+        })
     }
-    fetchChoferes()
-  }, [])
+
+    setChoferes(combinedChoferes)
+
+    // Auto-select logged-in Chofer if applicable
+    if (profile?.nombre_completo) {
+        const matched = combinedChoferes.find(e => {
+            return profile.nombre_completo.toLowerCase().includes(e.nombre.toLowerCase()) || e.nombre.toLowerCase().includes(profile.nombre_completo.toLowerCase())
+        })
+        if (matched) {
+            setSelectedChofer(matched.id_empleado)
+        } else if (combinedChoferes.length > 0) {
+            setSelectedChofer(combinedChoferes[0].id_empleado)
+        }
+    }
+
+    // 2. Fetch official registered fleet from logistica_camiones
+    const { data: cData } = await supabase
+        .from('logistica_camiones')
+        .select('*')
+        .eq('activo', true)
+        .order('numero_economico')
+    
+    if (cData) {
+        setVehiculosFlota(cData)
+    }
+  }
+
+  // Handle Fleet Vehicle Selection
+  const handleVehiculoSelect = (vId: string) => {
+    setSelectedVehiculoId(vId)
+    const v = vehiculosFlota.find(x => x.id_camion === vId)
+    if (!v) return
+
+    const numEco = v.numero_economico || ''
+    setCamion(numEco)
+
+    // Auto-detect vehicle type
+    if (numEco.toUpperCase().includes('AMB') || numEco.toUpperCase().includes('AMBULANCIA')) {
+        setTipoVehiculo('Ambulancia')
+        setMotivoViaje('Traslado Médico de Emergencia')
+    } else if (numEco.toUpperCase().includes('BUS') || numEco.toUpperCase().includes('CAMION') || numEco.toUpperCase().includes('RUTA')) {
+        setTipoVehiculo('Camión')
+        setMotivoViaje('Ruta de Personal de Turno')
+    } else {
+        setTipoVehiculo('Camioneta')
+        setMotivoViaje('Viaje Foráneo (Durango / Ciudad)')
+    }
+  }
 
   useEffect(() => {
     if (!selectedChofer) return
@@ -130,15 +223,21 @@ export default function ChoferesClient() {
     fetchViajes()
   }, [selectedChofer, activeTab])
 
-  const handleProgramarViaje = async () => {
-    if (!selectedChofer || !nuevoDestino || !nuevaFecha || !nuevaHora) return alert('Llena todos los campos')
-    
-    // Validar que no programe viajes en el pasado
-    const limite = new Date(`${nuevaFecha}T${nuevaHora}`)
-    if (limite < new Date()) {
-        return alert('No puedes programar un viaje con hora en el pasado. El sistema de auditoría lo bloquea.')
+  // Evaluate if vehicle passes inspection
+  const getIsVehicleApto = () => {
+    if (tipoVehiculo === 'Camioneta') {
+      return Object.values(checklistCamioneta).every(v => v === true)
+    } else if (tipoVehiculo === 'Camión') {
+      return Object.values(checklistCamion).every(v => v === true)
+    } else {
+      return Object.values(checklistAmbulancia).every(v => v === true)
     }
+  }
 
+  const isApto = getIsVehicleApto()
+
+  const handleProgramarViaje = async () => {
+    if (!selectedChofer || !nuevoDestino || !nuevaFecha || !nuevaHora) return alert('Por favor llena todos los campos del viaje.')
     setSaving(true)
     try {
         const { error } = await supabase.from('logistica_viajes_programados').insert([{
@@ -149,18 +248,17 @@ export default function ChoferesClient() {
             estado: 'Programado'
         }])
         if (error) throw error
-        alert('Viaje Programado Exitosamente')
+        alert('¡Viaje Programado Exitosamente!')
         setNuevoDestino(''); setNuevaFecha(''); setNuevaHora('')
         setActiveTab('reporte')
-    } catch (e) {
+    } catch (e: any) {
         console.error(e)
-        alert('Error al programar (Asegúrate de haber corrido el nuevo SQL)')
+        alert('Error al programar viaje: ' + e.message)
     } finally {
         setSaving(false)
     }
   }
 
-  // Image compression (medium res)
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -177,16 +275,14 @@ export default function ChoferesClient() {
         canvas.height = img.height * scaleSize
         const ctx = canvas.getContext('2d')
         ctx?.drawImage(img, 0, 0, canvas.width, canvas.height)
-        setFotoBase64(canvas.toDataURL('image/jpeg', 0.4)) // 40% quality para reducir peso
+        setFotoBase64(canvas.toDataURL('image/jpeg', 0.5))
       }
     }
   }
 
-
-
   const handleSaveToDB = async () => {
       if(!selectedChofer || !camion) {
-          alert('Por favor selecciona chofer y camión')
+          alert('Por favor selecciona el Chofer Operador y la Unidad/Vehículo')
           return
       }
       setSaving(true)
@@ -200,20 +296,26 @@ export default function ChoferesClient() {
               gasolina_inicio: gasInicio,
               gasolina_fin: gasFin,
               litros_cargados: parseFloat(litros) || 0,
-              ...checklist,
-              comentarios_vehiculo: comentariosVehiculo,
+              frenos_ok: isApto,
+              luces_ok: isApto,
+              llantas_ok: isApto,
+              niveles_aceite_ok: isApto,
+              carroceria_ok: isApto,
+              extintor_ok: isApto,
+              botiquin_ok: isApto,
+              comentarios_vehiculo: `[MOTIVO: ${motivoViaje}] [CATEGORÍA: ${tipoVehiculo}] [APTO MINA: ${isApto ? 'SI' : 'NO'}] ${comentariosVehiculo}`,
               ubicacion_caseta: caseta,
-              foto_caseta_url: fotoBase64, // we save the base64 directly to the db for this presentation so it works immediately without bucket issues
+              foto_caseta_url: fotoBase64,
               observaciones_recorrido: obsCaseta,
               firma_chofer_url: firmaChoferData,
               firma_guardia_url: firmaGuardiaData,
-              firma_rh_url: null
+              firma_rh_url: firmaRHData || (rhApproved ? 'APROBADO_RH' : null),
+              tipo_vehiculo: tipoVehiculo
           }
 
           const { error } = await supabase.from('logistica_reportes_diarios').insert([payload])
           if (error) throw error
 
-          // Si seleccionó un viaje, actualizar su estado
           if (selectedViaje) {
               const viajeAsociado = misViajes.find(v => v.id_viaje === selectedViaje)
               if (viajeAsociado) {
@@ -223,36 +325,52 @@ export default function ChoferesClient() {
               }
           }
           
-          alert('Reporte guardado con éxito en la nube.')
-          localStorage.removeItem('chofer_draft_v1')
+          alert('¡Reporte de Inspección Minera y Registro de Salida guardado exitosamente!')
           setActiveTab('historial')
-          // Reset signatures
           sigChoferRef.current?.clear(); setFirmaChoferData(null)
           sigGuardiaRef.current?.clear(); setFirmaGuardiaData(null)
+          sigRHRef.current?.clear(); setFirmaRHData(null)
           setFotoBase64(null)
-      } catch (err) {
+      } catch (err: any) {
           console.error(err)
-          alert('Asegúrate de haber ejecutado el archivo SQL en Supabase.')
+          alert('Error al guardar el reporte: ' + err.message)
       } finally {
           setSaving(false)
       }
   }
 
-  const ChecklistItem = ({ label, field }: { label: string, field: keyof typeof checklist }) => (
-    <div className="flex items-center justify-between p-3 bg-zinc-50 rounded-lg border border-zinc-200">
-        <span className="text-sm font-bold text-zinc-700">{label}</span>
-        <div className="flex gap-2">
-            <button 
-                onClick={() => setChecklist(p => ({...p, [field]: true}))}
-                className={`px-4 py-1.5 rounded text-xs font-black uppercase transition-all ${checklist[field] ? 'bg-emerald-500 text-white shadow-md' : 'bg-zinc-200 text-zinc-500'}`}
-            >OK</button>
-            <button 
-                onClick={() => setChecklist(p => ({...p, [field]: false}))}
-                className={`px-4 py-1.5 rounded text-xs font-black uppercase transition-all ${!checklist[field] ? 'bg-rose-500 text-white shadow-md' : 'bg-zinc-200 text-zinc-500'}`}
-            >Falla</button>
-        </div>
-    </div>
-  )
+  const exportPDFReport = () => {
+    const doc = new jsPDF()
+    const choferObj = choferes.find(c => c.id_empleado === selectedChofer)
+    const choferNombre = choferObj ? `${choferObj.nombre} ${choferObj.apellido_paterno} ${choferObj.apellido_materno || ''}` : 'NO ESPECIFICADO'
+
+    doc.setFontSize(16)
+    doc.text("Dictamen Oficial de Inspección Vehicular y Salida Minera", 105, 20, { align: 'center' })
+
+    doc.setFontSize(10)
+    doc.text(`Operador / Chofer: ${choferNombre.toUpperCase()}`, 14, 35)
+    doc.text(`Vehículo / Eco: ${camion || 'N/A'} | Tipo: ${tipoVehiculo.toUpperCase()}`, 14, 43)
+    doc.text(`Motivo de Salida: ${motivoViaje}`, 14, 51)
+    doc.text(`Odómetro Inicial: ${kmInicial || '0'} KM | Nivel Combustible: ${gasInicio}`, 14, 59)
+    doc.text(`Dictamen Minero: ${isApto ? '🟢 VEHÍCULO APTO PARA SALIDA (APROBADO)' : '🔴 VEHÍCULO NO APTO (REQUIERE REPARACIÓN)'}`, 14, 67)
+
+    doc.line(14, 75, 196, 75)
+
+    doc.setFontSize(11)
+    doc.text("Firmas Digitales de Autorización:", 14, 87)
+
+    doc.setFontSize(9)
+    doc.text("-----------------------", 30, 120)
+    doc.text("Firma Operador Chofer", 30, 125)
+
+    doc.text("-----------------------", 90, 120)
+    doc.text("Firma Guardia Caseta", 90, 125)
+
+    doc.text("-----------------------", 150, 120)
+    doc.text("Visto Bueno RH / Logística", 150, 125)
+
+    doc.save(`Dictamen_Minero_${tipoVehiculo}_${camion || 'Eco'}.pdf`)
+  }
 
   const clearSignature = (ref: React.RefObject<SignatureCanvas | null>, setter: (val: string | null) => void) => {
       ref.current?.clear()
@@ -260,94 +378,104 @@ export default function ChoferesClient() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 pb-20 font-sans">
+    <div className="max-w-3xl mx-auto space-y-6 pb-20 font-sans">
         
-        {/* Header Movil */}
-        <div className="bg-zinc-950 p-6 rounded-2xl text-white shadow-xl relative overflow-hidden mb-4">
+        {/* Header Principal */}
+        <div className="bg-zinc-900 p-6 rounded-3xl text-white shadow-xl relative overflow-hidden">
             <div className="absolute top-0 right-0 p-8 opacity-10">
-                <Truck className="w-32 h-32" />
+                <Truck className="w-36 h-36" />
             </div>
-            <h1 className="text-2xl font-black italic tracking-tight relative z-10">Portal Chofer</h1>
-            <p className="text-zinc-400 text-sm mt-1 relative z-10">Logística y Operaciones</p>
+            <div className="flex items-center gap-3">
+                <div className="bg-emerald-500 p-2.5 rounded-2xl text-black">
+                    <Truck className="w-7 h-7" />
+                </div>
+                <div>
+                    <h1 className="text-2xl font-black tracking-tight">Portal Oficial de Choferes y Operadores Mineros</h1>
+                    <p className="text-zinc-400 text-xs mt-0.5">Control de salidas a Durango, Bacis, ambulancias de mina y rutas de personal</p>
+                </div>
+            </div>
         </div>
 
-        {/* Identificación Obligatoria */}
-        <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 p-4 mb-4">
-            <label className="text-xs font-bold text-zinc-500 uppercase">¿Quién eres?</label>
+        {/* 1. Selector de Operador / Chofer */}
+        <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-5 space-y-2">
+            <label className="text-xs font-black text-zinc-700 uppercase tracking-wider block">1. Seleccionar Chofer / Operador Autorizado</label>
             <select 
                 value={selectedChofer} onChange={e => setSelectedChofer(e.target.value)}
-                className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50 font-bold text-black"
+                className="w-full p-3.5 border border-zinc-200 rounded-2xl text-xs font-black bg-zinc-50 text-zinc-900 focus:bg-white focus:border-emerald-500"
             >
-                <option value="">Selecciona tu perfil de chofer...</option>
-                {choferes.map(c => (
-                    <option key={c.id_empleado} value={c.id_empleado}>{c.nombre} {c.apellido_paterno}</option>
-                ))}
+                <option value="">Seleccionar operador con rol de Chofer...</option>
+                {choferes.length === 0 ? (
+                    <option value="" disabled>No se encontraron usuarios asignados con el rol de Chofer</option>
+                ) : (
+                    choferes.map(c => (
+                        <option key={c.id_empleado} value={c.id_empleado}>
+                            👔 {c.nombre} {c.apellido_paterno} {c.apellido_materno || ''} ({c.puesto || 'Chofer'})
+                        </option>
+                    ))
+                )}
             </select>
         </div>
 
         {/* Pestañas de Navegación */}
         {selectedChofer && (
-            <div className="flex gap-2 p-1 bg-zinc-200 rounded-lg overflow-x-auto mb-4 hide-scrollbar">
-                <button onClick={() => setActiveTab('programar')} className={`flex-1 min-w-[120px] py-2 px-3 rounded-md text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'programar' ? 'bg-white shadow-sm text-black' : 'text-zinc-500 hover:text-black'}`}>
-                    <Calendar className="w-4 h-4" /> Programar Viaje
+            <div className="flex gap-2 p-1.5 bg-zinc-200/80 rounded-2xl">
+                <button onClick={() => setActiveTab('reporte')} className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all ${activeTab === 'reporte' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-600 hover:text-black'}`}>
+                    <FileSignature className="w-4 h-4 text-emerald-600" /> Inspección y Salida
                 </button>
-                <button onClick={() => setActiveTab('reporte')} className={`flex-1 min-w-[120px] py-2 px-3 rounded-md text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'reporte' ? 'bg-white shadow-sm text-black' : 'text-zinc-500 hover:text-black'}`}>
-                    <FileSignature className="w-4 h-4" /> Nuevo Reporte
+                <button onClick={() => setActiveTab('programar')} className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all ${activeTab === 'programar' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-600 hover:text-black'}`}>
+                    <Calendar className="w-4 h-4 text-indigo-600" /> Programar Viaje
                 </button>
-                <button onClick={() => setActiveTab('historial')} className={`flex-1 min-w-[120px] py-2 px-3 rounded-md text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'historial' ? 'bg-white shadow-sm text-black' : 'text-zinc-500 hover:text-black'}`}>
-                    <History className="w-4 h-4" /> Historial
+                <button onClick={() => setActiveTab('historial')} className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all ${activeTab === 'historial' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-600 hover:text-black'}`}>
+                    <History className="w-4 h-4 text-amber-600" /> Historial
                 </button>
             </div>
         )}
 
         {/* TAB: PROGRAMAR VIAJE */}
         {selectedChofer && activeTab === 'programar' && (
-            <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 p-4 sm:p-6 space-y-4 animate-in fade-in slide-in-from-bottom-4">
-                <h2 className="text-lg font-black text-zinc-800 flex items-center gap-2 border-b pb-2">
-                    <MapPin className="w-5 h-5 text-amber-500" /> Declarar Próximo Viaje
+            <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-4 animate-in fade-in">
+                <h2 className="text-base font-black text-zinc-900 flex items-center gap-2 border-b pb-3 border-zinc-100">
+                    <MapPin className="w-5 h-5 text-indigo-600" /> Programar Salida o Viaje Foráneo
                 </h2>
                 <div>
-                    <label className="text-xs font-bold text-zinc-500 uppercase">Lugar de Destino</label>
-                    <input type="text" value={nuevoDestino} onChange={e => setNuevoDestino(e.target.value)} placeholder="Ej. Cedis Monterrey" className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm font-bold bg-zinc-50" />
+                    <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Lugar de Destino (Ej. Durango, Bacis, Mina)</label>
+                    <input type="text" value={nuevoDestino} onChange={e => setNuevoDestino(e.target.value)} placeholder="Ej. Durango / Clinica Bacis" className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                     <div>
-                        <label className="text-xs font-bold text-zinc-500 uppercase">Fecha de Llegada Esperada</label>
-                        <input type="date" value={nuevaFecha} onChange={e => setNuevaFecha(e.target.value)} className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50" />
+                        <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Fecha de Salida</label>
+                        <input type="date" value={nuevaFecha} onChange={e => setNuevaFecha(e.target.value)} className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50" />
                     </div>
                     <div>
-                        <label className="text-xs font-bold text-zinc-500 uppercase">Hora Límite</label>
-                        <input type="time" value={nuevaHora} onChange={e => setNuevaHora(e.target.value)} className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50" />
+                        <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Hora Estimada</label>
+                        <input type="time" value={nuevaHora} onChange={e => setNuevaHora(e.target.value)} className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50" />
                     </div>
                 </div>
-                <button onClick={handleProgramarViaje} disabled={saving} className="w-full bg-zinc-950 hover:bg-zinc-900 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all mt-4">
-                    {saving ? <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full" /> : <Save className="w-5 h-5" />}
-                    Registrar Viaje
+                <button onClick={handleProgramarViaje} disabled={saving} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-3 rounded-2xl flex items-center justify-center gap-2 shadow-md transition-all">
+                    <Save className="w-4 h-4" /> Registrar Viaje Programado
                 </button>
             </div>
         )}
 
         {/* TAB: HISTORIAL */}
         {selectedChofer && activeTab === 'historial' && (
-            <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 p-4 sm:p-6 space-y-4 animate-in fade-in slide-in-from-bottom-4">
-                <h2 className="text-lg font-black text-zinc-800 flex items-center gap-2 border-b pb-2">
-                    <History className="w-5 h-5 text-amber-500" /> Mis Últimos Reportes
+            <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-4 animate-in fade-in">
+                <h2 className="text-base font-black text-zinc-900 flex items-center gap-2 border-b pb-3 border-zinc-100">
+                    <History className="w-5 h-5 text-amber-600" /> Bitácora de Inspecciones y Salidas
                 </h2>
                 {miHistorial.length === 0 ? (
-                    <div className="text-center p-8 text-zinc-400 font-bold">No tienes reportes guardados aún.</div>
+                    <div className="text-center p-8 text-zinc-400 font-bold text-xs">No se registran salidas previas para este chofer.</div>
                 ) : (
                     <div className="space-y-3">
                         {miHistorial.map(h => (
-                            <div key={h.id_reporte} className="border border-zinc-200 rounded-xl p-4 bg-zinc-50">
-                                <div className="flex justify-between items-start mb-2">
-                                    <span className="text-xs font-bold bg-amber-100 text-amber-800 px-2 py-1 rounded">{new Date(h.creado_el).toLocaleDateString()}</span>
-                                    <span className="text-xs font-black text-zinc-400">{new Date(h.creado_el).toLocaleTimeString()}</span>
+                            <div key={h.id_reporte} className="border border-zinc-200 rounded-2xl p-4 bg-zinc-50 flex justify-between items-center text-xs">
+                                <div>
+                                    <div className="font-black text-zinc-900">{h.tipo_vehiculo || 'Vehículo'} Eco: {h.camion_numero}</div>
+                                    <div className="text-[10px] text-zinc-500 mt-0.5">{new Date(h.creado_el).toLocaleString()} | {h.ubicacion_caseta}</div>
                                 </div>
-                                <p className="text-sm font-bold text-zinc-800">Camión: {h.camion_numero}</p>
-                                <p className="text-xs text-zinc-600 mt-1">Ubicación reportada: <span className="font-bold">{h.ubicacion_caseta}</span></p>
-                                {h.logistica_viajes_programados?.destino && (
-                                    <p className="text-xs text-emerald-600 mt-1 font-bold">✓ Amarrado al viaje: {h.logistica_viajes_programados.destino}</p>
-                                )}
+                                <span className={`px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${h.frenos_ok ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                                    {h.frenos_ok ? '🟢 Apto' : '🔴 Con Falla'}
+                                </span>
                             </div>
                         ))}
                     </div>
@@ -357,116 +485,250 @@ export default function ChoferesClient() {
 
         {/* TAB: NUEVO REPORTE */}
         {selectedChofer && activeTab === 'reporte' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 p-4 sm:p-6 space-y-8 animate-in fade-in slide-in-from-bottom-4">
+        <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-6 animate-in fade-in">
             
-            {/* 1. Datos Generales */}
-            <section className="space-y-4">
-                <h2 className="text-lg font-black text-zinc-800 flex items-center gap-2 border-b pb-2">
-                    <Car className="w-5 h-5 text-amber-500" /> 1. Datos de Operación
+            {/* FIT EVALUATION BANNER */}
+            <div className={`p-4.5 rounded-2xl border-2 flex items-center gap-3 transition-all ${
+                isApto 
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-950' 
+                    : 'bg-rose-50 border-rose-500 text-rose-950 shadow-lg animate-pulse'
+            }`}>
+                {isApto ? (
+                    <ShieldCheck className="w-7 h-7 text-emerald-600 flex-shrink-0" />
+                ) : (
+                    <ShieldAlert className="w-7 h-7 text-rose-600 flex-shrink-0" />
+                )}
+                <div>
+                    <div className="font-black text-xs uppercase tracking-wider">
+                        {isApto ? '🟢 VEHÍCULO EVALUADO COMO APTO PARA SALIDA EN MINA' : '🔴 ATENCIÓN: VEHÍCULO NO APTO - REQUIERE MANTENIMIENTO'}
+                    </div>
+                    <div className="text-[11px] font-semibold opacity-90 mt-0.5">
+                        {isApto 
+                            ? 'Todos los elementos de seguridad y equipamiento minero están verificados.' 
+                            : 'Existen elementos de seguridad con falla. Notifica al taller o departamento de seguridad.'
+                        }
+                    </div>
+                </div>
+            </div>
+
+            {/* 2. Seleccionar Vehículo de la Flota Oficial */}
+            <section className="space-y-4 border-b border-zinc-100 pb-5">
+                <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
+                    <Truck className="w-4 h-4 text-emerald-600" /> 2. Seleccionar Vehículo / Unidad de la Flota Minera
                 </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="sm:col-span-2">
-                        <label className="text-xs font-bold text-zinc-500 uppercase">Vincular a Viaje Programado</label>
-                        <select 
-                            value={selectedViaje} onChange={e => setSelectedViaje(e.target.value)}
-                            className="w-full mt-1 p-3 border border-amber-300 rounded-lg text-sm bg-amber-50 font-bold text-amber-900"
+
+                <div className="space-y-3">
+                    <div>
+                        <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Vehículo Registrado en Inventario</label>
+                        <select
+                            value={selectedVehiculoId}
+                            onChange={e => handleVehiculoSelect(e.target.value)}
+                            className="w-full p-3.5 border border-zinc-200 rounded-2xl text-xs font-black bg-zinc-50 text-zinc-900 focus:bg-white focus:border-emerald-500"
                         >
-                            <option value="">-- Reporte Libre (Sin viaje programado) --</option>
-                            {misViajes.map(v => (
-                                <option key={v.id_viaje} value={v.id_viaje}>
-                                    Destino: {v.destino} (Límite: {v.fecha_esperada} {v.hora_esperada}) - {v.estado}
+                            <option value="">Seleccionar vehículo de la flota minera...</option>
+                            {vehiculosFlota.map(v => (
+                                <option key={v.id_camion} value={v.id_camion}>
+                                    🚛 {v.numero_economico} (Placas: {v.placas})
                                 </option>
                             ))}
                         </select>
-                        <p className="text-[10px] text-zinc-400 mt-1">Si seleccionas un viaje, el sistema registrará automáticamente si llegaste a tiempo o con retraso.</p>
                     </div>
-                    <div>
-                        <label className="text-xs font-bold text-zinc-500 uppercase">No. Económico Camión</label>
-                        <input type="text" value={camion} onChange={e => setCamion(e.target.value)} placeholder="Ej. CAM-04" className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm font-bold bg-zinc-50" />
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                        <div>
+                            <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Categoría de Unidad</label>
+                            <select 
+                                value={tipoVehiculo} 
+                                onChange={e => setTipoVehiculo(e.target.value as any)} 
+                                className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50"
+                            >
+                                <option value="Camioneta">Camioneta Pickup 4x4 Mina</option>
+                                <option value="Camión">Camión / Autobús de Personal</option>
+                                <option value="Ambulancia">Ambulancia de Emergencias Mina</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Propósito del Viaje</label>
+                            <select 
+                                value={motivoViaje} 
+                                onChange={e => setMotivoViaje(e.target.value)}
+                                className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50"
+                            >
+                                <option value="Viaje Foráneo (Durango / Ciudad)">Viaje Foráneo (Durango / Ciudad)</option>
+                                <option value="Traslado Interno (Bacis / Mina)">Traslado Interno (Bacis / Mina)</option>
+                                <option value="Traslado Médico de Emergencia">Traslado Médico de Emergencia</option>
+                                <option value="Ruta de Personal de Turno">Ruta de Personal de Turno</option>
+                                <option value="Carga de Insumos y Almacén">Carga de Insumos y Almacén</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
             </section>
 
-            {/* 2. Combustible y Kilometraje */}
-            <section className="space-y-4">
-                <h2 className="text-lg font-black text-zinc-800 flex items-center gap-2 border-b pb-2">
-                    <Fuel className="w-5 h-5 text-amber-500" /> 2. Rendimiento
+            {/* 3. MINING CHECKLIST SPECIFIC BY VEHICLE */}
+            <section className="space-y-4 border-b border-zinc-100 pb-5">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
+                        <Wrench className="w-4 h-4 text-emerald-600" /> 3. Checklist Específico de Seguridad Minera
+                    </h2>
+                    <span className="px-3 py-1 bg-zinc-100 text-zinc-800 rounded-full font-black text-[10px] uppercase">
+                        {tipoVehiculo}
+                    </span>
+                </div>
+
+                {/* CAMIONETA CHECKLIST */}
+                {tipoVehiculo === 'Camioneta' && (
+                    <div className="space-y-2">
+                        {[
+                            { key: 'pertiga_banderola', label: '🚩 Pértiga Flexible con Banderola Reflejante (> 3m)' },
+                            { key: 'torreta_seguridad', label: '🚨 Torreta de Seguridad Estroboscópica sobre Toldo' },
+                            { key: 'cunas_llantas', label: '🛑 Cuñas Mecánicas de Bloqueo de Neumáticos' },
+                            { key: 'radio_frecuencia_mina', label: '📻 Radio de Comunicación VHF/UHF Frecuencia Mina' },
+                            { key: 'aceite_motor_agua', label: '🛢️ Niveles de Aceite de Motor, Anticongelante y Agua' },
+                            { key: 'liquido_frenos_direccion', label: '⚙️ Líquido de Frenos y Dirección Hidráulica' },
+                            { key: 'llantas_presion_at', label: '🛞 Neumáticos Todo Terreno (Presión y Grabado)' },
+                            { key: 'refaccion_gato_cruceta', label: '🛞 Llanta de Refacción, Gato Hidráulico y Cruceta' },
+                            { key: 'luces_faros_niebla', label: '💡 Luces Principales, Intermitentes y Faros de Niebla' },
+                            { key: 'extintor_pqs_6kg', label: '🧯 Extintor PQS de 6kg Vigente (Manómetro en Verde)' },
+                            { key: 'botiquin_primeros_auxilios', label: '🩹 Botiquín de Primeros Auxilios de Operación' },
+                            { key: 'frenos_pie_mano', label: '🛑 Frenos Principales y Freno de Mano / Parqueo' },
+                        ].map(item => (
+                            <div key={item.key} className="flex justify-between items-center p-3 bg-zinc-50 rounded-2xl border border-zinc-200 text-xs font-bold text-zinc-800">
+                                <span>{item.label}</span>
+                                <div className="flex gap-1.5">
+                                    <button 
+                                        type="button"
+                                        onClick={() => setChecklistCamioneta(p => ({ ...p, [item.key]: true }))}
+                                        className={`px-3 py-1 rounded-xl font-black text-[10px] ${checklistCamioneta[item.key as keyof typeof checklistCamioneta] ? 'bg-emerald-600 text-white' : 'bg-zinc-200 text-zinc-600'}`}
+                                    >OK</button>
+                                    <button 
+                                        type="button"
+                                        onClick={() => setChecklistCamioneta(p => ({ ...p, [item.key]: false }))}
+                                        className={`px-3 py-1 rounded-xl font-black text-[10px] ${!checklistCamioneta[item.key as keyof typeof checklistCamioneta] ? 'bg-rose-600 text-white' : 'bg-zinc-200 text-zinc-600'}`}
+                                    >FALLA</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* CAMION CHECKLIST */}
+                {tipoVehiculo === 'Camión' && (
+                    <div className="space-y-2">
+                        {[
+                            { key: 'frenos_aire_manometros', label: '🛑 Frenos de Aire / Manómetros de Doble Tanque (> 90 PSI)' },
+                            { key: 'freno_motor_jake', label: '⚙️ Freno de Motor / Retardador (Jake Brake)' },
+                            { key: 'salidas_emergencia_martillos', label: '🚨 Salidas de Emergencia y Martillos Rompementanas' },
+                            { key: 'cunas_bloqueadoras_pesadas', label: '🛑 Cuñas Bloqueadoras de Llantas Pesadas' },
+                            { key: 'luces_alarma_reversa', label: '💡 Luces completas y Alarma de Reversa Sonora' },
+                            { key: 'llantas_desgaste_torque', label: '🛞 Neumáticos de Carga y Torque de Tuercas' },
+                            { key: 'niveles_aceite_agua', label: '🛢️ Niveles de Aceite de Motor, Agua y Transmisión' },
+                            { key: 'extintor_abc_9kg', label: '🧯 Extintor Industrial ABC de 9kg Vigente' },
+                            { key: 'botiquin_ruta', label: '🩹 Botiquín de Auxilio Médico de Ruta' },
+                            { key: 'torreta_toldo', label: '🚨 Torreta Giratoria / Estroboscópica sobre Toldo' },
+                            { key: 'cinturones_pasajeros', label: '🔒 Cinturón de Chofer y Asientos de Trabajadores' },
+                        ].map(item => (
+                            <div key={item.key} className="flex justify-between items-center p-3 bg-zinc-50 rounded-2xl border border-zinc-200 text-xs font-bold text-zinc-800">
+                                <span>{item.label}</span>
+                                <div className="flex gap-1.5">
+                                    <button 
+                                        type="button"
+                                        onClick={() => setChecklistCamion(p => ({ ...p, [item.key]: true }))}
+                                        className={`px-3 py-1 rounded-xl font-black text-[10px] ${checklistCamion[item.key as keyof typeof checklistCamion] ? 'bg-emerald-600 text-white' : 'bg-zinc-200 text-zinc-600'}`}
+                                    >OK</button>
+                                    <button 
+                                        type="button"
+                                        onClick={() => setChecklistCamion(p => ({ ...p, [item.key]: false }))}
+                                        className={`px-3 py-1 rounded-xl font-black text-[10px] ${!checklistCamion[item.key as keyof typeof checklistCamion] ? 'bg-rose-600 text-white' : 'bg-zinc-200 text-zinc-600'}`}
+                                    >FALLA</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* AMBULANCIA MINERA CHECKLIST */}
+                {tipoVehiculo === 'Ambulancia' && (
+                    <div className="space-y-3">
+                        <div className="bg-rose-100/70 border border-rose-300 p-3 rounded-2xl flex justify-between items-center">
+                            <span className="text-xs font-black text-rose-950 uppercase flex items-center gap-1.5">
+                                <Stethoscope className="w-4 h-4 text-rose-700" /> Nivel de Equipamiento Médico de la Unidad:
+                            </span>
+                            <select 
+                                value={tipoAmbulancia}
+                                onChange={e => setTipoAmbulancia(e.target.value as any)}
+                                className="p-2 rounded-xl text-xs font-black bg-white text-rose-950 border border-rose-300"
+                            >
+                                <option value="Avanzada / Soporte Vital">Soporte Vital Completo (Avanzada)</option>
+                                <option value="Básica / Traslado">Traslado Básico (Estándar)</option>
+                            </select>
+                        </div>
+
+                        <div className="space-y-2">
+                            {[
+                                { key: 'motor_frenos_4x4', label: '🚑 Motor, Transmisión 4x4 y Frenos de Respuesta Rápida' },
+                                { key: 'sirena_estrobos_pa', label: '🚨 Sirena, Torreta Estroboscópica y Altavoz P.A.' },
+                                { key: 'tanque_combustible_lleno', label: '⛽ Tanque de Combustible Lleno (> 3/4)' },
+                                { key: 'oxigeno_fijo_manometro', label: '🏥 Oxígeno Fijo: Manómetro Principal (> 1200 PSI) y Mascarillas' },
+                                { key: 'oxigeno_portatil_regulador', label: '🏥 Oxígeno Portátil: Tanque de Traslado con Regulador' },
+                                { key: 'camilla_principal_cinturones', label: '🏥 Camilla Principal con Cinturones de Retención' },
+                                { key: 'camilla_cuchara_scoop', label: '🏥 Camilla de Cuchara (Scoop) / Camilla Marina de Rescate' },
+                                { key: 'desfibrilador_dea', label: '🏥 Desfibrilador Operativo (DEA) / Aspirador de Secreciones' },
+                                { key: 'maletin_trauma_medicamentos', label: '🏥 Maletín de Trauma y Medicamentos de Urgencia' },
+                                { key: 'tabla_espinal_collarines', label: '🏥 Tabla Espinal Larga, Collarines Cervicales y Férulas' },
+                            ].map(item => (
+                                <div key={item.key} className="flex justify-between items-center p-3 bg-rose-50/80 rounded-2xl border border-rose-200 text-xs font-bold text-rose-950">
+                                    <span>{item.label}</span>
+                                    <div className="flex gap-1.5">
+                                        <button 
+                                            type="button"
+                                            onClick={() => setChecklistAmbulancia(p => ({ ...p, [item.key]: true }))}
+                                            className={`px-3 py-1 rounded-xl font-black text-[10px] ${checklistAmbulancia[item.key as keyof typeof checklistAmbulancia] ? 'bg-rose-600 text-white' : 'bg-zinc-200 text-zinc-600'}`}
+                                        >DISPONIBLE</button>
+                                        <button 
+                                            type="button"
+                                            onClick={() => setChecklistAmbulancia(p => ({ ...p, [item.key]: false }))}
+                                            className={`px-3 py-1 rounded-xl font-black text-[10px] ${!checklistAmbulancia[item.key as keyof typeof checklistAmbulancia] ? 'bg-zinc-900 text-white' : 'bg-zinc-200 text-zinc-600'}`}
+                                        >FALTA / FALLA</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </section>
+
+            {/* 4. Odómetro y Evidencia */}
+            <section className="space-y-4 border-b border-zinc-100 pb-5">
+                <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
+                    <Fuel className="w-4 h-4 text-emerald-600" /> 4. Odómetro y Evidencia Visual
                 </h2>
                 <div className="grid grid-cols-2 gap-4">
                     <div>
                         <label className="text-xs font-bold text-zinc-500 uppercase">Km Inicial</label>
-                        <input type="number" value={kmInicial} onChange={e => setKmInicial(e.target.value)} className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50" />
+                        <input type="number" value={kmInicial} onChange={e => setKmInicial(e.target.value)} placeholder="125400" className="w-full mt-1 p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50" />
                     </div>
                     <div>
-                        <label className="text-xs font-bold text-zinc-500 uppercase">Km Final</label>
-                        <input type="number" value={kmFinal} onChange={e => setKmFinal(e.target.value)} className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50" />
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-zinc-500 uppercase">Gasolina Inicial</label>
-                        <select value={gasInicio} onChange={e => setGasInicio(e.target.value)} className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50">
-                            <option>Reserva</option><option>1/4</option><option>1/2</option><option>3/4</option><option>Lleno</option>
+                        <label className="text-xs font-bold text-zinc-500 uppercase">Tanque Inicial</label>
+                        <select value={gasInicio} onChange={e => setGasInicio(e.target.value)} className="w-full mt-1 p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50">
+                            <option>Lleno</option><option>3/4</option><option>1/2</option><option>1/4</option><option>Reserva</option>
                         </select>
                     </div>
-                    <div>
-                        <label className="text-xs font-bold text-zinc-500 uppercase">Gasolina Final</label>
-                        <select value={gasFin} onChange={e => setGasFin(e.target.value)} className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50">
-                            <option>Reserva</option><option>1/4</option><option>1/2</option><option>3/4</option><option>Lleno</option>
-                        </select>
-                    </div>
-                    <div className="col-span-2">
-                        <label className="text-xs font-bold text-zinc-500 uppercase">Litros Cargados (Tickets)</label>
-                        <input type="number" value={litros} onChange={e => setLitros(e.target.value)} placeholder="Ej. 40" className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50" />
-                    </div>
                 </div>
-            </section>
 
-            {/* 3. Checklist Vehicular */}
-            <section className="space-y-4">
-                <h2 className="text-lg font-black text-zinc-800 flex items-center gap-2 border-b pb-2">
-                    <Car className="w-5 h-5 text-amber-500" /> 3. Inspección Física
-                </h2>
-                <div className="space-y-2">
-                    <ChecklistItem label="Sistema de Frenos" field="frenos_ok" />
-                    <ChecklistItem label="Luces (Faros, Intermitentes)" field="luces_ok" />
-                    <ChecklistItem label="Estado de Llantas" field="llantas_ok" />
-                    <ChecklistItem label="Niveles (Aceite, Agua)" field="niveles_aceite_ok" />
-                    <ChecklistItem label="Daños Carrocería / Espejos" field="carroceria_ok" />
-                    <ChecklistItem label="Extintor" field="extintor_ok" />
-                    <ChecklistItem label="Botiquín de Primeros Auxilios" field="botiquin_ok" />
-                </div>
-                <div>
-                    <label className="text-xs font-bold text-zinc-500 uppercase">Comentarios para Mantenimiento</label>
-                    <textarea 
-                        rows={3} value={comentariosVehiculo} onChange={e => setComentariosVehiculo(e.target.value)}
-                        placeholder="Si marcaste alguna falla, descríbela aquí..."
-                        className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50"
-                    />
-                </div>
-            </section>
-
-            {/* 4. Evidencia Recorrido */}
-            <section className="space-y-4">
-                <h2 className="text-lg font-black text-zinc-800 flex items-center gap-2 border-b pb-2">
-                    <Camera className="w-5 h-5 text-amber-500" /> 4. Evidencia de Destino
-                </h2>
-                <div>
-                    <label className="text-xs font-bold text-zinc-500 uppercase">Ubicación / Caseta de Llegada</label>
-                    <input type="text" value={caseta} onChange={e => setCaseta(e.target.value)} placeholder="Ej. Caseta Durango Norte" className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50" />
-                </div>
-                
-                <div className="mt-4 border-2 border-dashed border-zinc-300 rounded-xl p-6 text-center bg-zinc-50 relative overflow-hidden">
+                <div className="border-2 border-dashed border-zinc-300 rounded-3xl p-5 text-center bg-zinc-50 mt-3">
                     {fotoBase64 ? (
-                        <div className="space-y-4">
-                            <img src={fotoBase64} alt="Evidencia" className="mx-auto rounded-lg max-h-48 object-cover" />
-                            <button onClick={() => setFotoBase64(null)} className="text-xs font-bold text-rose-500 underline">Tomar otra foto</button>
+                        <div className="space-y-3">
+                            <img src={fotoBase64} alt="Evidencia" className="mx-auto rounded-2xl max-h-48 object-cover shadow-sm" />
+                            <button type="button" onClick={() => setFotoBase64(null)} className="text-xs font-bold text-rose-600 underline">Cambiar Foto</button>
                         </div>
                     ) : (
                         <div>
-                            <Camera className="w-10 h-10 text-zinc-400 mx-auto mb-2" />
-                            <p className="text-sm font-bold text-zinc-600 mb-4">Capturar Evidencia Visual</p>
-                            <label className="bg-amber-500 hover:bg-amber-600 text-black px-6 py-3 rounded-lg font-bold shadow-md cursor-pointer inline-flex items-center gap-2 transition-all">
-                                <Upload className="w-4 h-4" />
-                                Abrir Cámara
+                            <Camera className="w-7 h-7 text-zinc-400 mx-auto mb-1.5" />
+                            <p className="text-xs font-bold text-zinc-600 mb-2">Tomar foto de tablero u odómetro</p>
+                            <label className="bg-zinc-900 text-white px-5 py-2 rounded-2xl text-xs font-black shadow-md cursor-pointer inline-flex items-center gap-2">
+                                <Upload className="w-4 h-4" /> Capturar Evidencia
                                 <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoUpload} />
                             </label>
                         </div>
@@ -474,60 +736,90 @@ export default function ChoferesClient() {
                 </div>
             </section>
 
-            {/* 5. Firmas */}
-            <section className="space-y-6">
-                <h2 className="text-lg font-black text-zinc-800 flex items-center gap-2 border-b pb-2">
-                    <FileSignature className="w-5 h-5 text-amber-500" /> 5. Firmas de Autorización
+            {/* 5. Triple Digital Signatures & RH Approval */}
+            <section className="space-y-4">
+                <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
+                    <FileSignature className="w-4 h-4 text-emerald-600" /> 5. Validaciones y Firmas Digitales
                 </h2>
                 
-                <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Firma Chofer */}
-                    <div className="border border-zinc-200 rounded-xl overflow-hidden">
+                    <div className="border border-zinc-200 rounded-2xl overflow-hidden bg-zinc-50">
                         <div className="bg-zinc-100 px-4 py-2 flex justify-between items-center border-b border-zinc-200">
-                            <span className="text-xs font-black uppercase text-zinc-700">Firma del Chofer</span>
-                            <button onClick={() => clearSignature(sigChoferRef, setFirmaChoferData)} className="text-[10px] text-zinc-500 hover:text-rose-500 font-bold uppercase">Limpiar</button>
+                            <span className="text-[10px] font-black uppercase text-zinc-700">1. Firma del Chofer Operador</span>
+                            <button type="button" onClick={() => clearSignature(sigChoferRef, setFirmaChoferData)} className="text-[10px] text-zinc-500 hover:text-rose-600 font-bold uppercase">Limpiar</button>
                         </div>
                         <SignatureCanvas 
                             ref={sigChoferRef} 
                             clearOnResize={false} 
                             onEnd={() => setFirmaChoferData(sigChoferRef.current?.toDataURL() || null)}
-                            canvasProps={{className: 'w-full h-32 bg-white', style: { touchAction: 'none' }}} 
+                            canvasProps={{className: 'w-full h-28 bg-white', style: { touchAction: 'none' }}} 
                         />
                     </div>
 
-                    {/* Firma Guardia */}
-                    <div className="border border-zinc-200 rounded-xl overflow-hidden">
+                    {/* Firma Guardia Caseta */}
+                    <div className="border border-zinc-200 rounded-2xl overflow-hidden bg-zinc-50">
                         <div className="bg-zinc-100 px-4 py-2 flex justify-between items-center border-b border-zinc-200">
-                            <span className="text-xs font-black uppercase text-zinc-700">Firma Guardia / Receptor</span>
-                            <button onClick={() => clearSignature(sigGuardiaRef, setFirmaGuardiaData)} className="text-[10px] text-zinc-500 hover:text-rose-500 font-bold uppercase">Limpiar</button>
+                            <span className="text-[10px] font-black uppercase text-zinc-700">2. Firma Guardia de Caseta</span>
+                            <button type="button" onClick={() => clearSignature(sigGuardiaRef, setFirmaGuardiaData)} className="text-[10px] text-zinc-500 hover:text-rose-600 font-bold uppercase">Limpiar</button>
                         </div>
                         <SignatureCanvas 
                             ref={sigGuardiaRef} 
                             clearOnResize={false} 
                             onEnd={() => setFirmaGuardiaData(sigGuardiaRef.current?.toDataURL() || null)}
-                            canvasProps={{className: 'w-full h-32 bg-white', style: { touchAction: 'none' }}} 
+                            canvasProps={{className: 'w-full h-28 bg-white', style: { touchAction: 'none' }}} 
                         />
                     </div>
+                </div>
+
+                {/* Confirmación RH */}
+                <div className="bg-emerald-50/60 border border-emerald-200 p-4 rounded-2xl flex items-center justify-between">
+                    <div>
+                        <div className="text-xs font-black text-emerald-950 uppercase flex items-center gap-1.5">
+                            <Sparkles className="w-4 h-4 text-emerald-600" />
+                            3. Visto Bueno de Recursos Humanos / Logística
+                        </div>
+                        <div className="text-[10px] text-emerald-800 font-semibold mt-0.5">
+                            Estampar sello digital de Recursos Humanos para autorizar la salida oficial.
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setRhApproved(!rhApproved)}
+                        className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                            rhApproved 
+                                ? 'bg-emerald-600 text-white shadow-md' 
+                                : 'bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                        }`}
+                    >
+                        {rhApproved ? '✓ AUTORIZADO POR RH' : '+ Confirmar RH'}
+                    </button>
                 </div>
             </section>
 
             {/* Actions */}
-            <div className="pt-6 border-t border-zinc-200 flex flex-col sm:flex-row gap-4">
+            <div className="pt-4 border-t border-zinc-200 flex flex-col sm:flex-row gap-3">
                 <button 
+                    type="button"
+                    onClick={exportPDFReport}
+                    className="bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-black py-3.5 px-6 rounded-2xl text-xs flex items-center justify-center gap-2 border border-zinc-200"
+                >
+                    <Download className="w-4 h-4 text-zinc-600" />
+                    <span>Exportar Dictamen PDF</span>
+                </button>
+
+                <button 
+                    type="button"
                     onClick={handleSaveToDB}
                     disabled={saving}
-                    className="flex-1 bg-zinc-950 hover:bg-zinc-900 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all"
+                    className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white font-black py-3.5 rounded-2xl text-xs flex items-center justify-center gap-2 shadow-md transition-all"
                 >
-                    {saving ? <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full" /> : <Save className="w-5 h-5" />}
-                    Enviar y Guardar en Base de Datos
+                    {saving ? <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> : <Save className="w-4 h-4 text-emerald-400" />}
+                    Guardar y Registrar Salida Oficial
                 </button>
             </div>
         </div>
         )}
-
-
-
-
     </div>
   )
 }

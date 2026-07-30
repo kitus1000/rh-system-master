@@ -13,7 +13,6 @@ import {
     Files,
     LogOut,
     CheckSquare,
-    Activity,
     ClipboardList,
     FolderLock,
     Info,
@@ -22,12 +21,15 @@ import {
     Award,
     ChevronLeft,
     ChevronRight,
-    Layers,
+    ChevronDown,
+    ChevronUp,
     Coffee,
     Shield,
     UserCircle,
     MessageCircle,
     Truck,
+    Bus,
+    Car,
     Heart,
     Stethoscope,
     Pill,
@@ -39,16 +41,24 @@ import { useAuth } from '@/components/AuthProvider'
 
 const navigationGroups = [
     {
-        title: "Principal",
+        title: "Mi Cuenta",
+        colorClass: "text-zinc-400",
+        bgClass: "bg-zinc-800",
+        isCollapsible: false,
         items: [
-            { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Chat y Muro', href: '/chat', icon: MessageCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Recursos Humanos', 'Sistemas'] },
+            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Recursos Humanos', 'Sistemas', 'Chofer'] },
+            { name: 'Chat y Muro', href: '/chat', icon: MessageCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Sistemas'] },
         ]
     },
     {
         title: "Capital Humano",
+        icon: Users,
+        colorClass: "text-amber-500",
+        bgClass: "bg-amber-500",
+        isCollapsible: true,
+        defaultExpanded: true,
         items: [
+            { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Empleados', href: '/empleados', icon: Users, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Solicitudes', href: '/solicitudes', icon: FileText, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Autorizaciones', href: '/autorizaciones', icon: CheckSquare, roles: ['Administrativo', 'Superintendente'] },
@@ -57,42 +67,62 @@ const navigationGroups = [
         ]
     },
     {
-        title: "Operaciones",
+        title: "Clínica Médica",
+        icon: Stethoscope,
+        colorClass: "text-rose-500",
+        bgClass: "bg-rose-500",
+        isCollapsible: true,
+        defaultExpanded: true,
         items: [
-            { name: 'Campamentos', href: '/campamentos', icon: Home, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Logística', href: '/logistica', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Transporte', href: '/transporte', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Portal Choferes', href: '/logistica/choferes', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Evaluaciones', href: '/evaluaciones', icon: Award, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Comedor', href: '/comedor', icon: Coffee, roles: ['Administrativo', 'Superintendente'] },
-            { name: 'Documentos', href: '/documentos', icon: Files, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Consultas Médicas', href: '/medico/consultas', icon: Stethoscope, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
+            { name: 'Pacientes', href: '/medico/pacientes', icon: Heart, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
+            { name: 'Inventario Farmacia', href: '/medico/inventario', icon: Pill, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
+            { name: 'Clínicas Externas', href: '/medico/clinicas', icon: Hospital, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
+            { name: 'Pases Médicos', href: '/medico/pases', icon: FileText, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
+            { name: 'Pase de Hotel', href: '/medico/hotel', icon: Building, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
+            { name: 'Portal de Ausencias', href: '/consulta-medica', icon: ClipboardList, roles: ['Administrativo', 'Administrador', 'Médico', 'Jefe de Departamento', 'Superintendente', 'Supervisor', 'Recursos Humanos'] },
         ]
     },
     {
-        title: "Logística Nube",
+        title: "Movilidad",
+        icon: Bus,
+        colorClass: "text-cyan-500",
+        bgClass: "bg-cyan-500",
+        isCollapsible: true,
+        defaultExpanded: true,
         items: [
+            { name: 'Viajes Programados', href: '/transporte', icon: Bus, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Logística', href: '/logistica', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Portal Choferes', href: '/logistica/choferes', icon: Car, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Chofer'] },
             { name: 'Supervisión', href: '/logistica/reportes', icon: ClipboardList, roles: ['Recursos Humanos', 'Administrativo', 'Superintendente', 'Jefe de Departamento', 'Sistemas'] }
         ]
     },
     {
-        title: "Administración",
+        title: "Operaciones",
+        icon: Settings,
+        colorClass: "text-emerald-500",
+        bgClass: "bg-emerald-500",
+        isCollapsible: true,
+        defaultExpanded: true,
         items: [
-            { name: 'Catálogos', href: '/catalogos', icon: Library, roles: ['Administrativo'] },
-            { name: 'Usuarios', href: '/usuarios', icon: Shield, roles: ['Administrativo'] },
-            { name: 'Configuración', href: '/configuracion', icon: Settings, roles: ['Administrativo'] },
-            { name: 'Acerca de', href: '/acerca-de', icon: Info, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Campamentos', href: '/campamentos', icon: Home, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Comedor', href: '/comedor', icon: Coffee, roles: ['Administrativo', 'Superintendente'] },
+            { name: 'Evaluaciones', href: '/evaluaciones', icon: Award, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Documentos', href: '/documentos', icon: Files, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
         ]
     },
     {
-        title: "Módulo Médico",
+        title: "Administración",
+        icon: Settings,
+        colorClass: "text-purple-500",
+        bgClass: "bg-purple-500",
+        isCollapsible: true,
+        defaultExpanded: false,
         items: [
-            { name: 'Consultas Médicas', href: '/medico/consultas', icon: Stethoscope, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
-            { name: 'Pacientes', href: '/medico/pacientes', icon: Heart, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
-            { name: 'Inventario', href: '/medico/inventario', icon: Pill, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
-            { name: 'Clínicas', href: '/medico/clinicas', icon: Hospital, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
-            { name: 'Pases Médicos', href: '/medico/pases', icon: FileText, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
-            { name: 'Pase de Hotel', href: '/medico/hotel', icon: Building, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
-            { name: 'Portal Clínico / Pases', href: '/consulta-medica', icon: ClipboardList, roles: ['Administrativo', 'Médico', 'Jefe de Departamento', 'Superintendente', 'Recursos Humanos'] },
+            { name: 'Catálogos', href: '/catalogos', icon: Library, roles: ['Administrativo', 'Sistemas'] },
+            { name: 'Usuarios', href: '/usuarios', icon: Shield, roles: ['Administrativo', 'Sistemas'] },
+            { name: 'Configuración', href: '/configuracion', icon: Settings, roles: ['Administrativo', 'Sistemas'] },
+            { name: 'Acerca de', href: '/acerca-de', icon: Info, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
         ]
     }
 ]
@@ -107,19 +137,66 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }: SidebarProps) {
     const pathname = usePathname()
     const { profile, hasAccess } = useAuth()
+    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
+    const [mounted, setMounted] = useState(false)
+    const [companyInfo, setCompanyInfo] = useState<{ nombre: string, logo: string | null }>({ nombre: 'El Expediente', logo: null })
+
+    useEffect(() => {
+        setMounted(true)
+        fetchCompanyInfo()
+        const saved = localStorage.getItem('sidebar_groups_state')
+        if (saved) {
+            try {
+                setExpandedGroups(JSON.parse(saved))
+            } catch (e) {
+                initDefaultGroups()
+            }
+        } else {
+            initDefaultGroups()
+        }
+    }, [])
+
+    const initDefaultGroups = () => {
+        const defaultState: Record<string, boolean> = {}
+        navigationGroups.forEach(g => {
+            if (g.isCollapsible) {
+                defaultState[g.title] = g.defaultExpanded
+            }
+        })
+        setExpandedGroups(defaultState)
+        localStorage.setItem('sidebar_groups_state', JSON.stringify(defaultState))
+    }
+
+    const fetchCompanyInfo = async () => {
+        const { data } = await supabase.from('configuracion_empresa').select('nombre_empresa, logo_base64').single()
+        if (data) {
+            setCompanyInfo({
+                nombre: data.nombre_empresa || 'El Expediente',
+                logo: data.logo_base64 || null
+            })
+        }
+    }
+
+    const toggleGroup = (groupTitle: string) => {
+        const nextState = { ...expandedGroups, [groupTitle]: !expandedGroups[groupTitle] }
+        setExpandedGroups(nextState)
+        localStorage.setItem('sidebar_groups_state', JSON.stringify(nextState))
+    }
 
     const handleLogout = async () => {
         await supabase.auth.signOut()
         window.location.href = '/login'
     }
 
+    if (!mounted) {
+        return null
+    }
+
     return (
         <div className={cn(
             "flex h-screen flex-col bg-zinc-950 text-zinc-300 border-r border-zinc-900 transition-all duration-300 relative z-50",
-            // Mobile positioning: fixed and transforms
             "fixed inset-y-0 left-0 md:relative",
             mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
-            // Desktop width
             collapsed ? "md:w-20 w-64" : "w-64"
         )}>
             <button
@@ -135,73 +212,117 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }: Side
                 collapsed ? "justify-center px-2" : "justify-between px-6"
             )}>
                 <div className="flex items-center space-x-2.5">
-                    <div className="h-9 w-9 rounded-lg bg-amber-500 flex items-center justify-center text-black shadow-lg shadow-amber-500/20 shrink-0">
-                        <FolderLock className="w-5 h-5 animate-pulse" />
-                    </div>
-                    {!collapsed && (
-                        <div className="flex flex-col animate-in fade-in duration-300">
-                            <h1 className="text-[10px] font-black tracking-tighter text-zinc-500 uppercase italic leading-tight">El</h1>
-                            <h1 className="text-base font-black tracking-widest text-amber-500 uppercase leading-none -mt-1">Expediente</h1>
-                        </div>
+                    {companyInfo.logo ? (
+                        <img 
+                            src={companyInfo.logo} 
+                            alt="Logo" 
+                            className={cn(
+                                "object-contain shrink-0 transition-all duration-300",
+                                collapsed ? "h-10 w-10" : "h-12 w-auto max-w-[150px]"
+                            )} 
+                        />
+                    ) : (
+                        <>
+                            <div className="h-9 w-9 rounded-lg bg-amber-500 flex items-center justify-center text-black shadow-lg shadow-amber-500/20 shrink-0">
+                                <FolderLock className="w-5 h-5 animate-pulse" />
+                            </div>
+                            {!collapsed && (
+                                <div className="flex flex-col animate-in fade-in duration-300">
+                                    <h1 className="text-[10px] font-black tracking-tighter text-zinc-500 uppercase italic leading-tight">{companyInfo.nombre.split(' ')[0] || 'El'}</h1>
+                                    <h1 className="text-base font-black tracking-widest text-amber-500 uppercase leading-none -mt-1">{companyInfo.nombre.split(' ').slice(1).join(' ') || 'Expediente'}</h1>
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto py-4">
-                <nav className="space-y-6 px-3">
+            <div className="flex-1 overflow-y-auto py-4 custom-scrollbar">
+                <nav className="space-y-4 px-3">
                     {navigationGroups.map((group, idx) => {
-                        // Filter items the user has access to
                         const availableItems = group.items.filter(item => !item.roles || hasAccess(item.roles))
                         
                         if (availableItems.length === 0) return null
 
+                        const isExpanded = group.isCollapsible ? expandedGroups[group.title] : true
+                        const GroupIcon = group.icon
+
                         return (
-                            <div key={idx} className="space-y-1.5">
-                                {!collapsed && (
-                                    <p className="px-3 text-[10px] font-black text-zinc-500/70 uppercase tracking-widest mb-2 border-b border-zinc-900/50 pb-1 inline-block">
-                                        {group.title}
-                                    </p>
-                                )}
-                                {collapsed && (
-                                    <div className="w-full flex justify-center mb-2">
-                                        <div className="w-6 h-px bg-zinc-800/50"></div>
-                                    </div>
-                                )}
-                                {availableItems.map((item) => {
-                                    const isActive = pathname === item.href
-                                    return (
-                                        <Link
-                                            key={item.name}
-                                            href={item.href}
-                                            onClick={() => {
-                                                if (onCloseMobile) onCloseMobile()
-                                            }}
-                                            title={collapsed ? item.name : undefined}
-                                            className={cn(
-                                                'group flex items-center rounded-lg py-2.5 transition-all duration-200 border-l-2',
-                                                collapsed ? 'justify-center px-0' : 'px-3',
-                                                isActive
-                                                    ? 'border-amber-500 bg-zinc-900/60 text-white'
-                                                    : 'border-transparent text-zinc-400 hover:bg-zinc-900 hover:text-white hover:border-zinc-800'
-                                            )}
+                            <div key={idx} className="space-y-1">
+                                {!collapsed ? (
+                                    group.isCollapsible ? (
+                                        <button
+                                            onClick={() => toggleGroup(group.title)}
+                                            className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-zinc-900/50 rounded-lg transition-colors group/header"
                                         >
-                                            <item.icon
-                                                className={cn(
-                                                    'h-5 w-5 flex-shrink-0 transition-colors',
-                                                    collapsed ? 'md:mr-0 mr-3' : 'mr-3',
-                                                    isActive ? 'text-amber-500' : 'text-zinc-500 group-hover:text-amber-500'
-                                                )}
-                                                aria-hidden="true"
-                                            />
-                                            <span className={cn(
-                                                "animate-in fade-in duration-200 text-sm font-semibold",
-                                                collapsed ? "md:hidden block" : "block"
-                                            )}>
-                                                {item.name}
+                                            <div className="flex items-center space-x-2">
+                                                <div className={cn("w-2 h-2 rounded-full", group.bgClass)} />
+                                                {GroupIcon && <GroupIcon className={cn("w-4 h-4", group.colorClass)} />}
+                                                <span className={cn("text-[10px] font-black uppercase tracking-widest", group.colorClass)}>
+                                                    {group.title}
+                                                </span>
+                                            </div>
+                                            {isExpanded ? (
+                                                <ChevronUp className="w-3.5 h-3.5 text-zinc-500 group-hover/header:text-zinc-300 transition-transform" />
+                                            ) : (
+                                                <ChevronDown className="w-3.5 h-3.5 text-zinc-500 group-hover/header:text-zinc-300 transition-transform" />
+                                            )}
+                                        </button>
+                                    ) : (
+                                        <div className="px-3 py-1.5 flex items-center space-x-2">
+                                            <span className={cn("text-[10px] font-black uppercase tracking-widest", group.colorClass)}>
+                                                {group.title}
                                             </span>
-                                        </Link>
+                                        </div>
                                     )
-                                })}
+                                ) : (
+                                    group.isCollapsible ? (
+                                        <div className="w-full flex justify-center mb-1 mt-2" title={group.title}>
+                                            <div className="w-6 h-px bg-zinc-800/50"></div>
+                                        </div>
+                                    ) : null
+                                )}
+                                
+                                <div className={cn(
+                                    "space-y-1 overflow-hidden transition-all duration-300",
+                                    !collapsed && group.isCollapsible && !isExpanded ? "max-h-0 opacity-0" : "max-h-96 opacity-100"
+                                )}>
+                                    {availableItems.map((item) => {
+                                        const isActive = pathname === item.href
+                                        return (
+                                            <Link
+                                                key={item.name}
+                                                href={item.href}
+                                                onClick={() => {
+                                                    if (onCloseMobile) onCloseMobile()
+                                                }}
+                                                title={collapsed ? item.name : undefined}
+                                                className={cn(
+                                                    'group flex items-center rounded-lg py-2.5 transition-all duration-200 border-l-2',
+                                                    collapsed ? 'justify-center px-0' : 'px-3',
+                                                    isActive
+                                                        ? 'border-amber-500 bg-zinc-900/60 text-white'
+                                                        : 'border-transparent text-zinc-400 hover:bg-zinc-900 hover:text-white hover:border-zinc-800'
+                                                )}
+                                            >
+                                                <item.icon
+                                                    className={cn(
+                                                        'h-5 w-5 flex-shrink-0 transition-colors',
+                                                        collapsed ? 'md:mr-0 mr-3' : 'mr-3',
+                                                        isActive ? 'text-amber-500' : 'text-zinc-500 group-hover:text-amber-500'
+                                                    )}
+                                                    aria-hidden="true"
+                                                />
+                                                <span className={cn(
+                                                    "animate-in fade-in duration-200 text-sm font-semibold whitespace-nowrap",
+                                                    collapsed ? "md:hidden block" : "block"
+                                                )}>
+                                                    {item.name}
+                                                </span>
+                                            </Link>
+                                        )
+                                    })}
+                                </div>
                             </div>
                         )
                     })}
@@ -224,6 +345,8 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }: Side
                     {!collapsed && <span className="text-sm font-semibold">Cerrar Sesión</span>}
                 </button>
             </div>
+            
+
         </div>
     )
 }

@@ -4,9 +4,11 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { 
     Bus, Plane, Car, Plus, Calendar, Clock, MapPin, Users, ArrowRight, 
-    ExternalLink, Copy, Check, FileText, Send, User, Armchair, HelpCircle
+    ExternalLink, Copy, Check, FileText, Send, User, Armchair, HelpCircle, Printer
 } from 'lucide-react'
 import Link from 'next/link'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 interface Viaje {
     id_viaje: string
@@ -40,6 +42,7 @@ export default function TransporteDashboard() {
     const [solicitudes, setSolicitudes] = useState<Solicitud[]>([])
     const [empleados, setEmpleados] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
+    const [logoBase64, setLogoBase64] = useState<string | null>(null)
     
     // Tab switching: 'viajes' | 'solicitudes'
     const [adminTab, setAdminTab] = useState<'viajes' | 'solicitudes'>('viajes')
@@ -120,7 +123,11 @@ export default function TransporteDashboard() {
 
     const loadData = async () => {
         setLoading(true)
-        await Promise.all([fetchViajes(), fetchSolicitudes(), fetchEmpleados()])
+        const fetchLogo = async () => {
+            const { data } = await supabase.from('configuracion_empresa').select('logo_base64').single()
+            if (data?.logo_base64) setLogoBase64(data.logo_base64)
+        }
+        await Promise.all([fetchViajes(), fetchSolicitudes(), fetchEmpleados(), fetchLogo()])
         setLoading(false)
     }
 
@@ -321,6 +328,52 @@ ${window.location.origin}/reservar-viaje`
 
         const waUrl = `https://api.whatsapp.com/send?phone=52${sol.celular_whatsapp}&text=${encodeURIComponent(text)}`
         window.open(waUrl, '_blank')
+    }
+
+    const handleSendWhatsAppWarning = (sol: Solicitud) => {
+        const text = `Hola *${sol.nombre_completo}*, hemos registrado tu aviso de viaje por cuenta propia para el día *${new Date(sol.fecha_sugerida + 'T12:00:00').toLocaleDateString()}*.
+
+⚠️ *Aviso de Prevención:* 
+Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizados y monitoreados por la compañía son los de nuestra flotilla oficial. Te invitamos a tomar precauciones si viajas por otros medios. 
+
+¡Excelente viaje y cuídate mucho! 👋`
+
+        const waUrl = `https://api.whatsapp.com/send?phone=52${sol.celular_whatsapp}&text=${encodeURIComponent(text)}`
+        window.open(waUrl, '_blank')
+    }
+
+    const exportPassengerList = (viaje: Viaje) => {
+        const doc = new jsPDF()
+        
+        if (logoBase64) {
+            try {
+                const imgFormat = logoBase64.substring(logoBase64.indexOf('/') + 1, logoBase64.indexOf(';')).toUpperCase();
+                doc.addImage(logoBase64, imgFormat === 'JPEG' ? 'JPEG' : imgFormat === 'PNG' ? 'PNG' : 'JPEG', 14, 10, 40, 20)
+            } catch (e) {
+                console.warn('Could not add logo to PDF', e)
+            }
+        }
+        
+        doc.setFontSize(16)
+        doc.text(`Manifiesto / Lista de Pasajeros - ${viaje.nombre_ruta}`, 14, 40)
+        
+        const passengers = solicitudes.filter(s => s.id_viaje === viaje.id_viaje && s.estatus === 'Asignado')
+        const tableData = passengers.map(p => [
+            p.numero_asiento?.toString() || 'S/A',
+            p.nombre_completo,
+            p.departamento
+        ])
+
+        autoTable(doc, {
+            startY: 50,
+            head: [['Asiento', 'Nombre', 'Departamento']],
+            body: tableData,
+        })
+
+        const finalY = (doc as any).lastAutoTable.finalY || 50
+        doc.text("Firma del Chofer: _________________________", 14, finalY + 30)
+
+        doc.save(`Manifiesto_${viaje.nombre_ruta.replace(/\s+/g, '_')}_${viaje.fecha}.pdf`)
     }
 
     // Render seats in admin assignment modal (Bus / Plane / Van layouts)
@@ -622,8 +675,8 @@ ${window.location.origin}/reservar-viaje`
                                         </div>
                                     </div>
                                     
-                                    <div className="p-4 border-t border-zinc-100 bg-zinc-50 flex gap-2">
-                                        <Link href={`/transporte/${v.id_viaje}`} className="flex-1 bg-white border border-zinc-200 hover:border-indigo-305 hover:text-indigo-700 text-zinc-800 font-bold py-2 rounded-xl flex items-center justify-center gap-1 transition-all shadow-sm text-xs">
+                                    <div className="p-4 border-t border-zinc-100 bg-zinc-50 flex gap-2 flex-wrap">
+                                        <Link href={`/transporte/${v.id_viaje}`} className="flex-1 min-w-[100px] bg-white border border-zinc-200 hover:border-indigo-305 hover:text-indigo-700 text-zinc-800 font-bold py-2 rounded-xl flex items-center justify-center gap-1 transition-all shadow-sm text-xs">
                                             Ver Asientos
                                         </Link>
                                         <button 
@@ -631,6 +684,13 @@ ${window.location.origin}/reservar-viaje`
                                             className="bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-700 font-bold px-3 py-2 rounded-xl text-xs transition-all"
                                         >
                                             Editar
+                                        </button>
+                                        <button 
+                                            onClick={() => exportPassengerList(v)}
+                                            className="bg-white border border-zinc-200 text-indigo-600 hover:bg-indigo-50 font-bold px-3 py-2 rounded-xl flex items-center justify-center gap-1 transition-all text-xs"
+                                            title="Descargar Lista (PDF)"
+                                        >
+                                            <Printer className="w-3.5 h-3.5" /> PDF
                                         </button>
                                         {v.estado !== 'Cancelado' ? (
                                             <button 
@@ -750,7 +810,16 @@ ${window.location.origin}/reservar-viaje`
                                                             </span>
                                                         </td>
                                                         <td className="p-4 text-right">
-                                                            {sol.estatus === 'Pendiente' ? (
+                                                            {sol.estatus === 'Por cuenta propia' ? (
+                                                                <button
+                                                                    onClick={() => handleSendWhatsAppWarning(sol)}
+                                                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center justify-center gap-2 text-xs w-full sm:w-auto"
+                                                                    title="Enviar aviso de prevención por WhatsApp"
+                                                                >
+                                                                    <Send className="w-3.5 h-3.5" />
+                                                                    Aviso WhatsApp
+                                                                </button>
+                                                            ) : sol.estatus === 'Pendiente' ? (
                                                                 <button
                                                                     onClick={() => handleOpenAssignModal(sol)}
                                                                     className="bg-indigo-650 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-1.5 rounded-lg text-xs transition-all shadow-sm"

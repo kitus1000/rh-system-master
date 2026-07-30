@@ -17,8 +17,9 @@ export default function UsuariosPage() {
         email: '',
         password: '',
         nombre_completo: '',
-        rol: 'Jefe de Departamento', // 'Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico'
-        id_departamento: ''
+        rol: 'Jefe de Departamento', // 'Administrador', 'Recursos Humanos', 'Médico', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Chofer'
+        id_departamento: '',
+        departamentos_autorizados: [] as string[]
     })
     
     const [saving, setSaving] = useState(false)
@@ -115,7 +116,8 @@ export default function UsuariosPage() {
             password: '',
             nombre_completo: '',
             rol: 'Jefe de Departamento',
-            id_departamento: ''
+            id_departamento: '',
+            departamentos_autorizados: []
         })
         setEditingUserId('')
     }
@@ -126,7 +128,8 @@ export default function UsuariosPage() {
             password: '', // Leave blank if no change
             nombre_completo: user.nombre_completo || '',
             rol: user.rol || 'Jefe de Departamento',
-            id_departamento: user.id_departamento || ''
+            id_departamento: user.id_departamento || '',
+            departamentos_autorizados: user.departamentos_autorizados || []
         })
         setEditingUserId(user.id)
         setIsEditing(true)
@@ -209,7 +212,13 @@ export default function UsuariosPage() {
                                     </span>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-zinc-500">
-                                    {u.cat_departamentos?.departamento || <span className="text-zinc-400 italic">No asignado / Global</span>}
+                                    {u.cat_departamentos?.departamento ? (
+                                        <span>{u.cat_departamentos.departamento}</span>
+                                    ) : u.departamentos_autorizados && u.departamentos_autorizados.length > 0 ? (
+                                        <span className="text-emerald-600 font-medium text-xs">{u.departamentos_autorizados.length} Áreas Autorizadas</span>
+                                    ) : (
+                                        <span className="text-zinc-400 italic text-xs">Acceso Global / Sin Restricción</span>
+                                    )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-xs font-bold">
                                     <div className="flex gap-3 justify-end">
@@ -297,27 +306,46 @@ export default function UsuariosPage() {
                                 <div className="relative">
                                     <Shield className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
                                     <select required value={formData.rol} onChange={e => setFormData({...formData, rol: e.target.value})} className="pl-10 w-full text-sm border-zinc-300 rounded-md focus:ring-black focus:border-black appearance-none">
-                                        <option value="Administrativo">Administrativo (Control Total)</option>
-                                        <option value="Superintendente">Superintendente (Visualiza Múltiples Áreas)</option>
+                                        <option value="Administrador">Administrador (Control Total)</option>
+                                        <option value="Recursos Humanos">Recursos Humanos (RH)</option>
+                                        <option value="Superintendente">Superintendente</option>
                                         <option value="Jefe de Departamento">Jefe de Departamento</option>
+                                        <option value="Supervisor">Supervisor</option>
                                         <option value="Médico">Médico (Módulo Médico y Consultas)</option>
+                                        <option value="Chofer">Chofer (Logística y Viajes)</option>
                                     </select>
                                 </div>
                             </div>
                             
-                            {formData.rol === 'Jefe de Departamento' && (
+                            {['Jefe de Departamento', 'Superintendente', 'Supervisor'].includes(formData.rol) && (
                                 <div className="animate-in slide-in-from-top-2">
-                                    <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Asignar a Departamento</label>
-                                    <div className="relative">
-                                        <Building className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
-                                        <select required value={formData.id_departamento} onChange={e => setFormData({...formData, id_departamento: e.target.value})} className="pl-10 w-full text-sm border-zinc-300 rounded-md focus:ring-black focus:border-black appearance-none">
-                                            <option value="">Seleccione departamento...</option>
-                                            {departamentos.map(d => (
-                                                <option key={d.id_departamento} value={d.id_departamento}>{d.departamento}</option>
-                                            ))}
-                                        </select>
+                                    <label className="block text-xs font-bold text-zinc-700 uppercase mb-2">Departamentos Autorizados a Visualizar</label>
+                                    <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 max-h-48 overflow-y-auto grid grid-cols-2 gap-2">
+                                        {departamentos.map(d => {
+                                            const isChecked = formData.departamentos_autorizados.includes(d.id_departamento);
+                                            return (
+                                                <label key={d.id_departamento} className="flex items-center space-x-2 cursor-pointer hover:bg-zinc-100 p-1.5 rounded-md transition-colors">
+                                                    <input 
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setFormData({...formData, departamentos_autorizados: [...formData.departamentos_autorizados, d.id_departamento]})
+                                                            } else {
+                                                                setFormData({...formData, departamentos_autorizados: formData.departamentos_autorizados.filter(id => id !== d.id_departamento)})
+                                                            }
+                                                        }}
+                                                        className="w-4 h-4 text-black border-zinc-300 rounded focus:ring-black"
+                                                    />
+                                                    <span className="text-xs text-zinc-700 font-medium truncate">{d.departamento}</span>
+                                                </label>
+                                            )
+                                        })}
                                     </div>
-                                    <p className="text-xs text-zinc-500 mt-1">Este usuario solo tendrá acceso al personal de este departamento.</p>
+                                    <p className="text-xs text-zinc-500 mt-2 flex gap-1 items-start">
+                                        <Shield className="w-3.5 h-3.5 flex-shrink-0" />
+                                        <span>Selecciona los departamentos que este usuario podrá ver en el Módulo Médico. Si no seleccionas ninguno, no podrá ver expedientes.</span>
+                                    </p>
                                 </div>
                             )}
 

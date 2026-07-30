@@ -1,18 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { 
     Search, Mail, Phone, ShieldAlert, CheckCircle, Calendar, 
     Clock, Bus, Plane, Car, Lock, Cpu, ChevronRight, 
-    Printer, X, LogOut, MapPin, User, Users, RefreshCw, AlertCircle, 
+    Printer, X, LogOut, MapPin, User, Users, RefreshCw, AlertCircle, AlertTriangle,
     ArrowRight, Armchair, HelpCircle, HardHat, FileText, Check, ArrowLeft
 } from 'lucide-react'
 import Link from 'next/link'
 
 export default function ReservarViajePublico() {
-    // Mode: 'menu' | 'request' | 'query' | 'pass'
-    const [mode, setMode] = useState<'menu' | 'request' | 'query' | 'pass'>('menu')
+    // Mode: 'menu' | 'request' | 'query' | 'pass' | 'own_travel'
+    const [mode, setMode] = useState<'menu' | 'request' | 'query' | 'pass' | 'own_travel'>('menu')
+    const [savedPhone, setSavedPhone] = useState(false)
     const [loading, setLoading] = useState(false)
     const [errorMsg, setErrorMsg] = useState('')
     const [successMsg, setSuccessMsg] = useState('')
@@ -33,8 +34,39 @@ export default function ReservarViajePublico() {
         clave_confirmacion: ''
     })
 
+    // Own Travel Form State
+    const [ownTravelForm, setOwnTravelForm] = useState({
+        nombre_completo: '',
+        departamento: '',
+        celular_whatsapp: '',
+        fecha_viaje: new Date().toISOString().split('T')[0],
+        observaciones: ''
+    })
+
     // Boarding Pass Data
     const [passData, setPassData] = useState<any>(null)
+
+    useEffect(() => {
+        const phone = localStorage.getItem('rh_viaje_celular')
+        if (phone) {
+            setRequestForm(prev => ({ ...prev, celular_whatsapp: phone }))
+            setQueryForm(prev => ({ ...prev, celular_whatsapp: phone }))
+            setOwnTravelForm(prev => ({ ...prev, celular_whatsapp: phone }))
+            setSavedPhone(true)
+        }
+    }, [])
+
+    const handlePhoneChange = (value: string, formSetter: any) => {
+        formSetter((prev: any) => ({ ...prev, celular_whatsapp: value }))
+        localStorage.setItem('rh_viaje_celular', value)
+        setSavedPhone(true)
+    }
+
+    const clearSavedPhone = (formSetter: any) => {
+        localStorage.removeItem('rh_viaje_celular')
+        formSetter((prev: any) => ({ ...prev, celular_whatsapp: '' }))
+        setSavedPhone(false)
+    }
 
     const handleCreateRequest = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -83,6 +115,65 @@ export default function ReservarViajePublico() {
         } catch (err: any) {
             console.error(err)
             setErrorMsg('Error al guardar la solicitud en el servidor: ' + (err.message || err))
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    const handleOwnTravelSubmit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!ownTravelForm.nombre_completo.trim() || !ownTravelForm.departamento.trim() || !ownTravelForm.celular_whatsapp.trim()) {
+            setErrorMsg('Por favor llena los campos obligatorios.')
+            return
+        }
+
+        setLoading(true)
+        setErrorMsg('')
+        setSuccessMsg('')
+
+        try {
+            const cleanPhone = ownTravelForm.celular_whatsapp.replace(/\D/g, '')
+
+            const { data: insertData, error } = await supabase
+                .from('transporte_personal_solicitudes')
+                .insert([{
+                    nombre_completo: ownTravelForm.nombre_completo.trim(),
+                    departamento: ownTravelForm.departamento.trim(),
+                    celular_whatsapp: cleanPhone,
+                    tipo_vehiculo: 'Particular',
+                    estatus: 'Por cuenta propia',
+                    fecha_sugerida: ownTravelForm.fecha_viaje,
+                }])
+                .select('id_solicitud')
+                .single()
+
+            if (error) throw error
+
+            // Intentar guardar observaciones si la columna ya existe en la BD
+            if (insertData && ownTravelForm.observaciones.trim()) {
+                await supabase
+                    .from('transporte_personal_solicitudes')
+                    .update({ observaciones: ownTravelForm.observaciones.trim() })
+                    .eq('id_solicitud', insertData.id_solicitud)
+                    .then(() => {}) // ignorar error si la columna aún no existe
+            }
+
+
+            localStorage.setItem('rh_viaje_celular', ownTravelForm.celular_whatsapp)
+            setSavedPhone(true)
+
+            setSuccessMsg('✅ Aviso registrado. El administrador fue notificado. Recibirás un WhatsApp de confirmación a tu número.')
+            setMode('own_travel')
+            setOwnTravelForm({
+                nombre_completo: '',
+                departamento: '',
+                celular_whatsapp: '',
+                fecha_viaje: new Date().toISOString().split('T')[0],
+                observaciones: ''
+            })
+        } catch (err: any) {
+            console.error(err)
+            setErrorMsg('Error al guardar el aviso: ' + (err.message || err))
         } finally {
             setLoading(false)
         }
@@ -243,6 +334,21 @@ export default function ReservarViajePublico() {
                                     <p className="text-[10px] text-zinc-500 mt-1 leading-relaxed">Ingresa la clave que te enviamos por WhatsApp para ver tu asiento, fecha y chofer asignado.</p>
                                 </div>
                             </button>
+
+                            {/* Own travel option */}
+                            <button
+                                onClick={() => { setMode('own_travel'); setErrorMsg(''); setSuccessMsg(''); }}
+                                className="sm:col-span-2 bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-850 hover:border-emerald-500/50 p-6 rounded-2xl text-left transition-all duration-300 group flex flex-col justify-between h-48 relative overflow-hidden"
+                            >
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl group-hover:bg-emerald-500/10 transition-all" />
+                                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 rounded-xl w-fit">
+                                    <Car className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h3 className="text-md font-bold text-white uppercase tracking-wider group-hover:text-emerald-400 transition-colors">3. Viajar por mi cuenta</h3>
+                                    <p className="text-[10px] text-zinc-500 mt-1 leading-relaxed">Avisa que viajarás independiente a Durango. Te confirmaremos por WhatsApp.</p>
+                                </div>
+                            </button>
                         </div>
 
                         <div className="mt-8 text-center pt-4 border-t border-zinc-900">
@@ -330,10 +436,15 @@ export default function ReservarViajePublico() {
                                             required
                                             placeholder="10 dígitos (ej. 6181234567)"
                                             value={requestForm.celular_whatsapp}
-                                            onChange={e => setRequestForm({...requestForm, celular_whatsapp: e.target.value})}
+                                            onChange={e => handlePhoneChange(e.target.value, setRequestForm)}
                                             className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500"
                                         />
                                     </div>
+                                    {savedPhone && requestForm.celular_whatsapp && (
+                                        <div className="text-[10px] text-zinc-500 pt-1">
+                                            📱 Número recordado · <button type="button" onClick={() => clearSavedPhone(setRequestForm)} className="text-cyan-500 hover:underline">Borrarlo</button>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
@@ -411,10 +522,15 @@ export default function ReservarViajePublico() {
                                         required
                                         placeholder="Ingresa tus 10 dígitos"
                                         value={queryForm.celular_whatsapp}
-                                        onChange={e => setQueryForm({...queryForm, celular_whatsapp: e.target.value})}
+                                        onChange={e => handlePhoneChange(e.target.value, setQueryForm)}
                                         className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl py-3.5 pl-10 pr-4 text-white text-xs focus:outline-none focus:ring-1 focus:ring-amber-500"
                                     />
                                 </div>
+                                {savedPhone && queryForm.celular_whatsapp && (
+                                    <div className="text-[10px] text-zinc-500 pt-1">
+                                        📱 Número recordado · <button type="button" onClick={() => clearSavedPhone(setQueryForm)} className="text-amber-500 hover:underline">Borrarlo</button>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="space-y-1.5">
@@ -582,6 +698,137 @@ export default function ReservarViajePublico() {
                             </button>
                         </div>
 
+                    </div>
+                )}
+
+                {/* 5. OWN TRAVEL FORM */}
+                {mode === 'own_travel' && (
+                    <div className="w-full max-w-lg bg-zinc-900/50 border border-zinc-850 rounded-3xl p-6 sm:p-8 relative shadow-2xl animate-in zoom-in-95 duration-400">
+                        <div className="absolute -top-1.5 -left-1.5 w-4 h-4 border-t-2 border-l-2 border-emerald-500" />
+                        <div className="absolute -top-1.5 -right-1.5 w-4 h-4 border-t-2 border-r-2 border-emerald-500" />
+                        <div className="absolute -bottom-1.5 -left-1.5 w-4 h-4 border-b-2 border-l-2 border-emerald-500" />
+                        <div className="absolute -bottom-1.5 -right-1.5 w-4 h-4 border-b-2 border-r-2 border-emerald-500" />
+
+                        <div className="flex justify-between items-center mb-6 pb-4 border-b border-zinc-850">
+                            <button 
+                                onClick={() => setMode('menu')}
+                                className="text-xs font-bold text-zinc-500 hover:text-white flex items-center gap-1 transition-colors uppercase"
+                            >
+                                <ArrowLeft className="w-3.5 h-3.5" /> Atrás
+                            </button>
+                            <h2 className="text-md font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                                <Car className="w-5 h-5 text-emerald-500" /> Por mi cuenta
+                            </h2>
+                        </div>
+
+                        {successMsg ? (
+                            <div className="space-y-6 py-4 text-center">
+                                <div className="w-12 h-12 bg-emerald-500/10 border border-emerald-500 text-emerald-400 rounded-full flex items-center justify-center mx-auto animate-bounce">
+                                    <Check className="w-6 h-6" />
+                                </div>
+                                <div className="space-y-2">
+                                    <h3 className="text-lg font-bold text-white uppercase">Aviso Registrado</h3>
+                                    <p className="text-xs text-zinc-400 max-w-sm mx-auto leading-relaxed">
+                                        {successMsg}
+                                    </p>
+                                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 mt-4 text-left">
+                                        <p className="text-[10px] text-amber-500 font-bold uppercase mb-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Aviso Importante</p>
+                                        <p className="text-xs text-amber-500/80 leading-relaxed">
+                                            Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizados y monitoreados por la compañía son los de nuestra flotilla oficial. Te invitamos a tomar precauciones si viajas por otros medios.
+                                        </p>
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={() => { setSuccessMsg(''); setMode('menu'); }}
+                                    className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-xl text-xs uppercase"
+                                >
+                                    Volver al Menú
+                                </button>
+                            </div>
+                        ) : (
+                            <form onSubmit={handleOwnTravelSubmit} className="space-y-4">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Nombre Completo</label>
+                                    <input 
+                                        type="text" 
+                                        required
+                                        placeholder="Ej. Juan Pérez M."
+                                        value={ownTravelForm.nombre_completo}
+                                        onChange={e => setOwnTravelForm({...ownTravelForm, nombre_completo: e.target.value})}
+                                        className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl py-3 px-4 text-white text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                    />
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Departamento</label>
+                                    <input 
+                                        type="text" 
+                                        required
+                                        placeholder="Ej. Operaciones"
+                                        value={ownTravelForm.departamento}
+                                        onChange={e => setOwnTravelForm({...ownTravelForm, departamento: e.target.value})}
+                                        className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl py-3 px-4 text-white text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                    />
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Celular (WhatsApp)</label>
+                                    <div className="relative">
+                                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-655 text-zinc-600" />
+                                        <input 
+                                            type="tel" 
+                                            required
+                                            placeholder="10 dígitos (ej. 6181234567)"
+                                            value={ownTravelForm.celular_whatsapp}
+                                            onChange={e => handlePhoneChange(e.target.value, setOwnTravelForm)}
+                                            className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                        />
+                                    </div>
+                                    {savedPhone && ownTravelForm.celular_whatsapp && (
+                                        <div className="text-[10px] text-zinc-500 pt-1">
+                                            📱 Número recordado · <button type="button" onClick={() => clearSavedPhone(setOwnTravelForm)} className="text-emerald-500 hover:underline">Borrarlo</button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Fecha de Viaje</label>
+                                    <input 
+                                        type="date" 
+                                        required
+                                        value={ownTravelForm.fecha_viaje}
+                                        onChange={e => setOwnTravelForm({...ownTravelForm, fecha_viaje: e.target.value})}
+                                        className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl py-3 px-4 text-white text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                    />
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Observaciones (Opcional)</label>
+                                    <textarea 
+                                        placeholder="Ej: Tengo cita, regreso el viernes"
+                                        rows={2}
+                                        value={ownTravelForm.observaciones}
+                                        onChange={e => setOwnTravelForm({...ownTravelForm, observaciones: e.target.value})}
+                                        className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl py-3 px-4 text-white text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none"
+                                    />
+                                </div>
+
+                                {errorMsg && (
+                                    <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] p-2.5 rounded-lg text-center font-bold">
+                                        {errorMsg}
+                                    </div>
+                                )}
+
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-black font-black py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 text-xs shadow-lg shadow-emerald-500/10 disabled:opacity-50 mt-4"
+                                >
+                                    {loading ? 'AVISANDO...' : 'AVISAR QUE VIAJARÉ POR MI CUENTA'}
+                                    {!loading && <ArrowRight className="w-4 h-4" />}
+                                </button>
+                            </form>
+                        )}
                     </div>
                 )}
 

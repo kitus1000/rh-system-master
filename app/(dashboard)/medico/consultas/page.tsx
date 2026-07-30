@@ -13,6 +13,7 @@ export default function ConsultasPage() {
     const [loading, setLoading] = useState(true)
     const [showForm, setShowForm] = useState(false)
     const [filterPatientName, setFilterPatientName] = useState('')
+    const [logoBase64, setLogoBase64] = useState<string | null>(null)
     
     const [formData, setFormData] = useState({
         id_paciente: '',
@@ -33,6 +34,9 @@ export default function ConsultasPage() {
 
         const { data: mData } = await supabase.from('cat_medicamentos').select('*').order('nombre')
         if (mData) setMedicamentosCat(mData)
+
+        const { data: configData } = await supabase.from('configuracion_empresa').select('logo_base64').single()
+        if (configData?.logo_base64) setLogoBase64(configData.logo_base64)
     }
 
     const fetchConsultas = async () => {
@@ -441,8 +445,8 @@ export default function ConsultasPage() {
                     
                     <table class="header-table">
                         <tr>
-                            <td style="width: 140px; vertical-align: middle;">
-                                <img src="/logo-bacis.png" class="logo-img" alt="Logo Bacis" />
+                            <td class="header-logo">
+                                <img src="${logoBase64 || '/logo-bacis.png'}" class="logo-img" alt="Logo Institucional" />
                             </td>
                             <td class="doctor-meta-block">
                                 <div class="doctor-name-lbl">${doctorProfile?.nombre_completo || 'MÉDICO GENERAL TRATANTE'}</div>

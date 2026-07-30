@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { useAuth } from '@/components/AuthProvider'
+import { jsPDF } from 'jspdf'
 import { 
     Hospital, Plus, Search, Users, Trash2, ShieldAlert,
     Printer, Plane, Stethoscope, Building, Lock, Unlock, FolderLock
@@ -68,6 +69,7 @@ export default function PasesPage() {
     const [empleados, setEmpleados] = useState<any[]>([])
     const [medicos, setMedicos] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
+    const [logoBase64, setLogoBase64] = useState<string | null>(null)
     const [showForm, setShowForm] = useState(false)
     const [editFolioManual, setEditFolioManual] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
@@ -136,6 +138,14 @@ export default function PasesPage() {
     useEffect(() => {
         fetchPases()
         fetchCatalogos()
+        
+        const loadLogo = async () => {
+            const { data } = await supabase.from('configuracion_empresa').select('logo_base64').single()
+            if (data && data.logo_base64) {
+                setLogoBase64(data.logo_base64)
+            }
+        }
+        loadLogo()
     }, [])
 
     useEffect(() => {
@@ -247,7 +257,7 @@ export default function PasesPage() {
         if (pac.id_empleado) {
             const emp = empleados.find(e => e.id_empleado === pac.id_empleado)
             if (emp) {
-                workerName = `${emp.nombre} ${emp.apellido_paterno}`.toUpperCase()
+                workerName = `${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.trim().toUpperCase()
                 workerBirth = emp.fecha_nacimiento || ''
                 if (emp.fecha_nacimiento) {
                     workerAge = calculateAge(emp.fecha_nacimiento)
@@ -367,6 +377,41 @@ export default function PasesPage() {
         } else {
             alert('Error al eliminar pase médico: ' + error.message)
         }
+    }
+
+    const exportToPDF = (pase: any) => {
+        const doc = new jsPDF();
+        
+        if (logoBase64) {
+                const imgFormat = logoBase64.substring(logoBase64.indexOf('/') + 1, logoBase64.indexOf(';')).toUpperCase();
+                doc.addImage(logoBase64, imgFormat === 'JPEG' ? 'JPEG' : imgFormat === 'PNG' ? 'PNG' : 'JPEG', 14, 10, 30, 15);
+        }
+
+        doc.setFontSize(16);
+        doc.text("Pase Médico Oficial", 105, 20, { align: "center" });
+
+        doc.setFontSize(12);
+        let y = 40;
+        const lineSpacing = 8;
+        
+        const displayWorkerName = pase.nombre_trabajador || '';
+        const displayParentesco = pase.parentesco || '';
+        const clinicaDestino = pase.unidad_se_refiere || pase.clinica_destino?.nombre || '';
+        const diagnostico = pase.impresion_diagnostica || '';
+        const formattedFecha = pase.fecha_salida ? new Date(pase.fecha_salida + 'T12:00:00').toLocaleDateString('es-ES') : '';
+
+        doc.text(`Nombre del Trabajador: ${displayWorkerName}`, 14, y); y += lineSpacing;
+        doc.text(`Parentesco: ${displayParentesco}`, 14, y); y += lineSpacing;
+        doc.text(`Fecha: ${formattedFecha}`, 14, y); y += lineSpacing;
+        doc.text(`Clínica Destino: ${clinicaDestino}`, 14, y); y += lineSpacing;
+        doc.text(`Diagnóstico: ${diagnostico}`, 14, y); y += lineSpacing;
+        
+        y += 20;
+        doc.text("_________________________", 14, y);
+        y += lineSpacing;
+        doc.text("Firma del Médico", 14, y);
+
+        doc.save(`Pase_Medico_${pase.folio || 'SN'}.pdf`);
     }
 
     const handlePrintPase = async (pase: any) => {
@@ -641,7 +686,7 @@ export default function PasesPage() {
                             <table class="header-table">
                                 <tr>
                                     <td class="header-logo">
-                                        <img src="/logo-bacis.png" class="logo-img" alt="Logo Bacis" />
+                                        <img src="${logoBase64 || '/logo-bacis.png'}" class="logo-img" alt="Logo Institucional" />
                                     </td>
                                     <td class="header-title">
                                         GRUPO MINERO BACIS
@@ -755,7 +800,7 @@ export default function PasesPage() {
                             <table class="header-table">
                                 <tr>
                                     <td class="header-logo">
-                                        <img src="/logo-bacis.png" class="logo-img" alt="Logo Bacis" />
+                                        <img src="${logoBase64 || '/logo-bacis.png'}" class="logo-img" alt="Logo Institucional" />
                                     </td>
                                     <td class="header-title" style="text-align: left; padding-left: 15px;">
                                         Grupo Minero Bacís S.A. de C.V.
@@ -1112,7 +1157,7 @@ export default function PasesPage() {
                                         GRUPO MINERO BACIS S.A. DE C.V.<br>
                                         UNIDAD "EL HERRERO"
                                     </div>
-                                    <img src="/logo-bacis.png" class="header-logo-img" />
+                                    <img src="${logoBase64 || '/logo-bacis.png'}" class="header-logo-img" alt="Logo Institucional" />
                                 </div>
                                 <div class="sub-title">
                                     HOSPEDAJE EN ${hotelNombre}
@@ -1160,7 +1205,7 @@ export default function PasesPage() {
                                         GRUPO MINERO BACIS S.A. DE C.V.<br>
                                         UNIDAD "EL HERRERO"
                                     </div>
-                                    <img src="/logo-bacis.png" class="header-logo-img" />
+                                    <img src="${logoBase64 || '/logo-bacis.png'}" class="header-logo-img" alt="Logo Institucional" />
                                 </div>
                                 <div class="sub-title">
                                     HOSPEDAJE EN ${hotelNombre}
@@ -1691,6 +1736,13 @@ export default function PasesPage() {
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex gap-2">
+                                                <button 
+                                                    onClick={() => exportToPDF(pase)}
+                                                    className="px-2 py-1 bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-[10px] font-bold rounded-lg flex items-center gap-1 uppercase transition-colors"
+                                                    title="Descargar PDF"
+                                                >
+                                                    PDF
+                                                </button>
                                                 <button 
                                                     onClick={() => handlePrintPase(pase)}
                                                     className="px-2 py-1 bg-zinc-100 hover:bg-zinc-200 border text-[10px] font-bold rounded-lg flex items-center gap-1 uppercase transition-colors"

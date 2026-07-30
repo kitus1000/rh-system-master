@@ -12,6 +12,7 @@ interface AuthProfile {
     nombre_completo: string
     rol: Role
     id_departamento?: string
+    departamentos_autorizados?: string[]
 }
 
 interface AuthContextType {
@@ -67,7 +68,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     if (profData) {
                         let normalizedRol = profData.rol || 'Jefe de Departamento'
                         const rolLower = normalizedRol.toLowerCase()
-                        if (rolLower.includes('admin')) normalizedRol = 'Administrativo'
+                        const nameLower = (profData.nombre_completo || '').toLowerCase()
+                        if (rolLower.includes('chofer') || rolLower.includes('conductor') || rolLower.includes('operador') || nameLower.includes('(chofer)')) normalizedRol = 'Chofer'
+                        else if (rolLower.includes('admin')) normalizedRol = 'Administrativo'
                         else if (rolLower === 'jefe') normalizedRol = 'Jefe de Departamento'
                         else if (rolLower.includes('superintendente')) normalizedRol = 'Superintendente'
                         
@@ -121,6 +124,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (loading || !profile) return
         
         let denied = false
+
+        // Chofer is strictly locked to Portal Choferes and Mi Perfil
+        if (profile.rol === 'Chofer') {
+            const allowedChoferPaths = ['/logistica/choferes', '/mi-perfil']
+            const isAllowed = allowedChoferPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
+            if (!isAllowed) {
+                denied = true
+            }
+        }
 
         // Only Administrativos can manage Config, Usuarios, Catalogos
         if (pathname.startsWith('/configuracion') || pathname.startsWith('/usuarios') || pathname.startsWith('/catalogos')) {
