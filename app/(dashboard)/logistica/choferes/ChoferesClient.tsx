@@ -52,7 +52,7 @@ export default function ChoferesClient() {
   const [selectedViaje, setSelectedViaje] = useState('')
   const [miHistorial, setMiHistorial] = useState<any[]>([])
   
-  // Mining Dynamic Checklists
+  // Mining Dynamic Checklists Specialized by Vehicle Type
   const [checklistCamioneta, setChecklistCamioneta] = useState({
     pertiga_banderola: true,
     torreta_seguridad: true,
@@ -65,7 +65,8 @@ export default function ChoferesClient() {
     luces_faros_niebla: true,
     extintor_pqs_6kg: true,
     botiquin_primeros_auxilios: true,
-    frenos_pie_mano: true
+    frenos_pie_mano: true,
+    traccion_4x4_selector: true
   })
 
   const [checklistCamion, setChecklistCamion] = useState({
@@ -79,7 +80,8 @@ export default function ChoferesClient() {
     extintor_abc_9kg: true,
     botiquin_ruta: true,
     torreta_toldo: true,
-    cinturones_pasajeros: true
+    cinturones_pasajeros: true,
+    tacografo_limpiaparabrisas: true
   })
 
   const [checklistAmbulancia, setChecklistAmbulancia] = useState({
@@ -93,7 +95,9 @@ export default function ChoferesClient() {
     desfibrilador_dea: true,
     aspirador_secreciones: true,
     maletin_trauma_medicamentos: true,
-    tabla_espinal_collarines: true
+    tabla_espinal_collarines: true,
+    glucometro_signos_vitales: true,
+    radio_frecuencia_medica: true
   })
 
   const [comentariosVehiculo, setComentariosVehiculo] = useState('')
@@ -181,20 +185,20 @@ export default function ChoferesClient() {
     }
   }
 
-  // Handle Fleet Vehicle Selection
+  // Handle Fleet Vehicle Selection with Automatic Category Switch
   const handleVehiculoSelect = (vId: string) => {
     setSelectedVehiculoId(vId)
     const v = vehiculosFlota.find(x => x.id_camion === vId)
     if (!v) return
 
-    const numEco = v.numero_economico || ''
-    setCamion(numEco)
+    const numEco = (v.numero_economico || '').toUpperCase()
+    setCamion(v.numero_economico)
 
-    // Auto-detect vehicle type
-    if (numEco.toUpperCase().includes('AMB') || numEco.toUpperCase().includes('AMBULANCIA')) {
+    // Auto-detect vehicle category and set appropriate checklist & purpose
+    if (numEco.includes('AMB') || numEco.includes('AMBULANCIA') || numEco.includes('MEDICO') || numEco.includes('RESCATE')) {
         setTipoVehiculo('Ambulancia')
         setMotivoViaje('Traslado Médico de Emergencia')
-    } else if (numEco.toUpperCase().includes('BUS') || numEco.toUpperCase().includes('CAMION') || numEco.toUpperCase().includes('RUTA')) {
+    } else if (numEco.includes('BUS') || numEco.includes('CAMION') || numEco.includes('RUTA') || numEco.includes('URVAN') || numEco.includes('PASAJEROS')) {
         setTipoVehiculo('Camión')
         setMotivoViaje('Ruta de Personal de Turno')
     } else {
@@ -558,13 +562,13 @@ export default function ChoferesClient() {
                 </div>
             </div>
 
-            {/* 2. Seleccionar Vehículo de la Flota Oficial */}
+            {/* 2. Seleccionar Vehículo de la Flota Oficial y Categoría */}
             <section className="space-y-4 border-b border-zinc-100 pb-5">
                 <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
                     <Truck className="w-4 h-4 text-emerald-600" /> 2. Seleccionar Vehículo / Unidad de la Flota Minera
                 </h2>
 
-                <div className="space-y-3">
+                <div className="space-y-4">
                     <div>
                         <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Vehículo Registrado en Inventario</label>
                         <select
@@ -581,45 +585,87 @@ export default function ChoferesClient() {
                         </select>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                        <div>
-                            <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Categoría de Unidad</label>
-                            <select 
-                                value={tipoVehiculo} 
-                                onChange={e => setTipoVehiculo(e.target.value as any)} 
-                                className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50"
+                    {/* Visual Vehicle Category Selector Cards */}
+                    <div>
+                        <label className="text-xs font-black text-zinc-700 uppercase mb-2 block">Categoría de Unidad (Determina el Checklist)</label>
+                        <div className="grid grid-cols-3 gap-2.5">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setTipoVehiculo('Camioneta')
+                                    setMotivoViaje('Viaje Foráneo (Durango / Ciudad)')
+                                }}
+                                className={`p-3 rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all ${
+                                    tipoVehiculo === 'Camioneta' 
+                                        ? 'bg-emerald-50 border-emerald-500 text-emerald-950 shadow-sm' 
+                                        : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:border-zinc-300'
+                                }`}
                             >
-                                <option value="Camioneta">Camioneta Pickup 4x4 Mina</option>
-                                <option value="Camión">Camión / Autobús de Personal</option>
-                                <option value="Ambulancia">Ambulancia de Emergencias Mina</option>
-                            </select>
-                        </div>
+                                <Car className="w-5 h-5 text-emerald-600" />
+                                <span className="text-[10px] font-black uppercase text-center">🛻 Camioneta Pickup 4x4</span>
+                            </button>
 
-                        <div>
-                            <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Propósito del Viaje</label>
-                            <select 
-                                value={motivoViaje} 
-                                onChange={e => setMotivoViaje(e.target.value)}
-                                className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50"
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setTipoVehiculo('Camión')
+                                    setMotivoViaje('Ruta de Personal de Turno')
+                                }}
+                                className={`p-3 rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all ${
+                                    tipoVehiculo === 'Camión' 
+                                        ? 'bg-blue-50 border-blue-500 text-blue-950 shadow-sm' 
+                                        : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:border-zinc-300'
+                                }`}
                             >
-                                <option value="Viaje Foráneo (Durango / Ciudad)">Viaje Foráneo (Durango / Ciudad)</option>
-                                <option value="Traslado Interno (Bacis / Mina)">Traslado Interno (Bacis / Mina)</option>
-                                <option value="Traslado Médico de Emergencia">Traslado Médico de Emergencia</option>
-                                <option value="Ruta de Personal de Turno">Ruta de Personal de Turno</option>
-                                <option value="Carga de Insumos y Almacén">Carga de Insumos y Almacén</option>
-                            </select>
+                                <Truck className="w-5 h-5 text-blue-600" />
+                                <span className="text-[10px] font-black uppercase text-center">🚛 Camión / Autobús</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setTipoVehiculo('Ambulancia')
+                                    setMotivoViaje('Traslado Médico de Emergencia')
+                                }}
+                                className={`p-3 rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all ${
+                                    tipoVehiculo === 'Ambulancia' 
+                                        ? 'bg-rose-50 border-rose-500 text-rose-950 shadow-sm' 
+                                        : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:border-zinc-300'
+                                }`}
+                            >
+                                <Ambulance className="w-5 h-5 text-rose-600" />
+                                <span className="text-[10px] font-black uppercase text-center">🚑 Ambulancia de Emergencia</span>
+                            </button>
                         </div>
+                    </div>
+
+                    <div>
+                        <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Propósito del Viaje</label>
+                        <select 
+                            value={motivoViaje} 
+                            onChange={e => setMotivoViaje(e.target.value)}
+                            className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50"
+                        >
+                            <option value="Viaje Foráneo (Durango / Ciudad)">Viaje Foráneo (Durango / Ciudad)</option>
+                            <option value="Traslado Interno (Bacis / Mina)">Traslado Interno (Bacis / Mina)</option>
+                            <option value="Traslado Médico de Emergencia">Traslado Médico de Emergencia</option>
+                            <option value="Ruta de Personal de Turno">Ruta de Personal de Turno</option>
+                            <option value="Carga de Insumos y Almacén">Carga de Insumos y Almacén</option>
+                        </select>
                     </div>
                 </div>
             </section>
 
             {/* 3. MINING CHECKLIST SPECIFIC BY VEHICLE */}
             <section className="space-y-4 border-b border-zinc-100 pb-5">
-                <div className="flex justify-between items-center">
-                    <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
-                        <Wrench className="w-4 h-4 text-emerald-600" /> 3. Checklist Específico de Seguridad Minera
+                <div className="flex justify-between items-center bg-zinc-100 p-3 rounded-2xl border border-zinc-200">
+                    <h2 className="text-xs font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
+                        <Wrench className="w-4 h-4 text-emerald-600" /> 
+                        {tipoVehiculo === 'Ambulancia' && '🚑 CHECKLIST ESPECIALIZADO DE AMBULANCIA Y SOPORTE VITAL'}
+                        {tipoVehiculo === 'Camión' && '🚛 CHECKLIST ESPECIALIZADO DE CAMIÓN Y TRANSPORTE PESADO'}
+                        {tipoVehiculo === 'Camioneta' && '🛻 CHECKLIST ESPECIALIZADO DE CAMIONETA PICKUP 4X4 MINA'}
                     </h2>
-                    <span className="px-3 py-1 bg-zinc-100 text-zinc-800 rounded-full font-black text-[10px] uppercase">
+                    <span className="px-3 py-1 bg-white text-zinc-900 border border-zinc-300 rounded-xl font-black text-[10px] uppercase shadow-xs">
                         {tipoVehiculo}
                     </span>
                 </div>
@@ -634,12 +680,13 @@ export default function ChoferesClient() {
                             { key: 'radio_frecuencia_mina', label: '📻 Radio de Comunicación VHF/UHF Frecuencia Mina' },
                             { key: 'aceite_motor_agua', label: '🛢️ Niveles de Aceite de Motor, Anticongelante y Agua' },
                             { key: 'liquido_frenos_direccion', label: '⚙️ Líquido de Frenos y Dirección Hidráulica' },
-                            { key: 'llantas_presion_at', label: '🛞 Neumáticos Todo Terreno (Presión y Grabado)' },
+                            { key: 'llantas_presion_at', label: '🛞 Neumáticos Todo Terreno (Presión AT y Grabado)' },
                             { key: 'refaccion_gato_cruceta', label: '🛞 Llanta de Refacción, Gato Hidráulico y Cruceta' },
                             { key: 'luces_faros_niebla', label: '💡 Luces Principales, Intermitentes y Faros de Niebla' },
                             { key: 'extintor_pqs_6kg', label: '🧯 Extintor PQS de 6kg Vigente (Manómetro en Verde)' },
                             { key: 'botiquin_primeros_auxilios', label: '🩹 Botiquín de Primeros Auxilios de Operación' },
                             { key: 'frenos_pie_mano', label: '🛑 Frenos Principales y Freno de Mano / Parqueo' },
+                            { key: 'traccion_4x4_selector', label: '⚙️ Sistema de Doble Tracción 4x4 (Perilla/Palanca)' },
                         ].map(item => (
                             <div key={item.key} className="flex justify-between items-center p-3 bg-zinc-50 rounded-2xl border border-zinc-200 text-xs font-bold text-zinc-800">
                                 <span>{item.label}</span>
@@ -665,24 +712,25 @@ export default function ChoferesClient() {
                     <div className="space-y-2">
                         {[
                             { key: 'frenos_aire_manometros', label: '🛑 Frenos de Aire / Manómetros de Doble Tanque (> 90 PSI)' },
-                            { key: 'freno_motor_jake', label: '⚙️ Freno de Motor / Retardador (Jake Brake)' },
+                            { key: 'freno_motor_jake', label: '⚙️ Freno de Motor / Retardador (Jake Brake) para Pendientes' },
                             { key: 'salidas_emergencia_martillos', label: '🚨 Salidas de Emergencia y Martillos Rompementanas' },
-                            { key: 'cunas_bloqueadoras_pesadas', label: '🛑 Cuñas Bloqueadoras de Llantas Pesadas' },
-                            { key: 'luces_alarma_reversa', label: '💡 Luces completas y Alarma de Reversa Sonora' },
+                            { key: 'cunas_bloqueadoras_pesadas', label: '🛑 Cuñas Bloqueadoras de Llantas Pesadas (Par)' },
+                            { key: 'luces_alarma_reversa', label: '💡 Luces completas y Alarma Sonora de Reversa' },
                             { key: 'llantas_desgaste_torque', label: '🛞 Neumáticos de Carga y Torque de Tuercas' },
                             { key: 'niveles_aceite_agua', label: '🛢️ Niveles de Aceite de Motor, Agua y Transmisión' },
                             { key: 'extintor_abc_9kg', label: '🧯 Extintor Industrial ABC de 9kg Vigente' },
                             { key: 'botiquin_ruta', label: '🩹 Botiquín de Auxilio Médico de Ruta' },
                             { key: 'torreta_toldo', label: '🚨 Torreta Giratoria / Estroboscópica sobre Toldo' },
                             { key: 'cinturones_pasajeros', label: '🔒 Cinturón de Chofer y Asientos de Trabajadores' },
+                            { key: 'tacografo_limpiaparabrisas', label: '⚙️ Limpiaparabrisas, Defroster y Tacógrafo/Velocímetro' },
                         ].map(item => (
-                            <div key={item.key} className="flex justify-between items-center p-3 bg-zinc-50 rounded-2xl border border-zinc-200 text-xs font-bold text-zinc-800">
+                            <div key={item.key} className="flex justify-between items-center p-3 bg-blue-50/60 rounded-2xl border border-blue-200 text-xs font-bold text-blue-950">
                                 <span>{item.label}</span>
                                 <div className="flex gap-1.5">
                                     <button 
                                         type="button"
                                         onClick={() => setChecklistCamion(p => ({ ...p, [item.key]: true }))}
-                                        className={`px-3 py-1 rounded-xl font-black text-[10px] ${checklistCamion[item.key as keyof typeof checklistCamion] ? 'bg-emerald-600 text-white' : 'bg-zinc-200 text-zinc-600'}`}
+                                        className={`px-3 py-1 rounded-xl font-black text-[10px] ${checklistCamion[item.key as keyof typeof checklistCamion] ? 'bg-blue-600 text-white' : 'bg-zinc-200 text-zinc-600'}`}
                                     >OK</button>
                                     <button 
                                         type="button"
@@ -698,14 +746,14 @@ export default function ChoferesClient() {
                 {/* AMBULANCIA MINERA CHECKLIST */}
                 {tipoVehiculo === 'Ambulancia' && (
                     <div className="space-y-3">
-                        <div className="bg-rose-100/70 border border-rose-300 p-3 rounded-2xl flex justify-between items-center">
+                        <div className="bg-rose-100/70 border border-rose-300 p-3.5 rounded-2xl flex flex-wrap justify-between items-center gap-2">
                             <span className="text-xs font-black text-rose-950 uppercase flex items-center gap-1.5">
-                                <Stethoscope className="w-4 h-4 text-rose-700" /> Nivel de Equipamiento Médico de la Unidad:
+                                <Stethoscope className="w-4.5 h-4.5 text-rose-700" /> Nivel de Equipamiento Médico de la Unidad:
                             </span>
                             <select 
                                 value={tipoAmbulancia}
                                 onChange={e => setTipoAmbulancia(e.target.value as any)}
-                                className="p-2 rounded-xl text-xs font-black bg-white text-rose-950 border border-rose-300"
+                                className="p-2 rounded-xl text-xs font-black bg-white text-rose-950 border border-rose-300 shadow-xs"
                             >
                                 <option value="Avanzada / Soporte Vital">Soporte Vital Completo (Avanzada)</option>
                                 <option value="Básica / Traslado">Traslado Básico (Estándar)</option>
@@ -715,15 +763,17 @@ export default function ChoferesClient() {
                         <div className="space-y-2">
                             {[
                                 { key: 'motor_frenos_4x4', label: '🚑 Motor, Transmisión 4x4 y Frenos de Respuesta Rápida' },
-                                { key: 'sirena_estrobos_pa', label: '🚨 Sirena, Torreta Estroboscópica y Altavoz P.A.' },
-                                { key: 'tanque_combustible_lleno', label: '⛽ Tanque de Combustible Lleno (> 3/4)' },
+                                { key: 'sirena_estrobos_pa', label: '🚨 Sirena de Emergencia (Wail/Yelp), Torreta y Altavoz P.A.' },
+                                { key: 'tanque_combustible_lleno', label: '⛽ Tanque de Combustible Lleno (Mínimo 3/4)' },
                                 { key: 'oxigeno_fijo_manometro', label: '🏥 Oxígeno Fijo: Manómetro Principal (> 1200 PSI) y Mascarillas' },
                                 { key: 'oxigeno_portatil_regulador', label: '🏥 Oxígeno Portátil: Tanque de Traslado con Regulador' },
-                                { key: 'camilla_principal_cinturones', label: '🏥 Camilla Principal con Cinturones de Retención' },
-                                { key: 'camilla_cuchara_scoop', label: '🏥 Camilla de Cuchara (Scoop) / Camilla Marina de Rescate' },
-                                { key: 'desfibrilador_dea', label: '🏥 Desfibrilador Operativo (DEA) / Aspirador de Secreciones' },
-                                { key: 'maletin_trauma_medicamentos', label: '🏥 Maletín de Trauma y Medicamentos de Urgencia' },
+                                { key: 'camilla_principal_cinturones', label: '🏥 Camilla Principal Retráctil con Cinturones de Retención' },
+                                { key: 'camilla_cuchara_scoop', label: '🏥 Camilla Marina de Rescate y Camilla de Cuchara (Scoop)' },
+                                { key: 'desfibrilador_dea', label: '🏥 Desfibrilador Externo Automático (DEA) y Aspirador' },
+                                { key: 'maletin_trauma_medicamentos', label: '🏥 Mochila / Maletín de Trauma y Medicamentos de Urgencia' },
                                 { key: 'tabla_espinal_collarines', label: '🏥 Tabla Espinal Larga, Collarines Cervicales y Férulas' },
+                                { key: 'glucometro_signos_vitales', label: '🩺 Gluciómetro, Baumanómetro y Estetoscopio de Signos Vitales' },
+                                { key: 'radio_frecuencia_medica', label: '📻 Radio VHF/UHF Frecuencia Médica y de Mina' },
                             ].map(item => (
                                 <div key={item.key} className="flex justify-between items-center p-3 bg-rose-50/80 rounded-2xl border border-rose-200 text-xs font-bold text-rose-950">
                                     <span>{item.label}</span>
