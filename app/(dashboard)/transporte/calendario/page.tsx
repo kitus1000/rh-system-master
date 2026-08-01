@@ -11,7 +11,7 @@ import {
     Calendar as CalendarIcon, Bus, Plane, Car, Plus, 
     ChevronLeft, ChevronRight, HelpCircle, ArrowLeft, 
     Settings, Play, CheckCircle2, Clock, Trash2, ShieldAlert,
-    RefreshCw
+    RefreshCw, Users
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -329,12 +329,12 @@ export default function SobrecalendarioViajes() {
             </div>
 
             {/* Calendar Controls */}
-            <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-zinc-200 shadow-sm">
+            <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-2xl border border-zinc-200 shadow-sm gap-4">
                 <div className="flex items-center gap-3">
                     <button onClick={handlePrevMonth} className="p-2 hover:bg-zinc-100 rounded-xl transition-colors border border-zinc-200">
                         <ChevronLeft className="w-5 h-5 text-zinc-600" />
                     </button>
-                    <span className="font-black text-zinc-800 text-xl capitalize min-w-[180px] text-center">
+                    <span className="font-black text-zinc-900 text-2xl uppercase tracking-wider min-w-[220px] text-center">
                         {format(currentDate, 'MMMM yyyy', { locale: es })}
                     </span>
                     <button onClick={handleNextMonth} className="p-2 hover:bg-zinc-100 rounded-xl transition-colors border border-zinc-200">
@@ -342,10 +342,13 @@ export default function SobrecalendarioViajes() {
                     </button>
                 </div>
 
-                <div className="hidden sm:flex gap-4 text-xs font-semibold text-zinc-500">
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-sky-100 border border-sky-300 rounded-full"></span> Entrada Pase Médico</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-indigo-100 border border-indigo-300 rounded-full"></span> Salida Revisión Médica</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-amber-100 border border-amber-300 rounded-full"></span> Rotación (Entra/Sale)</span>
+                {/* Vehicle Types Legend */}
+                <div className="hidden lg:flex gap-2.5 text-xs font-bold text-zinc-600 flex-wrap items-center">
+                    <span className="flex items-center gap-1.5 bg-sky-50 text-sky-800 px-2.5 py-1 rounded-lg border border-sky-200"><Bus className="w-3.5 h-3.5 text-sky-600" /> Autobús</span>
+                    <span className="flex items-center gap-1.5 bg-purple-50 text-purple-800 px-2.5 py-1 rounded-lg border border-purple-200"><Car className="w-3.5 h-3.5 text-purple-600" /> Combi</span>
+                    <span className="flex items-center gap-1.5 bg-amber-50 text-amber-800 px-2.5 py-1 rounded-lg border border-amber-200"><Plane className="w-3.5 h-3.5 text-amber-600" /> Avioneta</span>
+                    <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 px-2.5 py-1 rounded-lg border border-emerald-200"><Car className="w-3.5 h-3.5 text-emerald-600" /> Camioneta</span>
+                    <span className="flex items-center gap-1.5 bg-teal-50 text-teal-800 px-2.5 py-1 rounded-lg border border-teal-200"><Users className="w-3.5 h-3.5 text-teal-600" /> Alterna</span>
                 </div>
             </div>
 
@@ -425,13 +428,17 @@ export default function SobrecalendarioViajes() {
                                                 href={`/transporte/${v.id_viaje}`}
                                                 className={`text-[9px] font-bold p-1 rounded border block transition-all flex justify-between items-center group/item hover:scale-[1.02]
                                                     ${v.tipo_vehiculo === 'Autobús' ? 'bg-sky-50 border-sky-100 text-sky-700 hover:bg-sky-100' :
+                                                      v.tipo_vehiculo === 'Combi' ? 'bg-purple-50 border-purple-100 text-purple-800 hover:bg-purple-100' :
                                                       v.tipo_vehiculo === 'Avioneta' ? 'bg-amber-50 border-amber-100 text-amber-800 hover:bg-amber-100' :
+                                                      v.tipo_vehiculo === 'Alterna' ? 'bg-teal-50 border-teal-100 text-teal-700 hover:bg-teal-100' :
                                                       'bg-emerald-50 border-emerald-100 text-emerald-700 hover:bg-emerald-100'}`}
                                             >
                                                 <span className="truncate flex items-center gap-1">
                                                     {v.tipo_vehiculo === 'Autobús' && <Bus className="w-2.5 h-2.5 shrink-0 text-sky-500" />}
+                                                    {v.tipo_vehiculo === 'Combi' && <Car className="w-2.5 h-2.5 shrink-0 text-purple-600" />}
                                                     {v.tipo_vehiculo === 'Avioneta' && <Plane className="w-2.5 h-2.5 shrink-0 text-amber-500" />}
                                                     {v.tipo_vehiculo === 'Camioneta' && <Car className="w-2.5 h-2.5 shrink-0 text-emerald-500" />}
+                                                    {v.tipo_vehiculo === 'Alterna' && <Users className="w-2.5 h-2.5 shrink-0 text-teal-500" />}
                                                     <span>{v.hora.substring(0, 5)} - {v.nombre_ruta}</span>
                                                 </span>
                                                 <div className="flex items-center gap-1 shrink-0">
