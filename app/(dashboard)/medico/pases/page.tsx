@@ -972,49 +972,71 @@ export default function PasesPage() {
                             </div>
                         </div>
                         
-                        <!-- SECCIÓN EXCLUSIVA CONTABILIDAD, R.H. Y CENTRO DE COSTOS -->
-                        <div style="margin-top: 15px;">
-                            <div style="border-top: 2px dashed #000; margin: 10px 0 6px 0; text-align: center; font-weight: 900; font-size: 9.5px; letter-spacing: 2px; color: #000;">
-                                USO EXCLUSIVO DE CONTABILIDAD Y R.H.
+                        <!-- SECCIÓN EXCLUSIVA DE CONTABILIDAD Y R.H. -->
+                        <div style="margin-top: 12px;">
+                            <!-- Barra superior de Título con borde -->
+                            <div style="border: 2px solid #555; background-color: #e5e7eb; padding: 2px 0; text-align: center; font-weight: 900; font-size: 10px; color: #000; margin-bottom: 4px;">
+                                Uso exclusivo de Contabilidad y R.H.
                             </div>
-                            
-                            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #000;">
-                                <thead>
-                                    <tr style="background-color: #f3f4f6;">
-                                        <th colspan="4" style="font-size: 9px; padding: 5px; border: 1px solid #000; font-weight: 900; text-transform: uppercase; text-align: center;">
-                                            LIQUIDACIÓN DE VIÁTICOS PROPORCIONADOS EN UNIDAD EL HERRERO
-                                        </th>
-                                    </tr>
-                                    <tr style="background-color: #fafafa;">
-                                        <th style="width: 20%; font-size: 8px; padding: 4px; border: 1px solid #000; text-transform: uppercase; text-align: center;">Días de viáticos</th>
-                                        <th style="width: 25%; font-size: 8px; padding: 4px; border: 1px solid #000; text-transform: uppercase; text-align: center;">Cantidad diaria ($)</th>
-                                        <th style="width: 30%; font-size: 8px; padding: 4px; border: 1px solid #000; text-transform: uppercase; text-align: center;">Centro de Costo</th>
-                                        <th style="width: 25%; font-size: 8px; padding: 4px; border: 1px solid #000; text-transform: uppercase; text-align: center;">Total Viáticos ($)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr style="height: 32px;">
-                                        <td style="border: 1px solid #000; text-align: center; font-weight: bold; color: blue;"></td>
-                                        <td style="border: 1px solid #000; text-align: center; font-weight: bold; color: blue;"></td>
-                                        <td style="border: 1px solid #000; text-align: center; font-weight: bold; color: blue;">${(pase.departamento_pasajero || 'CENTRO DE COSTO MINA').toUpperCase()}</td>
-                                        <td style="border: 1px solid #000; text-align: center; font-weight: bold; color: blue;"></td>
-                                    </tr>
-                                </tbody>
-                            </table>
 
-                            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #000; border-top: none; margin-top: -1px;">
-                                <tr style="height: 52px;">
-                                    <td style="width: 25%; border: 1px solid #000; text-align: center; vertical-align: bottom; padding: 4px;">
-                                        <div style="border-top: 1px solid #000; font-size: 7.5px; font-weight: bold;">Firma del Trabajador (Recibido)</div>
+                            <!-- Tabla Principal enmarcada en negro -->
+                            <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; background: #fff;">
+                                <!-- Fila 1: Header Subrayado -->
+                                <tr>
+                                    <th colspan="4" style="border: 1px solid #000; padding: 4px; font-weight: 900; font-size: 9px; text-align: center; background-color: #fff; color: #000;">
+                                        <u>Viáticos proporcionados en Unidad el Herrero</u>
+                                    </th>
+                                </tr>
+
+                                <!-- Fila 2: Column Headers -->
+                                <tr style="height: 24px;">
+                                    <td style="border: 1px solid #000; width: 28%; text-align: center; font-weight: bold; font-size: 8.5px; vertical-align: middle; color: #000;">
+                                        Días de viáticos
                                     </td>
-                                    <td style="width: 25%; border: 1px solid #000; text-align: center; vertical-align: bottom; padding: 4px;">
-                                        <div style="border-top: 1px solid #000; font-size: 7.5px; font-weight: bold;">Autorizó R.H. / Administración</div>
+                                    <td style="border: 1px solid #000; width: 27%; text-align: center; font-weight: bold; font-size: 8.5px; vertical-align: middle; color: #000;">
+                                        Cantidad diaria
                                     </td>
-                                    <td style="width: 25%; border: 1px solid #000; text-align: center; vertical-align: bottom; padding: 4px;">
-                                        <div style="border-top: 1px solid #000; font-size: 7.5px; font-weight: bold;">Firma Contraloría</div>
+                                    <td style="border: 1px solid #000; width: 33%;"></td>
+                                    <td rowspan="2" style="border: 1px solid #000; width: 12%; text-align: center; vertical-align: top; padding-top: 4px; font-weight: bold; font-size: 9px; color: #000;">
+                                        Total
                                     </td>
-                                    <td style="width: 25%; border: 1px solid #000; text-align: center; vertical-align: bottom; padding: 4px;">
-                                        <div style="border-top: 1px solid #000; font-size: 7.5px; font-weight: bold;">Firma de Caja / Tesorería</div>
+                                </tr>
+
+                                <!-- Fila 3: Values Row -->
+                                <tr style="height: 32px;">
+                                    <td style="border: 1px solid #000;"></td>
+                                    <td style="border: 1px solid #000;"></td>
+                                    <td style="border: 1px solid #000;"></td>
+                                </tr>
+
+                                <!-- Fila 4: Nombre y firma de recibido 1 -->
+                                <tr style="height: 32px;">
+                                    <td colspan="2" style="border: 1px solid #000; text-align: center; vertical-align: bottom; padding-bottom: 3px; font-weight: bold; font-size: 8.5px; color: #000;">
+                                        Nombre y firma de recibido
+                                    </td>
+                                    <td colspan="2" style="border: 1px solid #000;"></td>
+                                </tr>
+
+                                <!-- Fila 5: Nombre y firma de recibido 2 / Autorizó -->
+                                <tr style="height: 32px;">
+                                    <td colspan="2" style="border: 1px solid #000; text-align: center; vertical-align: bottom; padding-bottom: 3px; font-weight: bold; font-size: 8.5px; color: #000;">
+                                        Nombre y firma de recibido
+                                    </td>
+                                    <td colspan="2" style="border: 1px solid #000; text-align: center; vertical-align: bottom; padding-bottom: 3px; font-weight: bold; font-size: 8.5px; color: #000;">
+                                        Autorizó
+                                    </td>
+                                </tr>
+
+                                <!-- Fila 6: Firma de Contraloría / Firma de caja / Centro de Costo -->
+                                <tr style="height: 34px;">
+                                    <td style="border: 1px solid #000; text-align: center; vertical-align: bottom; padding-bottom: 3px; font-weight: bold; font-size: 8.5px; color: #000;">
+                                        Firma de Contraloria
+                                    </td>
+                                    <td style="border: 1px solid #000; text-align: center; vertical-align: bottom; padding-bottom: 3px; font-weight: bold; font-size: 8.5px; color: #000;">
+                                        Firma de caja
+                                    </td>
+                                    <td colspan="2" style="border: 1px solid #000; text-align: center; vertical-align: bottom; padding-bottom: 3px; font-weight: bold; font-size: 8.5px; color: #000;">
+                                        Centro de Costo
                                     </td>
                                 </tr>
                             </table>
