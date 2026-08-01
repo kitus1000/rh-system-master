@@ -57,6 +57,7 @@ export default function TransporteDashboard() {
     const [fecha, setFecha] = useState('')
     const [hora, setHora] = useState('')
     const [capacidad, setCapacidad] = useState('37')
+    const [numCamionetas, setNumCamionetas] = useState('1')
 
     // Modal Asignar Estado
     const [selectedSol, setSelectedSol] = useState<Solicitud | null>(null)
@@ -145,24 +146,47 @@ export default function TransporteDashboard() {
     const handleCrearViaje = async () => {
         if (!ruta || !fecha || !hora || !capacidad) return alert('Llena todos los campos')
         
-        const { error } = await supabase.from('transporte_personal_viajes').insert([{
-            tipo_vehiculo: tipo,
-            nombre_ruta: ruta,
-            fecha,
-            hora,
-            capacidad_total: parseInt(capacidad)
-        }])
-        
-        if (error) {
-            console.error(error)
-            alert('Error al crear el viaje.')
+        if (tipo === 'Camioneta' && parseInt(numCamionetas) > 1) {
+            const count = parseInt(numCamionetas)
+            const toInsert = []
+            for (let i = 1; i <= count; i++) {
+                toInsert.push({
+                    tipo_vehiculo: tipo,
+                    nombre_ruta: `${ruta} (Camioneta ${i})`,
+                    fecha,
+                    hora,
+                    capacidad_total: 4,
+                    estado: 'Programado'
+                })
+            }
+            const { error } = await supabase.from('transporte_personal_viajes').insert(toInsert)
+            if (error) {
+                console.error(error)
+                alert('Error al crear los viajes de camionetas.')
+                return
+            }
         } else {
-            setShowForm(false)
-            setRuta('')
-            setFecha('')
-            setHora('')
-            fetchViajes()
+            const { error } = await supabase.from('transporte_personal_viajes').insert([{
+                tipo_vehiculo: tipo,
+                nombre_ruta: ruta,
+                fecha,
+                hora,
+                capacidad_total: parseInt(capacidad),
+                estado: 'Programado'
+            }])
+            if (error) {
+                console.error(error)
+                alert('Error al crear el viaje.')
+                return
+            }
         }
+
+        setShowForm(false)
+        setRuta('')
+        setFecha('')
+        setHora('')
+        setNumCamionetas('1')
+        fetchViajes()
     }
 
     const handleCancelViaje = async (id_viaje: string) => {
@@ -661,6 +685,21 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                             <label className="text-xs font-bold text-zinc-500 uppercase">Hora Salida</label>
                             <input type="time" value={hora} onChange={e => setHora(e.target.value)} className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50" />
                         </div>
+                        {tipo === 'Camioneta' && (
+                            <div>
+                                <label className="text-xs font-bold text-zinc-500 uppercase">Cantidad de Camionetas</label>
+                                <select 
+                                    value={numCamionetas} 
+                                    onChange={e => setNumCamionetas(e.target.value)} 
+                                    className="w-full mt-1 p-3 border border-amber-300 rounded-lg text-sm bg-amber-50 font-bold text-amber-900"
+                                >
+                                    <option value="1">1 Camioneta (4 lugares)</option>
+                                    <option value="2">2 Camionetas (2 listas de 4 lgs)</option>
+                                    <option value="3">3 Camionetas (3 listas de 4 lgs)</option>
+                                    <option value="4">4 Camionetas (4 listas de 4 lgs)</option>
+                                </select>
+                            </div>
+                        )}
                     </div>
                     <div className="mt-4 flex justify-end gap-2">
                         <button onClick={() => setShowForm(false)} className="px-4 py-2 text-zinc-500 font-bold hover:bg-zinc-100 rounded-lg">Cancelar</button>
