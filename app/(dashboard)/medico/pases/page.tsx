@@ -465,10 +465,29 @@ export default function PasesPage() {
             ? pase.unidad_se_refiere.toUpperCase()
             : (destinoNombre ? (destinoNombre + destinoUbicacion) : (pase.unidad_se_refiere || 'CONSULTORIO MÉDICO INDUSTRIAL / DURANGO')).toUpperCase()
 
-        // Safely extract signature HTML
-        const sigRefiereHTML = doctorRefiereProfile?.firma ? '<img src="' + doctorRefiereProfile.firma + '" class="signature-image" /><br/>' : '<div style="height:45px;"></div>';
-        const sigRespHTML = doctorRespProfile?.firma ? '<img src="' + doctorRespProfile.firma + '" class="signature-image" /><br/>' : '<div style="height:45px;"></div>';
-        const sigRespP2HTML = doctorRespProfile?.firma ? '<img src="' + doctorRespProfile.firma + '" class="signature-image" style="max-height: 32px;" />' : '';
+        // Safely extract signature HTML and cédulas
+        const cedulaResp = pase.cedula_responsable_unidad || doctorRespProfile?.cedula_profesional || ''
+        const cedulaRef = pase.cedula_refiere || doctorRefiereProfile?.cedula_profesional || ''
+        const nombreResp = (pase.medico_responsable_unidad || doctorRespProfile?.nombre_completo || 'JEFE MÉDICO RESPONSABLE DE UNIDAD').toUpperCase()
+        const nombreRef = (pase.medico_refiere || doctorRefiereProfile?.nombre_completo || 'MÉDICO QUE REALIZÓ LA CONSULTA').toUpperCase()
+
+        const hasRespSignature = Boolean(doctorRespProfile?.firma && doctorRespProfile.firma.trim().length > 50)
+        const hasRefSignature = Boolean(doctorRefiereProfile?.firma && doctorRefiereProfile.firma.trim().length > 50)
+
+        // HTML for Page 1 Signatures
+        const sigRespHTML = hasRespSignature 
+            ? `<div style="text-align:center;"><img src="${doctorRespProfile.firma}" class="signature-image" /><br/><span style="font-size:7.5px; color:#16a34a; font-weight:bold;">[ FIRMADO DIGITALMENTE POR JEFE MÉDICO ]</span></div>`
+            : `<div style="height:45px; display:flex; align-items:center; justify-content:center;"><span style="color:#dc2626; font-size:8.5px; font-weight:bold; font-style:italic;">(PENDIENTE: FALTA FIRMA DEL JEFE MÉDICO)</span></div>`
+
+        const sigRefiereHTML = hasRefSignature 
+            ? `<div style="text-align:center;"><img src="${doctorRefiereProfile.firma}" class="signature-image" /><br/><span style="font-size:7.5px; color:#1d4ed8; font-weight:bold;">[ FIRMADO POR MÉDICO ]</span></div>`
+            : `<div style="height:45px; display:flex; align-items:center; justify-content:center;"><span style="color:#6b7280; font-size:8.5px; font-weight:bold; font-style:italic;">(PENDIENTE: FALTA FIRMA DEL MÉDICO QUE REFIERE)</span></div>`
+
+        // Signature for Page 2
+        const sigRespP2HTML = hasRespSignature
+            ? `<div style="text-align:right;"><img src="${doctorRespProfile.firma}" class="signature-image" style="max-height: 35px;" /><br/><span style="font-size:7px; color:#16a34a; font-weight:bold;">[ FIRMADO JEFE MÉDICO ]</span></div>`
+            : `<div style="text-align:right;"><span style="color:#dc2626; font-size:7.5px; font-weight:bold; font-style:italic;">(FALTA FIRMA Y CÉDULA DE JEFE MÉDICO)</span></div>`
+
         const sigRefP2PresentoHTML = pase.fecha_presento_consulta && doctorRefiereProfile?.firma ? '<div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.85; pointer-events: none;"><img src="' + doctorRefiereProfile.firma + '" style="max-height: 38px;" /></div>' : '';
 
         printWindow.document.write(`
@@ -704,7 +723,7 @@ export default function PasesPage() {
                                     Num Expediente: <span style="text-decoration:underline; font-weight:bold;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
                                 </div>
                                 <div style="text-align:right;">
-                                    <span class="folio-lbl">Folio &nbsp; ${pase.folio || ''}</span>
+                                    <span class="folio-lbl" style="color: #dc2626; font-size: 14px; font-weight: 900; letter-spacing: 0.5px;">FOLIO &nbsp; ${pase.folio || ''}</span>
                                 </div>
                             </div>
                             
@@ -781,13 +800,19 @@ export default function PasesPage() {
                                 <tr>
                                     <td class="signature-cell" style="width: 50%;">
                                         ${sigRespHTML}
-                                        <div class="signature-line">${(pase.medico_responsable_unidad || 'MÉDICO RESPONSABLE').toUpperCase()}</div>
-                                        <div class="signature-sub">Nombre y firma de quien autoriza (Médico Responsable)<br/>CÉDULA: ${pase.cedula_responsable_unidad || ''}</div>
+                                        <div class="signature-line">${nombreResp}</div>
+                                        <div class="signature-sub">
+                                            Nombre y firma de quien autoriza (Médico Responsable)<br/>
+                                            <span style="color: blue; font-weight: bold;">CÉDULA PROFESIONAL: ${cedulaResp ? cedulaResp : '<span style="color:#dc2626;">(FALTA CÉDULA JEFE MÉDICO)</span>'}</span>
+                                        </div>
                                     </td>
                                     <td class="signature-cell" style="width: 50%;">
                                         ${sigRefiereHTML}
-                                        <div class="signature-line">${(pase.medico_refiere || '').toUpperCase()}</div>
-                                        <div class="signature-sub">Nombre y firma del médico que refiere<br/>CÉDULA: ${pase.cedula_refiere || ''}</div>
+                                        <div class="signature-line">${nombreRef}</div>
+                                        <div class="signature-sub">
+                                            Nombre y firma del médico que realizó la consulta / refiere<br/>
+                                            <span style="color: blue; font-weight: bold;">CÉDULA PROFESIONAL: ${cedulaRef ? cedulaRef : '<span style="color:#6b7280;">(PENDIENTE)</span>'}</span>
+                                        </div>
                                     </td>
                                 </tr>
                             </table>
@@ -806,9 +831,9 @@ export default function PasesPage() {
                                         Grupo Minero Bacís S.A. de C.V.
                                         <div class="header-subtitle">Unidad "El Herrero"</div>
                                     </td>
-                                    <td style="vertical-align: top; text-align: right; width: 120px;">
-                                        <div style="border: 1.5px solid #000; padding: 4px 15px; font-weight: bold; font-size: 11px; display: inline-block; text-align: center;">
-                                            ${pase.folio || ''}
+                                    <td style="vertical-align: top; text-align: right; width: 140px;">
+                                        <div style="border: 2px solid #dc2626; padding: 4px 12px; font-weight: 900; font-size: 12px; display: inline-block; text-align: center; color: #dc2626;">
+                                            FOLIO &nbsp; ${pase.folio || ''}
                                         </div>
                                     </td>
                                 </tr>
@@ -895,7 +920,10 @@ export default function PasesPage() {
                                     <td style="border: 1px solid #000; padding: 5px; width: 40%; font-weight: bold; font-size: 9px;">Nombre Firma y cédula de Médico responsable de Unidad</td>
                                     <td style="border: 1px solid #000; padding: 5px; width: 60%; font-size: 9.5px; color: blue; font-weight: bold;">
                                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                                            <span>${(pase.medico_responsable_unidad || '').toUpperCase()} CED. PROF. ${pase.cedula_responsable_unidad || ''}</span>
+                                            <div>
+                                                <div>${nombreResp}</div>
+                                                <div style="font-size: 8.5px; color: blue; margin-top: 2px;">CÉDULA PROFESIONAL: ${cedulaResp ? cedulaResp : '<span style="color:#dc2626;">(FALTA CÉDULA JEFE MÉDICO)</span>'}</div>
+                                            </div>
                                             ${sigRespP2HTML}
                                         </div>
                                     </td>
