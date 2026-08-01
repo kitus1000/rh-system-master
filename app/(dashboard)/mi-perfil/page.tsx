@@ -208,7 +208,7 @@ export default function MiPerfilPage() {
 
     if (!profile) return null
 
-    const isMedico = profile.rol === 'Médico'
+    const isMedico = profile.rol === 'Médico' || profile.rol === 'Jefe Médico' || profile.rol === 'Administrativo'
 
     return (
         <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
@@ -274,7 +274,7 @@ export default function MiPerfilPage() {
                             </div>
                         </div>
 
-                        {(profile.rol === 'Médico' || profile.rol === 'Administrativo') && (
+                        {(profile.rol === 'Médico' || profile.rol === 'Jefe Médico' || profile.rol === 'Administrativo') && (
                             <div>
                                 <label className="block text-xs font-bold text-zinc-900 uppercase mb-2">Clínica Activa de Consulta</label>
                                 <select 

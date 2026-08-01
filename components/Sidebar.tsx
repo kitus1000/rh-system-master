@@ -46,7 +46,7 @@ const navigationGroups = [
         bgClass: "bg-zinc-800",
         isCollapsible: false,
         items: [
-            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Recursos Humanos', 'Sistemas', 'Chofer'] },
+            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Jefe Médico', 'Recursos Humanos', 'Sistemas', 'Chofer'] },
             { name: 'Chat y Muro', href: '/chat', icon: MessageCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Sistemas'] },
         ]
     },
@@ -74,13 +74,13 @@ const navigationGroups = [
         isCollapsible: true,
         defaultExpanded: true,
         items: [
-            { name: 'Consultas Médicas', href: '/medico/consultas', icon: Stethoscope, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
-            { name: 'Pacientes', href: '/medico/pacientes', icon: Heart, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
-            { name: 'Inventario Farmacia', href: '/medico/inventario', icon: Pill, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
-            { name: 'Clínicas Externas', href: '/medico/clinicas', icon: Hospital, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
-            { name: 'Pases Médicos', href: '/medico/pases', icon: FileText, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
-            { name: 'Pase de Hotel', href: '/medico/hotel', icon: Building, roles: ['Administrativo', 'Médico', 'Recursos Humanos'] },
-            { name: 'Portal de Ausencias', href: '/consulta-medica', icon: ClipboardList, roles: ['Administrativo', 'Administrador', 'Médico', 'Jefe de Departamento', 'Superintendente', 'Supervisor', 'Recursos Humanos'] },
+            { name: 'Consultas Médicas', href: '/medico/consultas', icon: Stethoscope, roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos'] },
+            { name: 'Pacientes', href: '/medico/pacientes', icon: Heart, roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos'] },
+            { name: 'Inventario Farmacia', href: '/medico/inventario', icon: Pill, roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos'] },
+            { name: 'Clínicas Externas', href: '/medico/clinicas', icon: Hospital, roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos'] },
+            { name: 'Pases Médicos', href: '/medico/pases', icon: FileText, roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos'] },
+            { name: 'Pase de Hotel', href: '/medico/hotel', icon: Building, roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos'] },
+            { name: 'Portal de Ausencias', href: '/consulta-medica', icon: ClipboardList, roles: ['Administrativo', 'Administrador', 'Médico', 'Jefe Médico', 'Jefe de Departamento', 'Superintendente', 'Supervisor', 'Recursos Humanos'] },
         ]
     },
     {

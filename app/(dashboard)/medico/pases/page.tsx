@@ -150,7 +150,7 @@ export default function PasesPage() {
 
     useEffect(() => {
         if (medicos.length > 0 && !formData.medico_responsable_unidad) {
-            const defaultDoc = medicos.find(m => m.nombre_completo.toLowerCase().includes('adriana')) || medicos[0];
+            const defaultDoc = medicos.find(m => m.rol === 'Jefe Médico') || medicos.find(m => m.nombre_completo.toLowerCase().includes('adriana')) || medicos[0];
             if (defaultDoc) {
                 setFormData(prev => ({
                     ...prev,
@@ -204,7 +204,7 @@ export default function PasesPage() {
         if (eData) setEmpleados(eData)
 
         const { data: mData } = await supabase.from('perfiles').select('*').order('nombre_completo')
-        if (mData) setMedicos(mData.filter((u: any) => u.rol === 'Médico'))
+        if (mData) setMedicos(mData.filter((u: any) => u.rol === 'Médico' || u.rol === 'Jefe Médico' || u.rol === 'Administrativo'))
     }
 
     const fetchPases = async () => {
