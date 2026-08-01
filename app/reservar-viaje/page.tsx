@@ -555,6 +555,7 @@ export default function ReservarViajePublico() {
                                             className="w-full bg-zinc-950/80 border border-zinc-800 rounded-xl py-3 px-4 text-white text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 font-bold"
                                         >
                                             <option value="Autobús">Autobús (Camión)</option>
+                                            <option value="Combi">Combi (14 Lugares)</option>
                                             <option value="Avioneta">Avioneta (Vuelo)</option>
                                             <option value="Alterna">Alterna (Contratistas / Particular)</option>
                                         </select>
@@ -732,6 +733,7 @@ export default function ReservarViajePublico() {
                                         <span className="text-[9px] text-zinc-500 uppercase block font-mono">TIPO DE VEHÍCULO</span>
                                         <span className="text-sm font-bold text-cyan-400 uppercase font-mono print:text-black flex items-center gap-1.5">
                                             {passData.tipo_vehiculo === 'Autobús' && <Bus className="w-4 h-4 shrink-0" />}
+                                            {passData.tipo_vehiculo === 'Combi' && <Car className="w-4 h-4 shrink-0" />}
                                             {passData.tipo_vehiculo === 'Avioneta' && <Plane className="w-4 h-4 shrink-0" />}
                                             {passData.tipo_vehiculo === 'Camioneta' && <Car className="w-4 h-4 shrink-0" />}
                                             {passData.tipo_vehiculo === 'Alterna' && <Users className="w-4 h-4 shrink-0" />}

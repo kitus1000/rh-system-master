@@ -245,7 +245,7 @@ export default function TransporteDashboard() {
         
         // Generate a random confirmation key (clean short alphanumeric)
         const randNum = Math.floor(1000 + Math.random() * 9000).toString()
-        const vehChar = sol.tipo_vehiculo === 'Autobús' ? 'C' : sol.tipo_vehiculo === 'Alterna' ? 'A' : 'V'
+        const vehChar = sol.tipo_vehiculo === 'Autobús' ? 'C' : sol.tipo_vehiculo === 'Combi' ? 'M' : sol.tipo_vehiculo === 'Alterna' ? 'A' : 'V'
         setAssignClave(`${vehChar}-${randNum}`)
 
         // Try to pre-match employee by name similarity
@@ -479,6 +479,37 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
             )
         }
 
+        if (vehicleType === 'Combi') {
+            return (
+                <div className="bg-zinc-100 p-3.5 rounded-2xl border border-zinc-200 max-w-[240px] mx-auto shadow-inner space-y-2">
+                    <div className="text-[9px] font-black text-zinc-400 uppercase text-center border-b pb-1">Frente de la Combi</div>
+                    <div className="grid grid-cols-3 gap-2 mt-2">
+                        {seats.map(num => {
+                            const isOccupied = occupiedSeats.includes(num)
+                            const isSelected = assignSeat === num
+                            return (
+                                <button
+                                    key={num}
+                                    type="button"
+                                    disabled={isOccupied}
+                                    onClick={() => setAssignSeat(num)}
+                                    className={`p-1.5 rounded-lg text-[9px] font-black border transition-all text-center flex flex-col items-center justify-center aspect-square
+                                        ${isOccupied 
+                                            ? 'bg-red-50 border-red-200 text-red-400 cursor-not-allowed'
+                                            : (isSelected
+                                                ? 'bg-cyan-500 border-cyan-600 text-white shadow-md'
+                                                : 'bg-white border-zinc-200 text-zinc-550 hover:border-zinc-450')}`}
+                                >
+                                    <Armchair className="w-3.5 h-3.5 mb-0.5" />
+                                    {num}
+                                </button>
+                            )
+                        })}
+                    </div>
+                </div>
+            )
+        }
+
         // Camioneta/Van
         return (
             <div className="bg-zinc-100 p-3.5 rounded-2xl border border-zinc-200 max-w-[200px] mx-auto shadow-inner space-y-2">
@@ -608,9 +639,11 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                                 if(e.target.value === 'Autobús') setCapacidad('37')
                                 if(e.target.value === 'Avioneta') setCapacidad('8')
                                 if(e.target.value === 'Camioneta') setCapacidad('4')
+                                if(e.target.value === 'Combi') setCapacidad('14')
                                 if(e.target.value === 'Alterna') setCapacidad('8')
                             }} className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50 font-bold">
                                 <option value="Autobús">Autobús (37 lgs)</option>
+                                <option value="Combi">Combi (14 lgs)</option>
                                 <option value="Avioneta">Avioneta (8 lgs)</option>
                                 <option value="Camioneta">Camioneta (4 lgs)</option>
                                 <option value="Alterna">Alterna (Contratistas / Particular)</option>
@@ -650,11 +683,13 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                                             <div className="flex items-center gap-2">
                                                 <div className={`p-2 rounded-lg ${
                                                     v.tipo_vehiculo === 'Autobús' ? 'bg-indigo-100 text-indigo-600' :
+                                                    v.tipo_vehiculo === 'Combi' ? 'bg-purple-100 text-purple-600' :
                                                     v.tipo_vehiculo === 'Avioneta' ? 'bg-sky-100 text-sky-600' :
                                                     v.tipo_vehiculo === 'Alterna' ? 'bg-teal-100 text-teal-600' :
                                                     'bg-emerald-100 text-emerald-600'
                                                 }`}>
                                                     {v.tipo_vehiculo === 'Autobús' && <Bus className="w-5 h-5" />}
+                                                    {v.tipo_vehiculo === 'Combi' && <Car className="w-5 h-5" />}
                                                     {v.tipo_vehiculo === 'Avioneta' && <Plane className="w-5 h-5" />}
                                                     {v.tipo_vehiculo === 'Camioneta' && <Car className="w-5 h-5" />}
                                                     {v.tipo_vehiculo === 'Alterna' && <Users className="w-5 h-5" />}
@@ -974,6 +1009,7 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                                     onChange={e => {
                                         setEditTipo(e.target.value)
                                         if(e.target.value === 'Autobús') setEditCapacidad('37')
+                                        if(e.target.value === 'Combi') setEditCapacidad('14')
                                         if(e.target.value === 'Avioneta') setEditCapacidad('8')
                                         if(e.target.value === 'Camioneta') setEditCapacidad('4')
                                         if(e.target.value === 'Alterna') setEditCapacidad('8')
@@ -981,6 +1017,7 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                                     className="w-full mt-1 p-2.5 border rounded-lg text-sm bg-zinc-50 font-bold"
                                 >
                                     <option value="Autobús">Autobús (37 lgs)</option>
+                                    <option value="Combi">Combi (14 lgs)</option>
                                     <option value="Avioneta">Avioneta (8 lgs)</option>
                                     <option value="Camioneta">Camioneta (4 lgs)</option>
                                     <option value="Alterna">Alterna (Contratistas / Particular)</option>
