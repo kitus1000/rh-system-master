@@ -70,9 +70,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         const rolLower = normalizedRol.toLowerCase()
                         const nameLower = (profData.nombre_completo || '').toLowerCase()
                         if (rolLower.includes('chofer') || rolLower.includes('conductor') || rolLower.includes('operador') || nameLower.includes('(chofer)')) normalizedRol = 'Chofer'
+                        else if (rolLower.includes('jefe médico') || rolLower.includes('jefe medico') || nameLower.includes('jefe médico') || nameLower.includes('jefe medico')) normalizedRol = 'Jefe Médico'
+                        else if (rolLower.includes('médico') || rolLower.includes('medico') || nameLower.includes('médico') || nameLower.includes('medico')) normalizedRol = 'Médico'
                         else if (rolLower.includes('admin')) normalizedRol = 'Administrativo'
-                        else if (rolLower.includes('jefe médico') || rolLower.includes('jefe medico')) normalizedRol = 'Jefe Médico'
-                        else if (rolLower.includes('médico') || rolLower.includes('medico')) normalizedRol = 'Médico'
                         else if (rolLower === 'jefe' || rolLower.includes('jefe de departamento')) normalizedRol = 'Jefe de Departamento'
                         else if (rolLower.includes('superintendente')) normalizedRol = 'Superintendente'
                         

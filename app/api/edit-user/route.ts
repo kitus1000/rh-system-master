@@ -40,11 +40,16 @@ export async function POST(req: Request) {
             .eq('id', userId)
 
         if (profileError && (profileError.message.includes('perfiles_rol_check') || profileError.code === '23514')) {
+            const isJefeMed = rol === 'Jefe Médico' || (rol && rol.toLowerCase().includes('médico') && rol.toLowerCase().includes('jefe'))
+            const isMed = isJefeMed || rol === 'Médico' || (rol && rol.toLowerCase().includes('médic'))
+            const fallbackRol = isMed ? 'Médico' : 'Jefe'
+            const taggedNombre = isJefeMed && !finalNombre.includes('(Jefe Médico)') ? `${finalNombre} (Jefe Médico)` : finalNombre
+
             const { error: retryErr } = await supabaseClient
                 .from('perfiles')
                 .update({
-                    nombre_completo: finalNombre,
-                    rol: 'Jefe',
+                    nombre_completo: taggedNombre,
+                    rol: fallbackRol,
                     id_departamento: id_departamento || null,
                     departamentos_autorizados: departamentos_autorizados || []
                 })

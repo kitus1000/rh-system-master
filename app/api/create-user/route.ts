@@ -83,10 +83,15 @@ export async function POST(req: Request) {
         if (perfilError) {
             // Handle PostgreSQL perfiles_rol_check constraint error
             if (perfilError.message.includes('perfiles_rol_check') || perfilError.code === '23514') {
+                const isJefeMed = rol === 'Jefe Médico' || (rol && rol.toLowerCase().includes('médico') && rol.toLowerCase().includes('jefe'))
+                const isMed = isJefeMed || rol === 'Médico' || (rol && rol.toLowerCase().includes('médic'))
+                const fallbackRol = isMed ? 'Médico' : 'Jefe'
+                const taggedNombre = isJefeMed && !finalNombre.includes('(Jefe Médico)') ? `${finalNombre} (Jefe Médico)` : finalNombre
+
                 const { error: retryError } = await supabaseClient.from('perfiles').upsert([{
                     id: userId,
-                    nombre_completo: finalNombre,
-                    rol: 'Jefe',
+                    nombre_completo: taggedNombre,
+                    rol: fallbackRol,
                     id_departamento: id_departamento || null,
                     departamentos_autorizados: departamentos_autorizados || []
                 }])
