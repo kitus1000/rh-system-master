@@ -420,15 +420,33 @@ export default function PasesPage() {
         const displayParentesco = parsedRel.parentesco;
         const displayWorkerName = parsedRel.nombre_trabajador;
 
-        // Fetch full doctor profiles to retrieve signatures
-        let doctorRefiereProfile = null
-        let doctorRespProfile = null
+        // Fetch full doctor profiles to retrieve signatures with fallback for existing/older passes
+        let doctorRefiereProfile = medicos.find(m => {
+            if (!m) return false
+            const pRef = (pase.medico_refiere || '').toLowerCase()
+            const mName = (m.nombre_completo || '').toLowerCase()
+            if (pRef && (mName === pRef || mName.includes(pRef) || pRef.includes(mName))) return true
+            if (m.cedula_profesional && pase.cedula_refiere && m.cedula_profesional === pase.cedula_refiere) return true
+            return false
+        })
 
-        const drRef = medicos.find(m => m.nombre_completo === pase.medico_refiere)
-        if (drRef) doctorRefiereProfile = drRef
-        
-        const drResp = medicos.find(m => m.nombre_completo === pase.medico_responsable_unidad)
-        if (drResp) doctorRespProfile = drResp
+        if (!doctorRefiereProfile && medicos.length > 0) {
+            doctorRefiereProfile = medicos.find(m => m.rol === 'Médico' || (m.rol || '').toLowerCase().includes('médic')) || medicos[0]
+        }
+
+        let doctorRespProfile = medicos.find(m => {
+            if (!m) return false
+            const isJefeMed = m.rol === 'Jefe Médico' || (m.rol || '').toLowerCase().includes('jefe médico') || (m.nombre_completo || '').toLowerCase().includes('jefe médico')
+            const pResp = (pase.medico_responsable_unidad || '').toLowerCase()
+            const mName = (m.nombre_completo || '').toLowerCase()
+            if (pResp && (mName === pResp || mName.includes(pResp) || pResp.includes(mName))) return true
+            if (m.cedula_profesional && pase.cedula_responsable_unidad && m.cedula_profesional === pase.cedula_responsable_unidad) return true
+            return isJefeMed
+        })
+
+        if (!doctorRespProfile && medicos.length > 0) {
+            doctorRespProfile = medicos.find(m => m.rol === 'Jefe Médico' || (m.rol || '').toLowerCase().includes('jefe médico') || (m.nombre_completo || '').toLowerCase().includes('jefe médico')) || medicos[0]
+        }
 
         const printWindow = window.open('', '_blank', 'width=900,height=1200')
         if (!printWindow) return
@@ -468,8 +486,8 @@ export default function PasesPage() {
         // Safely extract signature HTML and cédulas
         const cedulaResp = pase.cedula_responsable_unidad || doctorRespProfile?.cedula_profesional || ''
         const cedulaRef = pase.cedula_refiere || doctorRefiereProfile?.cedula_profesional || ''
-        const nombreResp = (pase.medico_responsable_unidad || doctorRespProfile?.nombre_completo || 'JEFE MÉDICO RESPONSABLE DE UNIDAD').toUpperCase()
-        const nombreRef = (pase.medico_refiere || doctorRefiereProfile?.nombre_completo || 'MÉDICO QUE REALIZÓ LA CONSULTA').toUpperCase()
+        const nombreResp = (pase.medico_responsable_unidad || doctorRespProfile?.nombre_completo || 'JEFE MÉDICO RESPONSABLE DE UNIDAD').replace(/\s*\(Jefe Médico\)\s*/gi, '').toUpperCase()
+        const nombreRef = (pase.medico_refiere || doctorRefiereProfile?.nombre_completo || 'MÉDICO QUE REALIZÓ LA CONSULTA').replace(/\s*\(Jefe Médico\)\s*/gi, '').replace(/\s*\(Chofer\)\s*/gi, '').toUpperCase()
 
         const hasRespSignature = Boolean(doctorRespProfile?.firma && doctorRespProfile.firma.trim().length > 50)
         const hasRefSignature = Boolean(doctorRefiereProfile?.firma && doctorRefiereProfile.firma.trim().length > 50)
