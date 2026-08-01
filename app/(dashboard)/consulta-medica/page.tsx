@@ -119,6 +119,31 @@ export default function ConsultaMedicaPortal() {
         }
     }
 
+    // Doctor, HR, Jefe Médico or Admin have full access
+    const rolClean = (profile?.rol || '').toUpperCase()
+    const isDoctorOrAdmin = rolClean.includes('MÉDICO') || 
+                            rolClean.includes('MEDICO') ||
+                            rolClean.includes('JEFE MÉDICO') ||
+                            rolClean.includes('ADMINISTRADOR') || 
+                            rolClean.includes('ADMINISTRATIVO') || 
+                            rolClean.includes('RECURSOS HUMANOS') ||
+                            (profile?.nombre_completo || '').toUpperCase().includes('RECURSOS')
+
+    useEffect(() => {
+        fetchDepartamentos()
+        fetchPases()
+
+        // Fallback safety timer to guarantee loading screen never gets stuck infinitely
+        const timer = setTimeout(() => {
+            setLoading(false)
+        }, 3000)
+        return () => clearTimeout(timer)
+    }, [])
+
+    useEffect(() => {
+        fetchPases()
+    }, [selectedDept, profile, viewMode, fechaDesde, fechaHasta])
+
     const fetchDepartamentos = async () => {
         const { data } = await supabase
             .from('cat_departamentos')
