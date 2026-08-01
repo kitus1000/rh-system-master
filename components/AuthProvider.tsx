@@ -118,7 +118,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const hasAccess = (allowedRoles: Role[]) => {
         if (!profile) return false
-        return allowedRoles.includes(profile.rol)
+        const userRolLower = (profile.rol || '').toLowerCase()
+        return allowedRoles.some(r => {
+            const rLower = r.toLowerCase()
+            if (rLower === userRolLower) return true
+            if ((userRolLower.includes('médic') || userRolLower.includes('medic') || userRolLower.includes('doctor')) && 
+                (rLower.includes('médic') || rLower.includes('medic'))) return true
+            return false
+        })
     }
 
     // RBAC Route Guarding Logic
@@ -142,7 +149,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         // Médico and Jefe Médico are strictly restricted to medical, profile, chat and inicio modules
-        if (profile.rol === 'Médico' || profile.rol === 'Jefe Médico') {
+        const isDoctor = profile.rol === 'Médico' || profile.rol === 'Jefe Médico' || 
+                         (profile.rol || '').toLowerCase().includes('médic') || 
+                         (profile.rol || '').toLowerCase().includes('medic')
+        
+        if (isDoctor) {
             const allowedMedicalPaths = [
                 '/inicio', '/mi-perfil', '/chat', '/acerca-de', '/medico', '/consulta-medica'
             ]
