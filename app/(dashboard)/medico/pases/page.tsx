@@ -924,9 +924,8 @@ export default function PasesPage() {
                                 </thead>
                                 <tbody>
                                     <tr>
-                                        <td style="color: blue; padding: 6px; font-size: 10px; border: 1.2px solid #000;">${formattedFechaConsulta.toUpperCase()}</td>
-                                        <td style="color: blue; padding: 6px; font-size: 10px; border: 1.2px solid #000; position: relative; height: 35px;">
-                                            ${sigRefP2PresentoHTML}
+                                        <td style="color: blue; padding: 6px; font-size: 10px; border: 1.2px solid #000; text-align: center;">${formattedFechaConsulta.toUpperCase()}</td>
+                                        <td style="color: blue; padding: 6px; font-size: 10px; border: 1.2px solid #000; text-align: center; height: 35px;">
                                             ${pase.fecha_presento_consulta ? formattedFechaPresentoConsulta.toUpperCase() : '&nbsp;'}
                                         </td>
                                     </tr>
@@ -954,76 +953,68 @@ export default function PasesPage() {
                                 </tr>
                             </table>
 
-                            <div style="border: 1px solid #000; border-top: none; padding: 6px; font-weight: bold; font-size: 9px;">
-                                Fecha de cita:
-                                <div style="min-height: 55px; color: blue; font-size: 10px; padding: 4px 0; font-weight: bold;">
+                            <div style="border: 1px solid #000; border-top: none; padding: 8px; font-weight: bold; font-size: 9px;">
+                                Fecha de cita y Observaciones Médicas:
+                                <div style="min-height: 65px; color: blue; font-size: 10.5px; padding: 6px 0; font-weight: bold;">
                                     ${formattedFechaCita.toUpperCase()}
-                                    <div style="color: blue; font-size: 9.5px; font-weight: normal; margin-top: 4px;">
+                                    <div style="color: blue; font-size: 10px; font-weight: normal; margin-top: 6px; line-height: 1.4;">
                                         ${(pase.comentarios || '').toUpperCase()}
                                     </div>
                                 </div>
                             </div>
 
-                            <div style="border: 1px solid #000; border-top: none; padding: 6px; font-weight: bold; font-size: 9px;">
+                            <div style="border: 1px solid #000; border-top: none; padding: 8px; font-weight: bold; font-size: 9px;">
                                 Firma y sello de Consultorio Médico Industrial:
-                                <div style="min-height: 55px; display: flex; align-items: center; justify-content: center; color: #777; font-size: 9.5px; font-weight: bold; border: 1px dashed #ccc; margin-top: 4px;">
-                                    [ CONSULTORIO MÉDICO INDUSTRIAL SANTA MARÍA - FIRMA Y SELLO ]
+                                <div style="min-height: 105px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666; font-size: 10px; font-weight: bold; border: 1.5px dashed #aaa; margin-top: 6px; border-radius: 4px; padding: 10px;">
+                                    <div>[ CONSULTORIO MÉDICO INDUSTRIAL SANTA MARÍA - SELLO Y FIRMA DE ATENCIÓN ]</div>
+                                    <div style="font-size: 8px; font-weight: normal; margin-top: 4px; color: #888;">ESPACIO EXCLUSIVO PARA SELLO DE ASISTENCIA Y RECIBIDO EN CLÍNICA / HOSPITAL</div>
                                 </div>
                             </div>
                         </div>
                         
-                        <!-- SECCIÓN EXCLUSIVA - MEJORADA Y COMPLETADA -->
-                        <div>
-                            <div style="border-top: 2px dashed #000; margin: 12px 0 5px 0; text-align: center; font-weight: bold; font-size: 9px; letter-spacing: 2px; color: #000;">USO EXCLUSIVO DE CONTABILIDAD Y R.H.</div>
+                        <!-- SECCIÓN EXCLUSIVA CONTABILIDAD, R.H. Y CENTRO DE COSTOS -->
+                        <div style="margin-top: 15px;">
+                            <div style="border-top: 2px dashed #000; margin: 10px 0 6px 0; text-align: center; font-weight: 900; font-size: 9.5px; letter-spacing: 2px; color: #000;">
+                                USO EXCLUSIVO DE CONTABILIDAD Y R.H.
+                            </div>
                             
-                            <table class="p2-table" style="margin-top: 5px; width: 100%; border: 1px solid #000;">
+                            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #000;">
                                 <thead>
-                                    <tr>
-                                        <th colspan="4" style="background-color: #f3f4f6; font-size: 9px; padding: 4px; border: 1px solid #000; font-weight: bold; text-transform: uppercase;">Viáticos proporcionados en Unidad el Herrero</th>
+                                    <tr style="background-color: #f3f4f6;">
+                                        <th colspan="4" style="font-size: 9px; padding: 5px; border: 1px solid #000; font-weight: 900; text-transform: uppercase; text-align: center;">
+                                            LIQUIDACIÓN DE VIÁTICOS PROPORCIONADOS EN UNIDAD EL HERRERO
+                                        </th>
                                     </tr>
-                                    <tr>
-                                        <th style="width: 25%; font-size: 8px; padding: 4px; border: 1px solid #000; text-transform: uppercase;">Días de viáticos</th>
-                                        <th style="width: 25%; font-size: 8px; padding: 4px; border: 1px solid #000; text-transform: uppercase;">Cantidad diaria</th>
-                                        <th style="width: 35%; font-size: 8px; padding: 4px; border: 1px solid #000; text-transform: uppercase;"></th>
-                                        <th style="width: 15%; font-size: 8px; padding: 4px; border: 1px solid #000; text-transform: uppercase;">Total</th>
+                                    <tr style="background-color: #fafafa;">
+                                        <th style="width: 20%; font-size: 8px; padding: 4px; border: 1px solid #000; text-transform: uppercase; text-align: center;">Días de viáticos</th>
+                                        <th style="width: 25%; font-size: 8px; padding: 4px; border: 1px solid #000; text-transform: uppercase; text-align: center;">Cantidad diaria ($)</th>
+                                        <th style="width: 30%; font-size: 8px; padding: 4px; border: 1px solid #000; text-transform: uppercase; text-align: center;">Centro de Costo</th>
+                                        <th style="width: 25%; font-size: 8px; padding: 4px; border: 1px solid #000; text-transform: uppercase; text-align: center;">Total Viáticos ($)</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr style="height: 35px;">
-                                        <td style="border: 1px solid #000;"></td>
-                                        <td style="border: 1px solid #000;"></td>
-                                        <td style="border: 1px solid #000;"></td>
-                                        <td style="border: 1px solid #000;"></td>
+                                    <tr style="height: 32px;">
+                                        <td style="border: 1px solid #000; text-align: center; font-weight: bold; color: blue;"></td>
+                                        <td style="border: 1px solid #000; text-align: center; font-weight: bold; color: blue;"></td>
+                                        <td style="border: 1px solid #000; text-align: center; font-weight: bold; color: blue;">${(pase.departamento_pasajero || 'CENTRO DE COSTO MINA').toUpperCase()}</td>
+                                        <td style="border: 1px solid #000; text-align: center; font-weight: bold; color: blue;"></td>
                                     </tr>
                                 </tbody>
                             </table>
-                            
-                            <table style="width: 100%; border-collapse: collapse; margin-top: 5px;">
-                                <tr>
-                                    <td class="signature-cell" style="width: 50%; padding-top: 15px;">
-                                        <div class="signature-line" style="width: 80%;">Nombre y firma de recibido</div>
+
+                            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #000; border-top: none; margin-top: -1px;">
+                                <tr style="height: 52px;">
+                                    <td style="width: 25%; border: 1px solid #000; text-align: center; vertical-align: bottom; padding: 4px;">
+                                        <div style="border-top: 1px solid #000; font-size: 7.5px; font-weight: bold;">Firma del Trabajador (Recibido)</div>
                                     </td>
-                                    <td class="signature-cell" style="width: 50%; padding-top: 15px;">
-                                        &nbsp;
+                                    <td style="width: 25%; border: 1px solid #000; text-align: center; vertical-align: bottom; padding: 4px;">
+                                        <div style="border-top: 1px solid #000; font-size: 7.5px; font-weight: bold;">Autorizó R.H. / Administración</div>
                                     </td>
-                                </tr>
-                                <tr>
-                                    <td class="signature-cell" style="width: 50%; padding-top: 15px;">
-                                        <div class="signature-line" style="width: 80%;">Nombre y firma de recibido</div>
+                                    <td style="width: 25%; border: 1px solid #000; text-align: center; vertical-align: bottom; padding: 4px;">
+                                        <div style="border-top: 1px solid #000; font-size: 7.5px; font-weight: bold;">Firma Contraloría</div>
                                     </td>
-                                    <td class="signature-cell" style="width: 50%; padding-top: 15px;">
-                                        <div class="signature-line" style="width: 80%;">Autorizó</div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td class="signature-cell" style="width: 33%; padding-top: 20px;">
-                                        <div class="signature-line" style="width: 85%;">Firma de Contraloría</div>
-                                    </td>
-                                    <td class="signature-cell" style="width: 33%; padding-top: 20px;">
-                                        <div class="signature-line" style="width: 85%;">Firma de Caja</div>
-                                    </td>
-                                    <td class="signature-cell" style="width: 34%; padding-top: 20px;">
-                                        <div class="signature-line" style="width: 85%;">Centro de Costo</div>
+                                    <td style="width: 25%; border: 1px solid #000; text-align: center; vertical-align: bottom; padding: 4px;">
+                                        <div style="border-top: 1px solid #000; font-size: 7.5px; font-weight: bold;">Firma de Caja / Tesorería</div>
                                     </td>
                                 </tr>
                             </table>
