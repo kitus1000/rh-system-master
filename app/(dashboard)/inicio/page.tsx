@@ -91,7 +91,7 @@ export default function InicioPage() {
       color: 'text-rose-400',
       bgGradient: 'from-rose-500/20 via-rose-500/5 to-transparent',
       glowColor: 'hover:border-rose-500/50 hover:shadow-rose-500/20',
-      roles: ['Administrativo', 'Médico', 'Recursos Humanos']
+      roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos']
     },
     {
       id: 'med-pacientes',
@@ -104,7 +104,7 @@ export default function InicioPage() {
       color: 'text-pink-400',
       bgGradient: 'from-pink-500/20 via-pink-500/5 to-transparent',
       glowColor: 'hover:border-pink-500/50 hover:shadow-pink-500/20',
-      roles: ['Administrativo', 'Médico', 'Recursos Humanos']
+      roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos']
     },
     {
       id: 'med-pases',
@@ -117,7 +117,7 @@ export default function InicioPage() {
       color: 'text-amber-400',
       bgGradient: 'from-amber-500/20 via-amber-500/5 to-transparent',
       glowColor: 'hover:border-amber-500/50 hover:shadow-amber-500/20',
-      roles: ['Administrativo', 'Médico', 'Jefe de Departamento', 'Recursos Humanos']
+      roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Jefe de Departamento', 'Recursos Humanos']
     },
     {
       id: 'med-hotel',
@@ -130,7 +130,7 @@ export default function InicioPage() {
       color: 'text-cyan-400',
       bgGradient: 'from-cyan-500/20 via-cyan-500/5 to-transparent',
       glowColor: 'hover:border-cyan-500/50 hover:shadow-cyan-500/20',
-      roles: ['Administrativo', 'Médico', 'Recursos Humanos']
+      roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos']
     },
     {
       id: 'med-farmacia',
@@ -143,7 +143,7 @@ export default function InicioPage() {
       color: 'text-emerald-400',
       bgGradient: 'from-emerald-500/20 via-emerald-500/5 to-transparent',
       glowColor: 'hover:border-emerald-500/50 hover:shadow-emerald-500/20',
-      roles: ['Administrativo', 'Médico']
+      roles: ['Administrativo', 'Médico', 'Jefe Médico']
     },
     {
       id: 'med-clinicas',
@@ -156,7 +156,7 @@ export default function InicioPage() {
       color: 'text-indigo-400',
       bgGradient: 'from-indigo-500/20 via-indigo-500/5 to-transparent',
       glowColor: 'hover:border-indigo-500/50 hover:shadow-indigo-500/20',
-      roles: ['Administrativo', 'Médico']
+      roles: ['Administrativo', 'Médico', 'Jefe Médico']
     },
 
     // --- Módulo Logística & Transporte ---

@@ -71,7 +71,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         const nameLower = (profData.nombre_completo || '').toLowerCase()
                         if (rolLower.includes('chofer') || rolLower.includes('conductor') || rolLower.includes('operador') || nameLower.includes('(chofer)')) normalizedRol = 'Chofer'
                         else if (rolLower.includes('admin')) normalizedRol = 'Administrativo'
-                        else if (rolLower === 'jefe') normalizedRol = 'Jefe de Departamento'
+                        else if (rolLower.includes('jefe médico') || rolLower.includes('jefe medico')) normalizedRol = 'Jefe Médico'
+                        else if (rolLower.includes('médico') || rolLower.includes('medico')) normalizedRol = 'Médico'
+                        else if (rolLower === 'jefe' || rolLower.includes('jefe de departamento')) normalizedRol = 'Jefe de Departamento'
                         else if (rolLower.includes('superintendente')) normalizedRol = 'Superintendente'
                         
                         setProfile({ ...profData, rol: normalizedRol } as AuthProfile)
@@ -139,19 +141,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (profile.rol !== 'Administrativo') denied = true
         }
 
-        // Médico is restricted to only medical, profile, chat and inicio modules
-        if (profile.rol === 'Médico') {
+        // Médico and Jefe Médico are strictly restricted to medical, profile, chat and inicio modules
+        if (profile.rol === 'Médico' || profile.rol === 'Jefe Médico') {
             const allowedMedicalPaths = [
                 '/inicio', '/mi-perfil', '/chat', '/acerca-de', '/medico', '/consulta-medica'
             ]
-            // If the pathname is not starting with any allowed paths, deny access
             const isAllowed = allowedMedicalPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
-            // If pathname is root / or similar, it redirects normally, but explicitly block HR/Operations paths
-            const forbiddenPaths = [
-                '/dashboard', '/empleados', '/solicitudes', '/autorizaciones', '/campamentos',
-                '/logistica', '/evaluaciones', '/comedor', '/documentos'
-            ]
-            if (forbiddenPaths.some(p => pathname.startsWith(p))) {
+            if (!isAllowed) {
                 denied = true
             }
         }
