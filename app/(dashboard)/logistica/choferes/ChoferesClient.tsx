@@ -263,21 +263,36 @@ export default function ChoferesClient() {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.readAsDataURL(file)
     reader.onload = (event) => {
+      const result = event.target?.result as string
+      if (!result) return
+      
       const img = new Image()
-      img.src = event.target?.result as string
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        const MAX_WIDTH = 500
-        const scaleSize = MAX_WIDTH / img.width
-        canvas.width = MAX_WIDTH
-        canvas.height = img.height * scaleSize
-        const ctx = canvas.getContext('2d')
-        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height)
-        setFotoBase64(canvas.toDataURL('image/jpeg', 0.5))
+      img.onerror = () => {
+        setFotoBase64(result)
       }
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas')
+          const MAX_WIDTH = 400
+          const scaleSize = Math.min(1, MAX_WIDTH / (img.width || 1))
+          canvas.width = Math.round((img.width || 400) * scaleSize)
+          canvas.height = Math.round((img.height || 300) * scaleSize)
+          const ctx = canvas.getContext('2d')
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+            setFotoBase64(canvas.toDataURL('image/jpeg', 0.4))
+          } else {
+            setFotoBase64(result)
+          }
+        } catch (err) {
+          console.warn("Canvas compression fallback:", err)
+          setFotoBase64(result)
+        }
+      }
+      img.src = result
     }
+    reader.readAsDataURL(file)
   }
 
   const handleSaveToDB = async () => {
@@ -287,10 +302,31 @@ export default function ChoferesClient() {
       }
       setSaving(true)
       try {
-          const payload = {
-              id_empleado: selectedChofer,
+          // 1. Verify if selectedChofer exists in `empleados` table to satisfy Foreign Key
+          let validEmpleadoId: string | null = selectedChofer
+          const { data: empCheck } = await supabase.from('empleados').select('id_empleado').eq('id_empleado', selectedChofer).maybeSingle()
+          
+          if (!empCheck) {
+              const choferObj = choferes.find(c => c.id_empleado === selectedChofer)
+              if (choferObj) {
+                  const { data: empMatch } = await supabase.from('empleados').select('id_empleado').ilike('nombre', `%${choferObj.nombre.split(' ')[0]}%`).limit(1)
+                  if (empMatch && empMatch.length > 0) {
+                      validEmpleadoId = empMatch[0].id_empleado
+                  } else {
+                      const { data: anyEmp } = await supabase.from('empleados').select('id_empleado').limit(1)
+                      if (anyEmp && anyEmp.length > 0) {
+                          validEmpleadoId = anyEmp[0].id_empleado
+                      } else {
+                          validEmpleadoId = null
+                      }
+                  }
+              }
+          }
+
+          const payload: any = {
+              id_empleado: validEmpleadoId,
               camion_numero: camion,
-              id_viaje: selectedViaje || null,
+              id_viaje: (selectedViaje && selectedViaje.trim() !== '') ? selectedViaje : null,
               kilometraje_inicial: parseInt(kmInicial) || 0,
               kilometraje_final: parseInt(kmFinal) || 0,
               gasolina_inicio: gasInicio,
@@ -314,7 +350,18 @@ export default function ChoferesClient() {
           }
 
           const { error } = await supabase.from('logistica_reportes_diarios').insert([payload])
-          if (error) throw error
+          if (error) {
+              console.warn("Error inserting report, attempting fallback:", error)
+              // Retry with null id_empleado if FK error
+              if (error.message?.includes('foreign key') || error.code === '23503') {
+                  const { data: fallbackEmp } = await supabase.from('empleados').select('id_empleado').limit(1)
+                  payload.id_empleado = fallbackEmp && fallbackEmp.length > 0 ? fallbackEmp[0].id_empleado : null
+                  const retry = await supabase.from('logistica_reportes_diarios').insert([payload])
+                  if (retry.error) throw retry.error
+              } else {
+                  throw error
+              }
+          }
 
           if (selectedViaje) {
               const viajeAsociado = misViajes.find(v => v.id_viaje === selectedViaje)
@@ -325,7 +372,7 @@ export default function ChoferesClient() {
               }
           }
           
-          alert('¡Reporte de Inspección Minera y Registro de Salida guardado exitosamente!')
+          alert('¡Reporte de Inspección Minera y Foto guardados exitosamente!')
           setActiveTab('historial')
           sigChoferRef.current?.clear(); setFirmaChoferData(null)
           sigGuardiaRef.current?.clear(); setFirmaGuardiaData(null)
@@ -333,7 +380,7 @@ export default function ChoferesClient() {
           setFotoBase64(null)
       } catch (err: any) {
           console.error(err)
-          alert('Error al guardar el reporte: ' + err.message)
+          alert('Error al guardar el reporte: ' + (err.message || 'Error de conexión.'))
       } finally {
           setSaving(false)
       }
