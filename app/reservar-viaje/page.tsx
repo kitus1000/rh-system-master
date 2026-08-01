@@ -45,6 +45,7 @@ export default function ReservarViajePublico() {
 
     // Boarding Pass Data
     const [passData, setPassData] = useState<any>(null)
+    const [dateAvailability, setDateAvailability] = useState<{ checked: boolean; available: boolean; message: string } | null>(null)
 
     useEffect(() => {
         const phone = localStorage.getItem('rh_viaje_celular')
@@ -55,6 +56,68 @@ export default function ReservarViajePublico() {
             setSavedPhone(true)
         }
     }, [])
+
+    useEffect(() => {
+        if (mode !== 'request' || !requestForm.fecha_sugerida || !requestForm.tipo_vehiculo) {
+            setDateAvailability(null)
+            return
+        }
+
+        let isMounted = true
+        const checkAvailability = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('transporte_personal_viajes')
+                    .select('id_viaje, tipo_vehiculo, nombre_ruta, fecha, estado')
+                    .eq('fecha', requestForm.fecha_sugerida)
+                    .neq('estado', 'Cancelado')
+
+                if (!isMounted) return
+
+                if (error || !data) {
+                    setDateAvailability(null)
+                    return
+                }
+
+                const matchingTrips = data.filter(t => (t.tipo_vehiculo || '').toLowerCase() === requestForm.tipo_vehiculo.toLowerCase())
+                const dateParts = requestForm.fecha_sugerida.split('-')
+                const formattedDate = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`
+
+                if (data.length === 0) {
+                    setDateAvailability({
+                        checked: true,
+                        available: false,
+                        message: requestForm.tipo_vehiculo === 'Avioneta'
+                            ? `⚠️ No hay vuelos de avioneta ni viajes programados para el ${formattedDate}.`
+                            : `⚠️ No hay viajes de ${requestForm.tipo_vehiculo} programados para el ${formattedDate}.`
+                    })
+                } else if (matchingTrips.length === 0) {
+                    setDateAvailability({
+                        checked: true,
+                        available: false,
+                        message: requestForm.tipo_vehiculo === 'Avioneta'
+                            ? `⚠️ No hay vuelos de avioneta programados para el ${formattedDate} (existen otros transportes terrestres ese día).`
+                            : `⚠️ No hay viajes de ${requestForm.tipo_vehiculo} programados para el ${formattedDate}.`
+                    })
+                } else {
+                    const tripNames = matchingTrips.map(t => t.nombre_ruta).join(', ')
+                    setDateAvailability({
+                        checked: true,
+                        available: true,
+                        message: `🟢 ${matchingTrips.length} viaje(s) de ${requestForm.tipo_vehiculo} programado(s) para esta fecha (${tripNames}).`
+                    })
+                }
+            } catch (e) {
+                if (isMounted) setDateAvailability(null)
+            }
+        }
+
+        const timer = setTimeout(checkAvailability, 300)
+        return () => {
+            isMounted = false
+            clearTimeout(timer)
+        }
+    }, [requestForm.fecha_sugerida, requestForm.tipo_vehiculo, mode])
 
     const handlePhoneChange = (value: string, formSetter: any) => {
         formSetter((prev: any) => ({ ...prev, celular_whatsapp: value }))
@@ -80,6 +143,41 @@ export default function ReservarViajePublico() {
         setSuccessMsg('')
 
         try {
+            // Re-verify if a scheduled trip exists for this date & vehicle type
+            const { data: scheduledTrips, error: checkError } = await supabase
+                .from('transporte_personal_viajes')
+                .select('id_viaje, tipo_vehiculo, fecha, estado')
+                .eq('fecha', requestForm.fecha_sugerida)
+                .neq('estado', 'Cancelado')
+
+            if (checkError) {
+                console.error(checkError)
+            } else {
+                const dateParts = requestForm.fecha_sugerida.split('-')
+                const formattedDate = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`
+                const matchingTrips = (scheduledTrips || []).filter(
+                    t => (t.tipo_vehiculo || '').toLowerCase() === requestForm.tipo_vehiculo.toLowerCase()
+                )
+
+                if (!scheduledTrips || scheduledTrips.length === 0) {
+                    const msg = requestForm.tipo_vehiculo === 'Avioneta'
+                        ? `No hay vuelos programados para la fecha seleccionada (${formattedDate}). Por favor elige otra fecha o consulta con Administración/RH.`
+                        : `No hay viajes de ${requestForm.tipo_vehiculo} programados para la fecha seleccionada (${formattedDate}). Por favor selecciona otra fecha.`
+                    setErrorMsg(msg)
+                    setLoading(false)
+                    return
+                }
+
+                if (matchingTrips.length === 0) {
+                    const msg = requestForm.tipo_vehiculo === 'Avioneta'
+                        ? `No hay vuelos de avioneta programados para la fecha seleccionada (${formattedDate}). Por favor elige otra fecha.`
+                        : `No hay viajes de ${requestForm.tipo_vehiculo} programados para la fecha seleccionada (${formattedDate}). Por favor selecciona otra fecha.`
+                    setErrorMsg(msg)
+                    setLoading(false)
+                    return
+                }
+            }
+
             // Clean phone number
             const cleanPhone = requestForm.celular_whatsapp.replace(/\D/g, '')
 
@@ -474,6 +572,16 @@ export default function ReservarViajePublico() {
                                         />
                                     </div>
                                 </div>
+
+                                {dateAvailability && (
+                                    <div className={`p-3 rounded-xl border text-[11px] font-bold transition-all leading-relaxed ${
+                                        dateAvailability.available 
+                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
+                                            : 'bg-rose-500/10 border-rose-500/30 text-rose-400 animate-pulse'
+                                    }`}>
+                                        {dateAvailability.message}
+                                    </div>
+                                )}
 
                                 {errorMsg && (
                                     <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] p-2.5 rounded-lg text-center font-bold">
