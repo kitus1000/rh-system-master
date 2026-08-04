@@ -195,8 +195,8 @@ export default function CampamentosPage() {
     const roomSpacingX = 8.5
     const roomSpacingZ = 8.5
 
-    const roomObjects: THREE.Object3D[] = []
-    const bedObjectsMap = new Map<THREE.Object3D, { room: Cuarto, bed: Cama }>()
+    const roomObjects: any[] = []
+    const bedObjectsMap = new Map<any, { room: Cuarto, bed: Cama }>()
 
     rooms.forEach((cuarto, idx) => {
       const row = Math.floor(idx / roomsPerRow)
@@ -375,7 +375,7 @@ export default function CampamentosPage() {
 
       if (intersects.length > 0) {
         for (const intersect of intersects) {
-          let current: THREE.Object3D | null = intersect.object
+          let current: any = intersect.object
           while (current) {
             if (bedObjectsMap.has(current)) {
               const matched = bedObjectsMap.get(current)!
