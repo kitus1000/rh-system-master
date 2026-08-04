@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Heart, Plus, Search, Users, Trash2, UserCheck, UserPlus, Building2, Briefcase, AlertTriangle, ShieldX, CheckCircle, FileText, X } from 'lucide-react'
+import { Heart, Plus, Search, Users, Trash2, UserCheck, UserPlus, Building2, Briefcase, AlertTriangle, ShieldX, CheckCircle, FileText, X, Sparkles } from 'lucide-react'
+import Link from 'next/link'
 
 export default function PacientesPage() {
     const [activeTab, setActiveTab] = useState<'trabajadores' | 'beneficiarios'>('trabajadores')
@@ -257,7 +258,15 @@ export default function PacientesPage() {
                     </p>
                 </div>
 
-                <div className="flex items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2.5">
+                    <Link
+                        href="/empleados/duplicados"
+                        className="bg-amber-100 border border-amber-300 text-amber-950 px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-2 hover:bg-amber-200 transition-all shadow-xs"
+                    >
+                        <Sparkles className="w-4 h-4 text-amber-700" />
+                        🧹 Depurar Duplicados
+                    </Link>
+
                     <button
                         onClick={() => {
                             setShowForm(false)
