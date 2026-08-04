@@ -3,7 +3,11 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { useAuth } from '@/components/AuthProvider'
-import { Hospital, Building2, Search, Heart, ShieldAlert, Users, ClipboardList, FolderLock, Eye, Calendar, PlusCircle, Clock, Hotel, Stethoscope } from 'lucide-react'
+import { 
+    Hospital, Building2, Search, Heart, ShieldAlert, Users, ClipboardList, 
+    FolderLock, Eye, Calendar, PlusCircle, Clock, Hotel, Stethoscope, Shield,
+    UserCheck, AlertTriangle, FileText, CheckCircle2, RefreshCw
+} from 'lucide-react'
 
 export default function ConsultaMedicaPortal() {
     const { profile } = useAuth()
@@ -11,9 +15,12 @@ export default function ConsultaMedicaPortal() {
     const [selectedDept, setSelectedDept] = useState('')
     const [pases, setPases] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
-    const [viewMode, setViewMode] = useState<'compartido' | 'solo_medicos' | 'todos'>('todos')
     
-    // Date Range Filter State
+    // Main Tab State: 'departamento' (Operativo), 'clinico' (Médico Privado), 'hotel' (Hospedaje)
+    const [activeTab, setActiveTab] = useState<'departamento' | 'clinico' | 'hotel'>('departamento')
+    
+    // Search & Date Range Filters
+    const [searchTerm, setSearchTerm] = useState('')
     const [fechaDesde, setFechaDesde] = useState('')
     const [fechaHasta, setFechaHasta] = useState('')
 
@@ -22,11 +29,21 @@ export default function ConsultaMedicaPortal() {
     const [expedienteConsultas, setExpedienteConsultas] = useState<any[]>([])
     const [loadingExpediente, setLoadingExpediente] = useState(false)
 
-    // Pass Extension Modal State
+    // Pass Extension Modal State (+ Días de Reposo)
     const [extendingPase, setExtendingPase] = useState<any | null>(null)
     const [nuevaFechaRetorno, setNuevaFechaRetorno] = useState('')
     const [motivoExtension, setMotivoExtension] = useState('')
     const [savingExtension, setSavingExtension] = useState(false)
+
+    // Clean role evaluation
+    const rolClean = (profile?.rol || '').toUpperCase()
+    const isDoctorOrAdmin = rolClean.includes('MÉDICO') || 
+                            rolClean.includes('MEDICO') ||
+                            rolClean.includes('JEFE MÉDICO') ||
+                            rolClean.includes('ADMINISTRADOR') || 
+                            rolClean.includes('ADMINISTRATIVO') || 
+                            rolClean.includes('RECURSOS HUMANOS') ||
+                            (profile?.nombre_completo || '').toUpperCase().includes('RECURSOS')
 
     // Helper to determine exact classification: Pase Médico vs Acompañante Médico
     const getClasificacionPase = (p: any) => {
@@ -34,7 +51,6 @@ export default function ConsultaMedicaPortal() {
         const acompananteText = (p.acompanante || '').toUpperCase().trim()
         const isWorker = !parentesco || parentesco === 'TITULAR' || parentesco === 'ELLA MISMA' || parentesco === 'EL MISMO' || parentesco === 'MISMO TRABAJADOR' || parentesco === 'TRABAJADOR'
         
-        // If employee is explicitly accompanying a family member or registered as accompanying person
         const isAcompanante = p.es_acompanante || 
             (acompananteText && acompananteText !== 'NO' && acompananteText !== 'NO REQUIERE' && !acompananteText.includes('ELLA MISMA') && !acompananteText.includes('EL MISMO')) ||
             (!isWorker && parentesco)
@@ -53,6 +69,16 @@ export default function ConsultaMedicaPortal() {
             tipo: 'Pase Médico',
             badgeClass: 'bg-emerald-100 text-emerald-900 border-emerald-300 font-bold',
             desc: 'Trabajador Titular (Paciente Principal)'
+        }
+    }
+
+    // Helper to detect if reposo was extended by doctor
+    const getExtensionStatus = (p: any) => {
+        const comentarios = p.comentarios || ''
+        const hasExtension = comentarios.includes('[AMPLIACIÓN DÍAS') || comentarios.includes('AMPLIACIÓN DÍAS') || comentarios.includes('Ampliación')
+        return {
+            hasExtension,
+            badge: hasExtension ? 'bg-blue-100 text-blue-900 border-blue-300 font-bold' : null
         }
     }
 
@@ -125,21 +151,10 @@ export default function ConsultaMedicaPortal() {
         }
     }
 
-    // Doctor, HR, Jefe Médico or Admin have full access
-    const rolClean = (profile?.rol || '').toUpperCase()
-    const isDoctorOrAdmin = rolClean.includes('MÉDICO') || 
-                            rolClean.includes('MEDICO') ||
-                            rolClean.includes('JEFE MÉDICO') ||
-                            rolClean.includes('ADMINISTRADOR') || 
-                            rolClean.includes('ADMINISTRATIVO') || 
-                            rolClean.includes('RECURSOS HUMANOS') ||
-                            (profile?.nombre_completo || '').toUpperCase().includes('RECURSOS')
-
     useEffect(() => {
         fetchDepartamentos()
         fetchPases()
 
-        // Fallback safety timer to guarantee loading screen never gets stuck infinitely
         const timer = setTimeout(() => {
             setLoading(false)
         }, 3000)
@@ -148,7 +163,7 @@ export default function ConsultaMedicaPortal() {
 
     useEffect(() => {
         fetchPases()
-    }, [selectedDept, profile, viewMode, fechaDesde, fechaHasta])
+    }, [selectedDept, profile, activeTab, fechaDesde, fechaHasta])
 
     const fetchDepartamentos = async () => {
         const { data } = await supabase
@@ -157,8 +172,6 @@ export default function ConsultaMedicaPortal() {
             .order('departamento')
         if (data) {
             setDepartamentos(data)
-            
-            // Set initial selected department based on user profile if not admin
             if (!isDoctorOrAdmin && profile?.id_departamento) {
                 setSelectedDept(profile.id_departamento)
             }
@@ -170,7 +183,6 @@ export default function ConsultaMedicaPortal() {
         try {
             let activeDeptId = selectedDept
             
-            // Lock to profile department if not doctor/admin/HR
             let allowedDepts: string[] = []
             if (!isDoctorOrAdmin) {
                 if (profile?.departamentos_autorizados && profile.departamentos_autorizados.length > 0) {
@@ -179,14 +191,10 @@ export default function ConsultaMedicaPortal() {
                     allowedDepts = [profile.id_departamento]
                 }
                 
-                // If they picked a specific dept in UI, ensure it's in their allowed list
-                if (activeDeptId) {
-                    if (!allowedDepts.includes(activeDeptId)) {
-                        // Trying to see a dept they don't have access to
-                        setPases([])
-                        setLoading(false)
-                        return
-                    }
+                if (activeDeptId && !allowedDepts.includes(activeDeptId)) {
+                    setPases([])
+                    setLoading(false)
+                    return
                 }
             }
 
@@ -204,7 +212,7 @@ export default function ConsultaMedicaPortal() {
             let { data, error } = await query
             
             if (error) {
-                console.warn('Primary query failed in consulta-medica, trying fallback query:', error)
+                console.warn('Primary query fallback triggered:', error)
                 const fallbackQuery = await supabase
                     .from('pases_medicos')
                     .select(`
@@ -219,9 +227,7 @@ export default function ConsultaMedicaPortal() {
 
             let filteredPases = data || []
 
-            // Date filtering in JS so null fecha_salida records check creado_el/fecha_salida_unidad
-            console.log('Total pases fetched from DB:', filteredPases.length)
-            
+            // Filter by date range
             if (fechaDesde) {
                 filteredPases = filteredPases.filter(p => {
                     const f = p.fecha_salida || p.fecha_salida_unidad || (p.creado_el ? p.creado_el.split('T')[0] : null)
@@ -234,15 +240,13 @@ export default function ConsultaMedicaPortal() {
                     return !f || f <= fechaHasta
                 })
             }
-            console.log('After date filter:', filteredPases.length)
 
-            // Client-side role and department filtering for 100% accuracy
+            // Client-side role and department filtering
             if (!isDoctorOrAdmin) {
-                console.log('User is NOT doctor/admin. activeDeptId:', activeDeptId, 'allowedDepts:', allowedDepts)
                 if (activeDeptId) {
                     filteredPases = filteredPases.filter(p => {
                         const empDeptName = p.empleados?.departamento
-                        if (!empDeptName || empDeptName === 'Sin Asignar') return true // Keep passes without explicit employee department visible
+                        if (!empDeptName || empDeptName === 'Sin Asignar') return true
                         const matchedDept = departamentos.find(d => d.departamento?.toLowerCase().trim() === empDeptName.toLowerCase().trim())
                         const empDeptId = matchedDept?.id_departamento
                         if (!empDeptId) return true
@@ -251,7 +255,7 @@ export default function ConsultaMedicaPortal() {
                 } else if (allowedDepts.length > 0) {
                     filteredPases = filteredPases.filter(p => {
                         const empDeptName = p.empleados?.departamento
-                        if (!empDeptName || empDeptName === 'Sin Asignar') return true // Keep passes without explicit employee department visible
+                        if (!empDeptName || empDeptName === 'Sin Asignar') return true
                         const matchedDept = departamentos.find(d => d.departamento?.toLowerCase().trim() === empDeptName.toLowerCase().trim())
                         const empDeptId = matchedDept?.id_departamento
                         if (!empDeptId) return true
@@ -259,24 +263,18 @@ export default function ConsultaMedicaPortal() {
                     })
                 }
             } else {
-                console.log('User is doctor/admin. activeDeptId:', activeDeptId, 'viewMode:', viewMode)
                 if (activeDeptId) {
                     filteredPases = filteredPases.filter(p => {
                         const empDeptName = p.empleados?.departamento
-                        if (!empDeptName || empDeptName === 'Sin Asignar') return true // Keep passes without explicit employee department visible
+                        if (!empDeptName || empDeptName === 'Sin Asignar') return true
                         const matchedDept = departamentos.find(d => d.departamento?.toLowerCase().trim() === empDeptName.toLowerCase().trim())
                         const empDeptId = matchedDept?.id_departamento
                         if (!empDeptId) return true
                         return empDeptId === activeDeptId
                     })
                 }
-                if (viewMode === 'compartido') {
-                    filteredPases = filteredPases.filter(p => p.compartido_departamentos === true)
-                } else if (viewMode === 'solo_medicos') {
-                    filteredPases = filteredPases.filter(p => !p.compartido_departamentos)
-                }
             }
-            console.log('Final pases set to state:', filteredPases.length)
+
             setPases(filteredPases)
         } catch (error) {
             console.error('Error fetching clinic pases:', error)
@@ -304,7 +302,7 @@ export default function ConsultaMedicaPortal() {
 
             if (error) throw error
 
-            alert('Vigencia ampliada con éxito.')
+            alert('Vigencia ampliada con éxito. Los departamentos verán la nueva fecha de regreso.')
             setExtendingPase(null)
             setNuevaFechaRetorno('')
             setMotivoExtension('')
@@ -316,465 +314,457 @@ export default function ConsultaMedicaPortal() {
         }
     }
 
+    // Filtered pases based on active Tab & Search
+    const searchFilteredPases = pases.filter(p => {
+        const name = (p.pacientes?.nombre_completo || p.nombre_trabajador || (p.empleados ? `${p.empleados.nombre || ''} ${p.empleados.apellido_paterno || ''}` : '')).toLowerCase()
+        const folio = (p.folio || p.id_pase || '').toLowerCase()
+        const matchesSearch = !searchTerm || name.includes(searchTerm.toLowerCase()) || folio.includes(searchTerm.toLowerCase())
+        
+        if (activeTab === 'hotel') {
+            const tieneHotel = Boolean(p.requiere_hotel || p.hotel_nombre)
+            return matchesSearch && tieneHotel
+        }
+        return matchesSearch
+    })
+
     if (loading) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[420px] space-y-6 bg-white border border-zinc-150 rounded-3xl p-12 shadow-sm relative overflow-hidden">
-                {/* Background grid */}
-                <div className="absolute inset-0 z-0 opacity-[0.02] pointer-events-none bg-[linear-gradient(to_right,#808080_1px,transparent_1px),linear-gradient(to_bottom,#808080_1px,transparent_1px)] bg-[size:16px_16px]" />
-                
-                {/* Animated pulse rings */}
+            <div className="flex flex-col items-center justify-center min-h-[420px] space-y-6 bg-white border border-zinc-200 rounded-3xl p-12 shadow-sm relative overflow-hidden">
                 <div className="relative flex items-center justify-center">
                     <div className="absolute w-20 h-20 bg-emerald-500/10 rounded-full animate-ping" />
-                    <div className="absolute w-14 h-14 bg-emerald-500/20 rounded-full animate-pulse" />
-                    
                     <div className="relative w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/30">
                         <svg className="w-6 h-6 text-white animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                             <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
                         </svg>
                     </div>
                 </div>
-
                 <div className="text-center space-y-2 relative z-10">
                     <h3 className="text-xs font-black text-emerald-600 uppercase tracking-[0.2em] animate-pulse">SISTEMA MÉDICO INDUSTRIAL</h3>
-                    <p className="text-sm font-black text-zinc-800 uppercase tracking-wide">Obteniendo incidencias de pases autorizados...</p>
-                    <p className="text-[10px] text-zinc-400 font-mono">ENLACE SEGURO CON LA CLÍNICA EL HERRERO</p>
+                    <p className="text-sm font-black text-zinc-800 uppercase tracking-wide">Cargando ausencias médicas y pases vigentes...</p>
+                    <p className="text-[10px] text-zinc-400 font-mono">UNIDAD MINERA BACIS — EL HERRERO</p>
                 </div>
-
-                {/* ECG Heartbeat SVG path */}
-                <div className="w-48 h-6 relative overflow-hidden">
-                    <svg className="w-full h-full stroke-emerald-500 stroke-[3] fill-none" viewBox="0 0 100 20">
-                        <path d="M0,10 L30,10 L35,5 L40,15 L45,10 L50,10 L53,2 L57,18 L61,10 L65,10 L100,10" 
-                              strokeDasharray="100" 
-                              strokeDashoffset="100" 
-                              className="animate-[ecg_1.8s_linear_infinite]" 
-                        />
-                    </svg>
-                </div>
-
-                <style>{`
-                    @keyframes ecg {
-                        0% { stroke-dashoffset: 100; }
-                        50% { stroke-dashoffset: 0; }
-                        100% { stroke-dashoffset: -100; }
-                    }
-                `}</style>
             </div>
         )
     }
 
     return (
-        <div className="space-y-6 relative overflow-hidden">
-            {/* Background ECG Heartbeat Line Watermark */}
-            <div className="absolute top-0 right-0 w-80 h-32 opacity-[0.02] text-emerald-600 pointer-events-none z-0">
-                <svg className="w-full h-full stroke-current stroke-1 fill-none" viewBox="0 0 100 20">
-                    <path d="M0,10 L30,10 L35,5 L40,15 L45,10 L50,10 L53,2 L57,18 L61,10 L65,10 L100,10" />
-                </svg>
+        <div className="space-y-6 relative overflow-hidden font-sans">
+            {/* Header Principal */}
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-zinc-200 relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-amber-500" />
+                <div className="flex items-center gap-4 relative z-10">
+                    <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center border border-emerald-100">
+                        <Hospital className="w-6 h-6 text-emerald-600" />
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-black text-zinc-800 uppercase tracking-tight flex items-center gap-2">
+                            Portal de Ausencias Médicas
+                            <span className="text-[9px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full uppercase tracking-wider">Unidad Bacis</span>
+                        </h1>
+                        <p className="text-zinc-500 text-xs mt-0.5">Control operativo de personal incapacitado, vigencia de retornos y hospedaje en Durango</p>
+                    </div>
+                </div>
+
+                {!isDoctorOrAdmin && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-900 px-3 py-1.5 rounded-2xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                        <ShieldAlert className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                        <span>🔒 Privacidad Activa: Información diagnóstica protegida para Jefes de Área</span>
+                    </div>
+                )}
             </div>
 
-            {/* Header */}
-            {isDoctorOrAdmin ? (
-                <div className="flex justify-between items-center bg-white p-6 rounded-3xl shadow-sm border border-zinc-150 relative overflow-hidden group">
-                    <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
-                    <div className="flex items-center gap-4 relative z-10">
-                        <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center border border-emerald-100 group-hover:scale-105 transition-transform duration-300">
-                            <Hospital className="w-6 h-6 text-emerald-600" />
-                        </div>
-                        <div>
-                            <h1 className="text-xl font-black text-zinc-800 uppercase tracking-tight flex items-center gap-2">
-                                Portal Clínico
-                                <span className="text-[9px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full uppercase tracking-wider">RH & Clínicas</span>
-                            </h1>
-                            <p className="text-zinc-500 text-xs mt-0.5">Consulta de incidencias médicas autorizadas y registro diario de pases</p>
-                        </div>
-                    </div>
+            {/* KPI Summary Counters */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-xs">
+                    <div className="text-2xl font-black text-zinc-900">{pases.length}</div>
+                    <div className="text-[10px] font-bold text-zinc-500 uppercase mt-0.5">Total Ausencias</div>
                 </div>
-            ) : (
-                <div className="flex justify-between items-center bg-white p-6 rounded-3xl shadow-sm border border-zinc-150 relative overflow-hidden group">
-                    <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-zinc-500 via-zinc-400 to-zinc-300" />
-                    <div className="flex items-center gap-4 relative z-10">
-                        <div className="w-12 h-12 bg-zinc-50 rounded-2xl flex items-center justify-center border border-zinc-200 group-hover:scale-105 transition-transform duration-300">
-                            <ShieldAlert className="w-6 h-6 text-zinc-600" />
-                        </div>
-                        <div>
-                            <h1 className="text-xl font-black text-zinc-800 uppercase tracking-tight flex items-center gap-2">
-                                Portal de Ausencias Médicas
-                            </h1>
-                            <p className="text-zinc-500 text-xs mt-0.5">Estado del personal con pases o consultas médicas activos</p>
-                            <span className="inline-block mt-2 text-[10px] font-black bg-rose-50 text-rose-800 border border-rose-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                                🔒 Información confidencial — Solo motivo general de ausencia visible para jefes
-                            </span>
-                        </div>
+                <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 shadow-xs">
+                    <div className="text-2xl font-black text-emerald-900">
+                        {pases.filter(p => !p.pacientes?.parentesco || p.pacientes?.parentesco.toUpperCase() === 'TITULAR' || p.pacientes?.parentesco.toUpperCase() === 'ELLA MISMA').length}
                     </div>
+                    <div className="text-[10px] font-bold text-emerald-700 uppercase mt-0.5">Trabajadores Titulares</div>
                 </div>
-            )}
-
-            {/* KPI Counters & Date Filters */}
-            {!isDoctorOrAdmin && (
-                <div className="space-y-4">
-                    <div className="flex flex-row gap-4">
-                        <div className="flex-1 flex flex-col bg-zinc-50 border border-zinc-200 rounded-2xl p-4 shadow-sm">
-                            <span className="text-3xl font-black text-zinc-800">{pases.length}</span>
-                            <span className="text-xs font-bold text-zinc-500 uppercase mt-1">Total de ausencias</span>
-                        </div>
-                        <div className="flex-1 flex flex-col bg-amber-50 border border-amber-200 rounded-2xl p-4 shadow-sm">
-                            <span className="text-3xl font-black text-amber-800">
-                                {pases.filter(p => !p.pacientes?.parentesco || p.pacientes?.parentesco.toUpperCase() === 'TITULAR' || p.pacientes?.parentesco.toUpperCase() === 'ELLA MISMA').length}
-                            </span>
-                            <span className="text-xs font-bold text-amber-600 uppercase mt-1">Trabajadores</span>
-                        </div>
-                        <div className="flex-1 flex flex-col bg-rose-50 border border-rose-200 rounded-2xl p-4 shadow-sm">
-                            <span className="text-3xl font-black text-rose-800">
-                                {pases.filter(p => p.pacientes?.parentesco && p.pacientes?.parentesco.toUpperCase() !== 'TITULAR' && p.pacientes?.parentesco.toUpperCase() !== 'ELLA MISMA').length}
-                            </span>
-                            <span className="text-xs font-bold text-rose-600 uppercase mt-1">Familiares</span>
-                        </div>
+                <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 shadow-xs">
+                    <div className="text-2xl font-black text-amber-900">
+                        {pases.filter(p => p.pacientes?.parentesco && p.pacientes?.parentesco.toUpperCase() !== 'TITULAR' && p.pacientes?.parentesco.toUpperCase() !== 'ELLA MISMA').length}
                     </div>
-
-                    {/* Date filter bar for Jefes */}
-                    <div className="bg-white border border-zinc-200 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 shadow-sm">
-                        <div className="flex items-center gap-2">
-                            <Calendar className="w-4 h-4 text-emerald-600" />
-                            <span className="text-xs font-black text-zinc-700 uppercase tracking-wider">Filtrar por Rango de Fechas:</span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-3">
-                            <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-bold text-zinc-400 uppercase">Desde:</span>
-                                <input 
-                                    type="date" 
-                                    value={fechaDesde} 
-                                    onChange={e => setFechaDesde(e.target.value)} 
-                                    className="bg-zinc-50 border border-zinc-200 text-xs font-bold rounded-xl px-3 py-1.5 focus:ring-emerald-500 text-zinc-700"
-                                />
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-bold text-zinc-400 uppercase">Hasta:</span>
-                                <input 
-                                    type="date" 
-                                    value={fechaHasta} 
-                                    onChange={e => setFechaHasta(e.target.value)} 
-                                    className="bg-zinc-50 border border-zinc-200 text-xs font-bold rounded-xl px-3 py-1.5 focus:ring-emerald-500 text-zinc-700"
-                                />
-                            </div>
-                            {(fechaDesde || fechaHasta) && (
-                                <button 
-                                    onClick={() => { setFechaDesde(''); setFechaHasta(''); }} 
-                                    className="text-[10px] font-black text-rose-600 hover:text-rose-800 underline uppercase"
-                                >
-                                    Limpiar Fechas
-                                </button>
-                            )}
-                        </div>
-                    </div>
+                    <div className="text-[10px] font-bold text-amber-700 uppercase mt-0.5">Acompañantes Autorizados</div>
                 </div>
-            )}
+                <div className="bg-purple-50/80 border border-purple-200 rounded-2xl p-4 shadow-xs">
+                    <div className="text-2xl font-black text-purple-900">
+                        {pases.filter(p => Boolean(p.requiere_hotel || p.hotel_nombre)).length}
+                    </div>
+                    <div className="text-[10px] font-bold text-purple-700 uppercase mt-0.5">Pases de Hotel Activos</div>
+                </div>
+            </div>
 
-            {/* Filter bar */}
-            {isDoctorOrAdmin ? (
-                <div className="bg-white border border-zinc-150 p-5 rounded-3xl flex flex-wrap justify-between gap-4 items-center shadow-sm relative overflow-hidden">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500" />
-                    
-                    <div className="flex flex-wrap items-center gap-3">
-                        <div className="flex items-center gap-2">
-                            <Users className="w-4 h-4 text-emerald-600" />
-                            <span className="text-xs font-black text-zinc-700 uppercase tracking-wider">Departamento:</span>
-                        </div>
+            {/* Navigation Tabs (3 Functional Tabs) */}
+            <div className="flex flex-wrap gap-2 p-1.5 bg-zinc-100 rounded-2xl border border-zinc-200">
+                <button
+                    onClick={() => setActiveTab('departamento')}
+                    className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${
+                        activeTab === 'departamento'
+                            ? 'bg-white text-zinc-900 shadow-sm border border-zinc-200'
+                            : 'text-zinc-500 hover:text-black'
+                    }`}
+                >
+                    <Building2 className="w-4 h-4 text-emerald-600" />
+                    <span>🏢 Ausencias por Departamento</span>
+                </button>
+
+                {isDoctorOrAdmin && (
+                    <button
+                        onClick={() => setActiveTab('clinico')}
+                        className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${
+                            activeTab === 'clinico'
+                                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
+                                : 'text-zinc-500 hover:text-black'
+                        }`}
+                    >
+                        <Stethoscope className="w-4 h-4" />
+                        <span>🛡️ Expediente Clínico & Privacidad</span>
+                    </button>
+                )}
+
+                <button
+                    onClick={() => setActiveTab('hotel')}
+                    className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${
+                        activeTab === 'hotel'
+                            ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
+                            : 'text-zinc-500 hover:text-black'
+                    }`}
+                >
+                    <Hotel className="w-4 h-4" />
+                    <span>🏨 Hospedaje & Traslados en Durango</span>
+                </button>
+            </div>
+
+            {/* Filters Bar: Search, Department, Dates */}
+            <div className="bg-white border border-zinc-200 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 shadow-xs">
+                <div className="flex flex-wrap items-center gap-3 flex-1">
+                    {/* Search */}
+                    <div className="relative min-w-[220px]">
+                        <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
+                        <input
+                            type="text"
+                            placeholder="Buscar trabajador o folio..."
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                            className="w-full pl-9 pr-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800 placeholder-zinc-400 focus:outline-none focus:border-emerald-500"
+                        />
+                    </div>
+
+                    {/* Department Dropdown */}
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black text-zinc-400 uppercase">Depto:</span>
                         <select
                             value={selectedDept}
                             onChange={e => setSelectedDept(e.target.value)}
-                            className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-black focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-zinc-700 min-w-[200px]"
+                            disabled={!isDoctorOrAdmin && Boolean(profile?.id_departamento)}
+                            className="bg-zinc-50 border border-zinc-200 text-xs font-bold rounded-xl px-3 py-1.5 text-zinc-800 focus:outline-none focus:border-emerald-500"
                         >
                             <option value="">TODOS LOS DEPARTAMENTOS</option>
                             {departamentos.map(d => (
                                 <option key={d.id_departamento} value={d.id_departamento}>{(d.departamento || '').toUpperCase()}</option>
                             ))}
                         </select>
-
-                        {/* Date filters inside Admin filter bar */}
-                        <div className="flex items-center gap-2 pl-4 border-l border-zinc-200">
-                            <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                            <input 
-                                type="date" 
-                                value={fechaDesde} 
-                                onChange={e => setFechaDesde(e.target.value)} 
-                                className="bg-zinc-50 border border-zinc-200 text-[10px] font-bold rounded-lg px-2.5 py-1 text-zinc-700" 
-                            />
-                            <span className="text-[10px] text-zinc-400 font-bold">a</span>
-                            <input 
-                                type="date" 
-                                value={fechaHasta} 
-                                onChange={e => setFechaHasta(e.target.value)} 
-                                className="bg-zinc-50 border border-zinc-200 text-[10px] font-bold rounded-lg px-2.5 py-1 text-zinc-700" 
-                            />
-                        </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-1.5 bg-zinc-100 p-1.5 rounded-2xl border border-zinc-200/80">
-                        <span className="text-[9px] font-black text-zinc-500 uppercase px-2 flex items-center gap-1">
-                            <Eye className="w-3 h-3 text-emerald-600" /> Vista:
-                        </span>
-                        <button
-                            type="button"
-                            onClick={() => setViewMode('compartido')}
-                            className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${
-                                viewMode === 'compartido'
-                                    ? 'bg-white text-emerald-800 shadow-sm border border-emerald-200'
-                                    : 'text-zinc-600 hover:text-black hover:bg-zinc-200/50'
-                            }`}
-                        >
-                            <span>🏢 Compartidos con Depto</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setViewMode('solo_medicos')}
-                            className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${
-                                viewMode === 'solo_medicos'
-                                    ? 'bg-purple-600 text-white shadow-sm shadow-purple-500/20'
-                                    : 'text-zinc-600 hover:text-black hover:bg-zinc-200/50'
-                            }`}
-                        >
-                            <FolderLock className="w-3 h-3" />
-                            <span>🛡️ Privados (Sólo Médicos)</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setViewMode('todos')}
-                            className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all ${
-                                viewMode === 'todos'
-                                    ? 'bg-zinc-900 text-white shadow-sm'
-                                    : 'text-zinc-600 hover:text-black hover:bg-zinc-200/50'
-                            }`}
-                        >
-                            <span>📋 Ver Todo el Expediente</span>
-                        </button>
+                    {/* Date Filters */}
+                    <div className="flex items-center gap-2">
+                        <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                        <input
+                            type="date"
+                            value={fechaDesde}
+                            onChange={e => setFechaDesde(e.target.value)}
+                            className="bg-zinc-50 border border-zinc-200 text-[10px] font-bold rounded-xl px-2.5 py-1 text-zinc-700"
+                        />
+                        <span className="text-[10px] text-zinc-400 font-bold">a</span>
+                        <input
+                            type="date"
+                            value={fechaHasta}
+                            onChange={e => setFechaHasta(e.target.value)}
+                            className="bg-zinc-50 border border-zinc-200 text-[10px] font-bold rounded-xl px-2.5 py-1 text-zinc-700"
+                        />
+                        {(fechaDesde || fechaHasta) && (
+                            <button onClick={() => { setFechaDesde(''); setFechaHasta(''); }} className="text-[10px] font-black text-rose-600 hover:underline">Limpiar</button>
+                        )}
                     </div>
                 </div>
-            ) : (
-                profile?.id_departamento && (
-                    <div className="bg-emerald-50/50 border border-emerald-100/80 p-4.5 rounded-3xl text-xs font-semibold text-emerald-800 flex items-center gap-3 shadow-sm relative overflow-hidden">
-                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500" />
-                        <Building2 className="w-4.5 h-4.5 text-emerald-600" />
-                        <span>Incidencias vigentes de su departamento: <strong className="text-emerald-950 font-black">{departamentos.find(d => d.id_departamento === profile.id_departamento)?.departamento || 'Cargando...'}</strong></span>
-                    </div>
-                )
-            )}
 
-            {/* Table */}
-            {isDoctorOrAdmin ? (
-            <div className="bg-white border border-zinc-150 rounded-3xl overflow-hidden shadow-sm">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                        <thead>
-                            <tr className="border-b border-zinc-150 bg-zinc-50/50 text-[10px] font-black text-zinc-400 uppercase tracking-wider">
-                                <th className="px-6 py-4">Beneficiario / Paciente</th>
-                                <th className="px-6 py-4">Departamento / Área</th>
-                                <th className="px-6 py-4">Clasificación</th>
-                                <th className="px-6 py-4">Ruta Clínica</th>
-                                <th className="px-6 py-4">Vigencia</th>
-                                <th className="px-6 py-4">Estatus y Privacidad</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-150 text-sm">
-                            {pases.length === 0 ? (
-                                <tr>
-                                    <td colSpan={6} className="px-6 py-12 text-center text-zinc-400 font-medium">
-                                        Sin incidencias en esta vista ({viewMode === 'solo_medicos' ? 'No hay pases confidenciales / privados registrados' : 'No hay reportes médicos activos compartidos en esta sección'}).
-                                    </td>
-                                </tr>
-                            ) : (
-                                pases.map((p) => {
-                                    const clasif = getClasificacionPase(p)
-                                    const vig = getVigenciaStatus(p)
-                                    
-                                    return (
-                                        <tr key={p.id_pase} className="hover:bg-zinc-50/50 transition-colors">
-                                            <td className="px-6 py-4.5">
-                                                <div className="font-black text-zinc-800">
-                                                    {p.pacientes?.nombre_completo || p.nombre_trabajador || (p.empleados ? `${p.empleados.nombre || ''} ${p.empleados.apellido_paterno || ''} ${p.empleados.apellido_materno || ''}`.trim() : 'PACIENTE NO ESPECIFICADO')}
-                                                </div>
-                                                <div className="text-[10px] text-zinc-400 font-mono mt-0.5 font-semibold">
-                                                    ID/Folio: {p.empleados?.id_empleado || p.folio || 'N/A'}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4.5">
-                                                <div className="font-bold text-zinc-700">{p.empleados?.puesto || 'Población General'}</div>
-                                                <div className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider mt-0.5">
-                                                    {p.empleados?.departamento || 'Sin Asignar'}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4.5">
-                                                <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[9px] uppercase tracking-wider ${clasif.badgeClass}`}>
-                                                    {clasif.tipo}
-                                                </span>
-                                                <div className="text-[9px] text-zinc-500 font-semibold mt-1">{clasif.desc}</div>
-                                            </td>
-                                            <td className="px-6 py-4.5 text-xs text-zinc-500 font-bold">
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="bg-zinc-100 px-2 py-0.5 rounded font-black text-zinc-700">{p.clinica_origen?.nombre || 'Herrero'}</span>
-                                                    <span className="text-zinc-400 font-normal">&rarr;</span>
-                                                    <span className="bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded font-black">{p.clinica_destino?.nombre || 'Durango / Externo'}</span>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4.5 text-xs text-zinc-600 font-mono">
-                                                <div>🚀 Salida: <span className="font-bold text-zinc-800">{p.fecha_salida || 'Inmediata'}</span></div>
-                                                <div>🛬 Retorno: <span className="font-bold text-emerald-700">{p.fecha_retorno || 'Abierto'}</span></div>
-                                            </td>
-                                            <td className="px-6 py-4.5">
-                                                <div className="flex flex-col items-start gap-1.5">
-                                                    <span className={`px-3 py-1 rounded-full text-[10px] uppercase tracking-wider ${vig.badgeClass}`}>
-                                                        {vig.label}
-                                                    </span>
-
-                                                    {/* Botón de Expediente Clínico Completo para Médicos */}
-                                                    {isDoctorOrAdmin && (
-                                                        <button
-                                                            onClick={() => openExpedienteClinico(p)}
-                                                            className="text-[9px] font-black text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1 transition-colors"
-                                                        >
-                                                            <Stethoscope className="w-3 h-3 text-emerald-600" />
-                                                            <span>Expediente Clínico & Recetas</span>
-                                                        </button>
-                                                    )}
-
-                                                    {/* Acciones de Vigencia */}
-                                                    <div className="flex items-center gap-1 mt-0.5">
-                                                        <button
-                                                            onClick={() => handleToggleVigencia(p.id_pase, p.estatus)}
-                                                            className={`text-[9px] font-black px-2 py-0.5 rounded border transition-colors ${
-                                                                vig.isClosed 
-                                                                    ? 'bg-zinc-100 text-zinc-600 border-zinc-300 hover:bg-zinc-200' 
-                                                                    : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                                                            }`}
-                                                        >
-                                                            {vig.isClosed ? '🔓 Reabrir Vigencia' : '🔒 Marcar como Regresado'}
-                                                        </button>
-
-                                                        {isDoctorOrAdmin && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    setExtendingPase(p)
-                                                                    setNuevaFechaRetorno(p.fecha_retorno || '')
-                                                                }}
-                                                                className="text-[9px] font-black text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded border border-blue-200"
-                                                            >
-                                                                + Días
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )
-                                })
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                <button onClick={fetchPases} className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold flex items-center gap-1">
+                    <RefreshCw className="w-3.5 h-3.5" /> Actualizar
+                </button>
             </div>
-            ) : (
-                pases.length === 0 ? (
-                    <div className="bg-white border border-emerald-100 rounded-3xl p-12 shadow-sm flex flex-col items-center justify-center text-center">
-                        <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4">
-                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+
+            {/* TAB 1: AUSENCIAS POR DEPARTAMENTO (OPERATIVO / JEFES) */}
+            {activeTab === 'departamento' && (
+                <div className="space-y-4">
+                    {searchFilteredPases.length === 0 ? (
+                        <div className="bg-white border border-zinc-200 rounded-3xl p-12 text-center space-y-3">
+                            <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl mx-auto flex items-center justify-center">
+                                <CheckCircle2 className="w-6 h-6" />
+                            </div>
+                            <h3 className="text-base font-black text-zinc-800 uppercase">Sin ausencias reportadas en este departamento</h3>
+                            <p className="text-xs text-zinc-500">Todo el personal del área se encuentra en sus actividades regulares.</p>
                         </div>
-                        <h3 className="text-lg font-black text-zinc-800 uppercase mb-2">Sin ausencias médicas reportadas en este período</h3>
-                        <p className="text-sm text-zinc-500">Todo el personal del departamento se encuentra en sus actividades regulares.</p>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {pases.map((p) => {
-                            const clasif = getClasificacionPase(p)
-                            const vig = getVigenciaStatus(p)
-                            const tieneHotel = Boolean(p.requiere_hotel || p.hotel_nombre)
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {searchFilteredPases.map(p => {
+                                const clasif = getClasificacionPase(p)
+                                const vig = getVigenciaStatus(p)
+                                const ext = getExtensionStatus(p)
+                                const tieneHotel = Boolean(p.requiere_hotel || p.hotel_nombre)
 
-                            return (
-                                <div key={p.id_pase} className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-sm flex flex-col justify-between gap-3 relative overflow-hidden">
-                                    <div className={`absolute top-0 left-0 right-0 h-1.5 ${clasif.isAcompanante ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                                return (
+                                    <div key={p.id_pase} className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between gap-3 relative overflow-hidden">
+                                        <div className={`absolute top-0 left-0 right-0 h-1.5 ${clasif.isAcompanante ? 'bg-amber-500' : 'bg-emerald-500'}`} />
 
-                                    <div className="space-y-1 pt-1">
-                                        <div className="font-black text-zinc-900 text-sm flex items-center justify-between">
-                                            <span>
-                                                {p.pacientes?.nombre_completo || p.nombre_trabajador || (p.empleados ? `${p.empleados.nombre || ''} ${p.empleados.apellido_paterno || ''} ${p.empleados.apellido_materno || ''}`.trim() : 'PACIENTE REGISTRADO')}
-                                            </span>
-                                            {(p.empleados?.id_empleado || p.folio) && (
-                                                <span className="text-[10px] font-mono font-bold text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded">
-                                                    {p.empleados?.id_empleado ? `ID: ${p.empleados.id_empleado}` : `Folio: ${p.folio}`}
+                                        <div className="space-y-1 pt-1">
+                                            <div className="font-black text-zinc-900 text-sm flex items-center justify-between gap-2">
+                                                <span className="truncate">
+                                                    {p.pacientes?.nombre_completo || p.nombre_trabajador || (p.empleados ? `${p.empleados.nombre || ''} ${p.empleados.apellido_paterno || ''}` : 'TRABAJADOR REGISTRADO')}
                                                 </span>
+                                                <span className="text-[10px] font-mono font-bold text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded shrink-0">
+                                                    ID: {p.empleados?.id_empleado || p.folio || 'N/A'}
+                                                </span>
+                                            </div>
+                                            <div className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider">
+                                                {p.empleados?.departamento || 'Departamento Minero / General'}
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            {/* Clasificación */}
+                                            <div className={`p-2.5 rounded-xl text-[11px] font-black uppercase tracking-wide flex items-center gap-2 border ${clasif.badgeClass}`}>
+                                                {clasif.isAcompanante ? <Users className="w-4 h-4 text-amber-700 flex-shrink-0" /> : <Heart className="w-4 h-4 text-emerald-700 flex-shrink-0" />}
+                                                <div>
+                                                    <div>{clasif.tipo}</div>
+                                                    <div className="text-[9px] font-mono font-normal opacity-90">{clasif.desc}</div>
+                                                </div>
+                                            </div>
+
+                                            {/* Alerta de Reposo Ampliado */}
+                                            {ext.hasExtension && (
+                                                <div className="bg-blue-50 border border-blue-200 text-blue-900 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-xs">
+                                                    <Clock className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+                                                    <span> ℹ️ Reposo médico ampliado por doctor</span>
+                                                </div>
                                             )}
-                                        </div>
-                                        <div className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider">
-                                            {p.empleados?.departamento || 'Servicios Médicos / General'}
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="space-y-2">
-                                        {/* Clasificación: Pase Médico vs Acompañante */}
-                                        <div className={`p-2.5 rounded-xl text-[11px] font-black uppercase tracking-wide flex items-center gap-2 border ${clasif.badgeClass}`}>
-                                            {clasif.isAcompanante ? <Users className="w-4 h-4 text-amber-700 flex-shrink-0" /> : <Heart className="w-4 h-4 text-emerald-700 flex-shrink-0" />}
-                                            <div>
-                                                <div>{clasif.tipo}</div>
-                                                <div className="text-[9px] font-mono font-normal opacity-90">{clasif.desc}</div>
+
+                                            {/* Hospedaje Status */}
+                                            {tieneHotel && (
+                                                <div className="bg-purple-50 border border-purple-200 text-purple-900 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                                                    <Hotel className="w-3.5 h-3.5 text-purple-600 flex-shrink-0" />
+                                                    <span>Pase de Hotel Autorizado ({p.hotel_nombre || 'Hotel Durango'})</span>
+                                                </div>
+                                            )}
+
+                                            {/* Vigencia / Fechas */}
+                                            <div className="bg-zinc-50 border border-zinc-200 p-3 rounded-xl text-[11px] space-y-1.5 font-mono">
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-zinc-400 font-bold text-[10px]">🚀 SALIDA DE MINA:</span>
+                                                    <span className="font-black text-zinc-800">{p.fecha_salida || 'Inmediata'}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-zinc-400 font-bold text-[10px]">🛬 RETORNO PREVISTO:</span>
+                                                    <span className="font-black text-emerald-700">{p.fecha_retorno || 'Abierto'}</span>
+                                                </div>
                                             </div>
                                         </div>
 
-                                        {/* Hospedaje Status */}
-                                        {tieneHotel && (
-                                            <div className="bg-amber-50 border border-amber-200 text-amber-900 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
-                                                <Hotel className="w-3.5 h-3.5 text-amber-600" />
-                                                <span>Pase de Hotel Autorizado ({p.hotel_nombre || 'Hotel Durango'})</span>
-                                            </div>
-                                        )}
-
-                                        {/* Vigencia / Fechas */}
-                                        <div className="bg-zinc-50 border border-zinc-200 p-3 rounded-xl text-[11px] space-y-1.5 font-mono">
+                                        {/* Footer con Estatus */}
+                                        <div className="flex flex-col gap-2 mt-1 pt-3 border-t border-zinc-100">
                                             <div className="flex justify-between items-center">
-                                                <span className="text-zinc-400 font-bold text-[10px]">🚀 SALIDA:</span>
-                                                <span className="font-black text-zinc-800">{p.fecha_salida || 'Inmediata'}</span>
+                                                <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded ${vig.badgeClass}`}>
+                                                    {vig.label}
+                                                </span>
+                                                {isDoctorOrAdmin && (
+                                                    <button
+                                                        onClick={() => handleToggleVigencia(p.id_pase, p.estatus)}
+                                                        className="text-[9px] font-black text-zinc-600 hover:text-zinc-900 underline"
+                                                    >
+                                                        {vig.isClosed ? '🔓 Reabrir' : '🔒 Marcar Regresado'}
+                                                    </button>
+                                                )}
                                             </div>
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-zinc-400 font-bold text-[10px]">🛬 RETORNO PREVISTO:</span>
-                                                <span className="font-black text-emerald-700">{p.fecha_retorno || 'Pendiente / Abierto'}</span>
+
+                                            <div className="text-[9px] text-zinc-400 italic text-center font-medium">
+                                                🔒 Diagnóstico y receta protegidos por privacidad médica
                                             </div>
                                         </div>
                                     </div>
-
-                                    {/* Footer con Estatus y Botón para Marcar Regreso */}
-                                    <div className="flex flex-col gap-2 mt-1 pt-3 border-t border-zinc-100">
-                                        <div className="flex justify-between items-center">
-                                            <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded ${vig.badgeClass}`}>
-                                                {vig.label}
-                                            </span>
-                                            
-                                            <button
-                                                onClick={() => handleToggleVigencia(p.id_pase, p.estatus)}
-                                                className={`text-[10px] font-black px-2.5 py-1 rounded-lg border shadow-xs transition-all ${
-                                                    vig.isClosed 
-                                                        ? 'bg-zinc-100 text-zinc-700 border-zinc-300 hover:bg-zinc-200' 
-                                                        : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700'
-                                                }`}
-                                            >
-                                                {vig.isClosed ? '🔓 Reabrir' : '🔒 Marcar como Regresado'}
-                                            </button>
-                                        </div>
-
-                                        <div className="text-[9px] text-zinc-400 italic text-center font-medium">
-                                            🔒 Diagnóstico y receta protegidos por privacidad médica
-                                        </div>
-                                    </div>
-                                </div>
-                            )
-                        })}
-                    </div>
-                )
+                                )
+                            })}
+                        </div>
+                    )}
+                </div>
             )}
 
-            {/* Modal para Ampliar Días */}
+            {/* TAB 2: EXPEDIENTE CLÍNICO & PRIVACIDAD MÉDICA (SÓLO MÉDICOS / ADMIN) */}
+            {activeTab === 'clinico' && isDoctorOrAdmin && (
+                <div className="bg-white border border-zinc-200 rounded-3xl overflow-hidden shadow-xs">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="border-b border-zinc-200 bg-zinc-50 text-[10px] font-black text-zinc-400 uppercase tracking-wider">
+                                    <th className="px-6 py-4">Paciente / Beneficiario</th>
+                                    <th className="px-6 py-4">Departamento / Puesto</th>
+                                    <th className="px-6 py-4">Clasificación & Diagnóstico</th>
+                                    <th className="px-6 py-4">Ruta Clínica</th>
+                                    <th className="px-6 py-4">Fechas Vigencia</th>
+                                    <th className="px-6 py-4">Acciones Clínicas</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-200 text-xs font-semibold">
+                                {searchFilteredPases.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6} className="px-6 py-12 text-center text-zinc-400">
+                                            No hay expedientes clínicos registrados en esta vista.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    searchFilteredPases.map(p => {
+                                        const clasif = getClasificacionPase(p)
+                                        const vig = getVigenciaStatus(p)
+                                        const ext = getExtensionStatus(p)
+
+                                        return (
+                                            <tr key={p.id_pase} className="hover:bg-zinc-50 transition-colors">
+                                                <td className="px-6 py-4.5">
+                                                    <div className="font-black text-zinc-900">
+                                                        {p.pacientes?.nombre_completo || p.nombre_trabajador || (p.empleados ? `${p.empleados.nombre || ''} ${p.empleados.apellido_paterno || ''}` : 'PACIENTE')}
+                                                    </div>
+                                                    <div className="text-[10px] text-zinc-400 font-mono mt-0.5">
+                                                        Folio: {p.folio || p.id_pase}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4.5">
+                                                    <div className="font-bold text-zinc-800">{p.empleados?.puesto || 'General'}</div>
+                                                    <div className="text-[10px] text-emerald-700 font-bold uppercase mt-0.5">
+                                                        {p.empleados?.departamento || 'Sin Asignar'}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4.5 space-y-1">
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] uppercase ${clasif.badgeClass}`}>
+                                                        {clasif.tipo}
+                                                    </span>
+                                                    {ext.hasExtension && (
+                                                        <span className="block text-[9px] font-black text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                                                            ⏱️ REPOSO AMPLIADO
+                                                        </span>
+                                                    )}
+                                                    {p.motivo && (
+                                                        <div className="text-[10px] text-zinc-600 font-mono line-clamp-2">
+                                                            <strong>Dx:</strong> {p.motivo}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4.5">
+                                                    <div className="flex items-center gap-1.5 text-[10px] font-bold">
+                                                        <span className="bg-zinc-100 px-2 py-0.5 rounded">{p.clinica_origen?.nombre || 'Herrero'}</span>
+                                                        <span>&rarr;</span>
+                                                        <span className="bg-blue-50 text-blue-800 px-2 py-0.5 rounded">{p.clinica_destino?.nombre || 'Durango / Externo'}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4.5 text-[10px] font-mono">
+                                                    <div>Salida: <strong>{p.fecha_salida || 'Inmediata'}</strong></div>
+                                                    <div>Retorno: <strong className="text-emerald-700">{p.fecha_retorno || 'Abierto'}</strong></div>
+                                                </td>
+                                                <td className="px-6 py-4.5 space-y-1.5">
+                                                    <button
+                                                        onClick={() => openExpedienteClinico(p)}
+                                                        className="w-full text-[9px] font-black text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center justify-center gap-1 transition-colors"
+                                                    >
+                                                        <Stethoscope className="w-3 h-3 text-emerald-600" />
+                                                        <span>Expediente & Recetas</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            setExtendingPase(p)
+                                                            setNuevaFechaRetorno(p.fecha_retorno || '')
+                                                        }}
+                                                        className="w-full text-[9px] font-black text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 flex items-center justify-center gap-1 transition-colors"
+                                                    >
+                                                        <PlusCircle className="w-3 h-3 text-blue-600" />
+                                                        <span>+ Ampliar Días</span>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        )
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* TAB 3: HOSPEDAJE & TRASLADOS EN DURANGO */}
+            {activeTab === 'hotel' && (
+                <div className="space-y-4">
+                    {searchFilteredPases.length === 0 ? (
+                        <div className="bg-white border border-zinc-200 rounded-3xl p-12 text-center space-y-3">
+                            <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-2xl mx-auto flex items-center justify-center">
+                                <Hotel className="w-6 h-6" />
+                            </div>
+                            <h3 className="text-base font-black text-zinc-800 uppercase">Sin pases de hotel activos</h3>
+                            <p className="text-xs text-zinc-500">No hay personal hospedado en Durango en este período.</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {searchFilteredPases.map(p => {
+                                const vig = getVigenciaStatus(p)
+
+                                return (
+                                    <div key={p.id_pase} className="bg-white border border-purple-200 rounded-2xl p-5 shadow-xs space-y-3 relative overflow-hidden">
+                                        <div className="absolute top-0 left-0 right-0 h-1.5 bg-purple-500" />
+                                        
+                                        <div className="flex justify-between items-start pt-1">
+                                            <div>
+                                                <div className="font-black text-zinc-900 text-sm">
+                                                    {p.pacientes?.nombre_completo || p.nombre_trabajador || (p.empleados ? `${p.empleados.nombre || ''} ${p.empleados.apellido_paterno || ''}` : 'PACIENTE')}
+                                                </div>
+                                                <div className="text-[10px] text-purple-700 font-bold uppercase mt-0.5">
+                                                    {p.empleados?.departamento || 'Mina Bacis'}
+                                                </div>
+                                            </div>
+                                            <span className="text-[10px] font-mono font-bold bg-purple-100 text-purple-900 px-2 py-0.5 rounded">
+                                                HOTEL AUTORIZADO
+                                            </span>
+                                        </div>
+
+                                        <div className="bg-purple-50/60 border border-purple-100 p-3 rounded-xl text-xs space-y-1">
+                                            <div className="font-black text-purple-950 flex items-center gap-1.5">
+                                                <Hotel className="w-4 h-4 text-purple-600" />
+                                                <span>{p.hotel_nombre || 'Hotel Durango'}</span>
+                                            </div>
+                                            <div className="text-[10px] text-zinc-600 font-mono">
+                                                Acompañante: <strong>{p.acompanante || 'NO REQUIERE'}</strong>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-zinc-50 border border-zinc-200 p-2.5 rounded-xl text-[11px] font-mono flex justify-between">
+                                            <span>Entrada: <strong>{p.fecha_salida || 'Hoy'}</strong></span>
+                                            <span>Salida Prevista: <strong className="text-purple-700">{p.fecha_retorno || 'Abierta'}</strong></span>
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* MODAL DE AMPLIACIÓN DE DÍAS DE REPOSO (+ DÍAS / DOCTOR) */}
             {extendingPase && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
                     <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-zinc-200 space-y-4">
                         <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
                             <h3 className="text-base font-black text-zinc-900 uppercase flex items-center gap-2">
                                 <PlusCircle className="w-5 h-5 text-blue-600" />
-                                Ampliar Días de Pase / Hospedaje
+                                Ampliar Días de Reposo Médico
                             </h3>
                             <button onClick={() => setExtendingPase(null)} className="text-zinc-400 hover:text-zinc-700 font-bold">✕</button>
                         </div>
@@ -788,7 +778,7 @@ export default function ConsultaMedicaPortal() {
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Nueva Fecha de Retorno / Fin de Vigencia</label>
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Nueva Fecha de Retorno Prevista</label>
                                 <input 
                                     type="date"
                                     required
@@ -804,7 +794,7 @@ export default function ConsultaMedicaPortal() {
                                     rows={3}
                                     value={motivoExtension}
                                     onChange={(e) => setMotivoExtension(e.target.value)}
-                                    placeholder="Ej. Requiere 3 días adicionales de reposo o tratamiento especializado..."
+                                    placeholder="Ej. Se extiende incapacidad por 3 días más debido a evolución del padecimiento..."
                                     className="w-full text-xs border-zinc-300 rounded-xl p-2.5 focus:ring-blue-500 focus:border-blue-500"
                                 />
                             </div>
@@ -855,7 +845,7 @@ export default function ConsultaMedicaPortal() {
                         {/* Detalles del Pase Actual */}
                         <div className="bg-emerald-50/60 border border-emerald-200/80 p-4 rounded-2xl space-y-2">
                             <div className="flex justify-between items-center">
-                                <span className="text-xs font-black text-emerald-950 uppercase">PASE MÉDICO VIGENTE # {selectedPaseExpediente.folio || selectedPaseExpediente.id_pase}</span>
+                                <span className="text-xs font-black text-emerald-950 uppercase">PASE MÉDICO # {selectedPaseExpediente.folio || selectedPaseExpediente.id_pase}</span>
                                 <span className="text-[10px] font-black bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded uppercase">
                                     {selectedPaseExpediente.estatus || 'ACTIVO'}
                                 </span>
@@ -928,4 +918,3 @@ export default function ConsultaMedicaPortal() {
         </div>
     )
 }
-
