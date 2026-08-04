@@ -745,21 +745,41 @@ export default function CampamentosPage() {
     e.preventDefault()
     if (!newCampName) return
     try {
-      const { error } = await supabase.from('campamentos').insert([{
-        nombre: newCampName,
+      const formattedName = newCampName.includes('(') ? newCampName : `${newCampName} (${newCampZona})`
+
+      // 1. Try inserting with zona column
+      const { data, error } = await supabase.from('campamentos').insert([{
+        nombre: formattedName,
         ubicacion: newCampUbi || 'Sin ubicación',
         zona: newCampZona,
         tipo: newCampTipo
-      }])
-      if (error) throw error
+      }]).select().single()
+
+      if (error) {
+        console.warn('Handling fallback without zona column:', error.message)
+        // 2. Fallback if 'zona' column does not exist in Supabase schema
+        const { data: fallbackData, error: fallbackErr } = await supabase.from('campamentos').insert([{
+          nombre: formattedName,
+          ubicacion: newCampUbi || 'Sin ubicación',
+          tipo: newCampTipo
+        }]).select().single()
+
+        if (fallbackErr) throw fallbackErr
+        if (fallbackData) {
+          setSelectedCampamento({ ...fallbackData, zona: newCampZona, campamento_cuartos: [] })
+        }
+      } else if (data) {
+        setSelectedCampamento({ ...data, zona: newCampZona, campamento_cuartos: [] })
+      }
       
       setNewCampName('')
       setNewCampUbi('')
       setShowAddCampModal(false)
-      fetchData()
-    } catch (error) {
+      await fetchData()
+      alert(`Campamento "${newCampName}" guardado y listo en ${newCampZona}.`)
+    } catch (error: any) {
       console.error('Error creating camp:', error)
-      alert('Error al crear campamento')
+      alert('Error al crear campamento: ' + (error.message || error))
     }
   }
 
