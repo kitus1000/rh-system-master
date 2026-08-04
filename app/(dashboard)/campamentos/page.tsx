@@ -8,7 +8,7 @@ import {
   Box, Eye, Layers, RotateCw, User, Calendar, Clock, RefreshCw, X,
   Shirt, Sparkles as SparklesIcon, Zap, Settings, ShieldAlert, Move, ZoomIn, Info,
   BarChart3, ChevronLeft, ArrowRight, CheckCircle2, Sliders, CalendarDays,
-  HardHat, UserCheck, Repeat
+  HardHat, UserCheck, Repeat, UserPlus2
 } from 'lucide-react'
 
 interface Persona {
@@ -22,6 +22,7 @@ interface Persona {
   rol_tipo?: string // '20x10', '14x7', '10x5', '6x1', 'Contratista'
   fecha_inicio_rol?: string
   es_contratista?: boolean
+  dias_estadia?: number
 }
 
 interface Cama {
@@ -80,6 +81,27 @@ export default function CampamentosPage() {
   const [newRoomName, setNewRoomName] = useState('')
   const [newRoomCamas, setNewRoomCamas] = useState(2)
 
+  // Modal para alta directa de contratista
+  const [showAddContratistaModal, setShowAddContratistaModal] = useState(false)
+  const [contratistaForm, setContratistaForm] = useState({
+    nombre: '',
+    apellido_paterno: '',
+    apellido_materno: '',
+    empresa_puesto: 'Contratista Minero',
+    dias_estadia: 3,
+    fecha_llegada: new Date().toISOString().split('T')[0],
+    id_campamento: '',
+    id_cuarto: '',
+    id_cama: ''
+  })
+  const [savingContratista, setSavingContratista] = useState(false)
+
+  // Modal para asignar cama a un contratista existente
+  const [assigningBedContractor, setAssigningBedContractor] = useState<Persona | null>(null)
+  const [quickAssignCampId, setQuickAssignCampId] = useState('')
+  const [quickAssignRoomId, setQuickAssignRoomId] = useState('')
+  const [quickAssignBedId, setQuickAssignBedId] = useState('')
+
   // Modal para configurar rol de trabajador
   const [editingRoleWorker, setEditingRoleWorker] = useState<Persona | null>(null)
   const [roleForm, setRoleForm] = useState({
@@ -131,10 +153,8 @@ export default function CampamentosPage() {
 
       setCampamentos(processed)
       
-      if (!selectedCampamento && processed.length > 0) {
+      if (processed.length > 0) {
         setSelectedCampamento(processed[0])
-      } else if (selectedCampamento) {
-        setSelectedCampamento(processed.find(c => c.id_campamento === selectedCampamento.id_campamento) || processed[0] || null)
       }
     } catch (error) {
       console.error('Error fetching campamentos:', error)
@@ -153,34 +173,51 @@ export default function CampamentosPage() {
     const allEmps = data || []
     setEmpleados(allEmps)
 
-    // Separate contractors for quick reactivation panel
     const contratistas = allEmps.filter(e => e.es_contratista || (e.departamento || '').toLowerCase().includes('contratista') || (e.puesto || '').toLowerCase().includes('contratista') || e.rol_tipo === 'Contratista')
     setContratistasHistorial(contratistas)
   }
 
-  // Shift Role Projection Engine (Supports 20x10, 14x7, 10x5, 6x1, Contratista 3 días)
+  // Filtered Campamentos by Zone
+  const filteredCampamentosByZona = campamentos.filter(c => {
+    const matchesZona = selectedZona === 'TODAS' || (c.zona || 'Parajes') === selectedZona
+    const matchesSearch = !searchQuery || c.nombre.toLowerCase().includes(searchQuery.toLowerCase()) || c.ubicacion.toLowerCase().includes(searchQuery.toLowerCase())
+    return matchesZona && matchesSearch
+  })
+
+  // Auto select active campamento when zone changes
+  useEffect(() => {
+    if (filteredCampamentosByZona.length > 0) {
+      if (!selectedCampamento || !filteredCampamentosByZona.some(c => c.id_campamento === selectedCampamento.id_campamento)) {
+        setSelectedCampamento(filteredCampamentosByZona[0])
+      }
+    } else {
+      setSelectedCampamento(null)
+    }
+  }, [selectedZona, campamentos])
+
+  // Shift Role Projection Engine
   const calculateShiftProjection = (emp?: Persona | null, targetDate: Date = new Date()) => {
     if (!emp) return { isWorkDay: false, statusLabel: 'Desocupado', isFranco: false }
 
     const rolStr = emp.rol_tipo || '20x10'
+    const estadiaDays = emp.dias_estadia || 3
 
-    // Contratistas / Eventual 3 Días
     if (rolStr.toUpperCase().includes('CONTRATISTA') || rolStr === '3DIAS') {
       const startDateStr = emp.fecha_inicio_rol || '2026-08-01'
       const startDate = new Date(startDateStr + 'T00:00:00')
       const diffTime = targetDate.getTime() - startDate.getTime()
       const diffDays = Math.floor(diffTime / (1000 * 3600 * 24))
 
-      const isWorkDay = diffDays >= 0 && diffDays < 3
+      const isWorkDay = diffDays >= 0 && diffDays < estadiaDays
 
       return {
         isWorkDay,
         isFranco: !isWorkDay,
-        statusLabel: isWorkDay ? '👷🏼‍♂️ Contratista (En Sitio - 3 Días)' : '✈️ Contratista Retirado',
-        periodName: isWorkDay ? `Estadía Corta (Día ${diffDays + 1} de 3)` : 'Concluido (Disponible Reactivación)',
-        daysLeft: isWorkDay ? (3 - diffDays) : 0,
+        statusLabel: isWorkDay ? `👷🏼‍♂️ Contratista (En Sitio - ${estadiaDays} Días)` : '✈️ Retirado',
+        periodName: isWorkDay ? `Estadía Corta (Día ${diffDays + 1} de ${estadiaDays})` : 'Concluido (Disponible Reactivación)',
+        daysLeft: isWorkDay ? (estadiaDays - diffDays) : 0,
         nextChangeFormatted: '',
-        nextChangeText: isWorkDay ? `Concluye estadía en ${3 - diffDays} días` : 'Listo para Re-asignación'
+        nextChangeText: isWorkDay ? `Concluye estadía en ${estadiaDays - diffDays} días` : 'Listo para Re-asignación'
       }
     }
 
@@ -233,14 +270,7 @@ export default function CampamentosPage() {
     }
   }
 
-  // Filtered Campamentos by Zone
-  const filteredCampamentosByZona = campamentos.filter(c => {
-    const matchesZona = selectedZona === 'TODAS' || (c.zona || 'Parajes') === selectedZona
-    const matchesSearch = !searchQuery || c.nombre.toLowerCase().includes(searchQuery.toLowerCase()) || c.ubicacion.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchesZona && matchesSearch
-  })
-
-  // THREE.JS REAL-TIME 3D VOLUMETRIC SCENE ENGINE WITH REALISTIC ROOM DESIGN & FIXED RAYCASTER
+  // THREE.JS REAL-TIME 3D VOLUMETRIC SCENE ENGINE
   useEffect(() => {
     if (viewMode !== '3d' || !mountRef.current || !selectedCampamento) return
 
@@ -322,7 +352,7 @@ export default function CampamentosPage() {
         const roomGroup = new THREE.Group()
         roomGroup.position.set(xPos, 0, zPos)
 
-        // Room Floor 3D (Wooden Deck)
+        // Room Floor 3D
         const floorGeo = new THREE.BoxGeometry(7.2, 0.2, 7.2)
         const floorMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.6 })
         const floorMesh = new THREE.Mesh(floorGeo, floorMat)
@@ -602,6 +632,83 @@ export default function CampamentosPage() {
     }
   }
 
+  // Handle Create and Assign Contractor directly
+  const handleCreateAndAssignContratista = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!contratistaForm.nombre || !contratistaForm.apellido_paterno) return
+    setSavingContratista(true)
+
+    try {
+      // 1. Insert new Contractor into empleados
+      const { data: newEmp, error: empErr } = await supabase.from('empleados').insert([{
+        nombre: contratistaForm.nombre,
+        apellido_paterno: contratistaForm.apellido_paterno,
+        apellido_materno: contratistaForm.apellido_materno,
+        puesto: contratistaForm.empresa_puesto,
+        departamento: 'Contratistas',
+        rol_tipo: 'Contratista',
+        fecha_inicio_rol: contratistaForm.fecha_llegada,
+        es_contratista: true,
+        estado_empleado: 'Activo'
+      }]).select().single()
+
+      if (empErr) throw empErr
+
+      // 2. Assign bed if selected
+      if (contratistaForm.id_cama) {
+        const { error: bedErr } = await supabase.from('campamento_camas')
+          .update({ id_empleado: newEmp.id_empleado })
+          .eq('id_cama', contratistaForm.id_cama)
+
+        if (bedErr) throw bedErr
+      }
+
+      alert(`Contratista "${contratistaForm.nombre} ${contratistaForm.apellido_paterno}" registrado y hospedado correctamente por ${contratistaForm.dias_estadia} días.`)
+      setShowAddContratistaModal(false)
+      setContratistaForm({
+        nombre: '',
+        apellido_paterno: '',
+        apellido_materno: '',
+        empresa_puesto: 'Contratista Minero',
+        dias_estadia: 3,
+        fecha_llegada: new Date().toISOString().split('T')[0],
+        id_campamento: '',
+        id_cuarto: '',
+        id_cama: ''
+      })
+      fetchData()
+      fetchEmpleados()
+    } catch (err: any) {
+      alert('Error al registrar contratista: ' + err.message)
+    } finally {
+      setSavingContratista(false)
+    }
+  }
+
+  // Handle Quick Bed Assignment for existing Contractor
+  const handleQuickAssignBedContractor = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!assigningBedContractor || !quickAssignBedId) return
+
+    try {
+      const { error } = await supabase.from('campamento_camas')
+        .update({ id_empleado: assigningBedContractor.id_empleado })
+        .eq('id_cama', quickAssignBedId)
+
+      if (error) throw error
+
+      alert(`Cama asignada correctamente a ${assigningBedContractor.nombre} ${assigningBedContractor.apellido_paterno}.`)
+      setAssigningBedContractor(null)
+      setQuickAssignCampId('')
+      setQuickAssignRoomId('')
+      setQuickAssignBedId('')
+      fetchData()
+      fetchEmpleados()
+    } catch (err: any) {
+      alert('Error al asignar cama: ' + err.message)
+    }
+  }
+
   // Calculated Stats
   const getCamasStats = (camp: Campamento) => {
     let totales = 0
@@ -706,7 +813,7 @@ export default function CampamentosPage() {
   }
 
   const handleRemovePerson = async (id_cama: string) => {
-    if (!confirm('¿Desocupar esta cama? El trabajador o contratista quedará guardado para reactivación rápida.')) return
+    if (!confirm('¿Desocupar esta cama? El trabajador quedará en el padrón listo para re-asignación.')) return
     try {
       const { error } = await supabase.from('campamento_camas')
         .update({ id_empleado: null })
@@ -778,6 +885,18 @@ export default function CampamentosPage() {
   const ganttDays = getDaysInGanttMonth()
   const ganttMonthName = ganttDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase()
 
+  // Helper arrays for contractor room selection
+  const selectedCampForContractor = campamentos.find(c => c.id_campamento === contratistaForm.id_campamento)
+  const roomsForContractor = selectedCampForContractor?.campamento_cuartos || []
+  const selectedRoomForContractor = roomsForContractor.find(r => r.id_cuarto === contratistaForm.id_cuarto)
+  const bedsForContractor = selectedRoomForContractor?.campamento_camas || []
+
+  // Quick assign helper arrays
+  const quickAssignCamp = campamentos.find(c => c.id_campamento === quickAssignCampId)
+  const quickAssignRooms = quickAssignCamp?.campamento_cuartos || []
+  const quickAssignRoom = quickAssignRooms.find(r => r.id_cuarto === quickAssignRoomId)
+  const quickAssignBeds = quickAssignRoom?.campamento_camas || []
+
   return (
     <div className="space-y-6 pb-20 font-sans text-zinc-900">
       {/* Header Studio 3D */}
@@ -804,11 +923,19 @@ export default function CampamentosPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => setShowAddContratistaModal(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-black font-black text-xs px-4 py-2.5 rounded-xl shadow-lg shadow-amber-500/20 transition-all transform hover:scale-105"
+            >
+              <UserPlus2 className="w-4 h-4" />
+              <span>+ Registrar Contratista</span>
+            </button>
+
             <button 
               onClick={() => setShowAddCampModal(true)}
-              className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-extrabold text-xs px-4 py-2.5 rounded-xl shadow-lg shadow-amber-500/20 transition-all transform hover:scale-105"
+              className="flex items-center gap-2 bg-gradient-to-r from-zinc-800 to-zinc-700 hover:from-zinc-700 hover:to-zinc-600 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl border border-zinc-700 shadow-md transition-all"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 text-amber-400" />
               <span>+ Nuevo Campamento</span>
             </button>
           </div>
@@ -901,30 +1028,34 @@ export default function CampamentosPage() {
       {/* Camp Selectors & View Mode Toggles */}
       <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="flex flex-wrap items-center gap-2 overflow-x-auto max-w-full pb-1 md:pb-0">
-          {filteredCampamentosByZona.map(camp => {
-            const isSelected = selectedCampamento?.id_campamento === camp.id_campamento
-            const stats = getCamasStats(camp)
-            return (
-              <button
-                key={camp.id_campamento}
-                onClick={() => setSelectedCampamento(camp)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 ${
-                  isSelected 
-                    ? 'bg-zinc-900 text-white shadow-md' 
-                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                }`}
-              >
-                <Home className="w-3.5 h-3.5 text-amber-400" />
-                <span>{camp.nombre}</span>
-                <span className="text-[9px] font-mono text-zinc-400 bg-zinc-800/20 px-1.5 py-0.5 rounded uppercase">
-                  {camp.zona || 'Parajes'}
-                </span>
-                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${isSelected ? 'bg-amber-500 text-black font-extrabold' : 'bg-zinc-200 text-zinc-700'}`}>
-                  {stats.ocupadas}/{stats.totales}
-                </span>
-              </button>
-            )
-          })}
+          {filteredCampamentosByZona.length === 0 ? (
+            <span className="text-xs font-bold text-zinc-400 italic">No hay campamentos en esta zona.</span>
+          ) : (
+            filteredCampamentosByZona.map(camp => {
+              const isSelected = selectedCampamento?.id_campamento === camp.id_campamento
+              const stats = getCamasStats(camp)
+              return (
+                <button
+                  key={camp.id_campamento}
+                  onClick={() => setSelectedCampamento(camp)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 ${
+                    isSelected 
+                      ? 'bg-zinc-900 text-white shadow-md' 
+                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                  }`}
+                >
+                  <Home className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{camp.nombre}</span>
+                  <span className="text-[9px] font-mono text-zinc-400 bg-zinc-800/20 px-1.5 py-0.5 rounded uppercase">
+                    {camp.zona || 'Parajes'}
+                  </span>
+                  <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${isSelected ? 'bg-amber-500 text-black font-extrabold' : 'bg-zinc-200 text-zinc-700'}`}>
+                    {stats.ocupadas}/{stats.totales}
+                  </span>
+                </button>
+              )
+            })
+          )}
         </div>
 
         {/* View Mode Switcher */}
@@ -978,6 +1109,30 @@ export default function CampamentosPage() {
           </button>
         </div>
       </div>
+
+      {/* FALLBACK EMPTY STATE WHEN NO CAMPAMENTO IN ZONE */}
+      {viewMode !== 'contratistas' && !selectedCampamento && (
+        <div className="bg-white rounded-3xl border border-zinc-200 p-12 text-center space-y-4 shadow-xs">
+          <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-3xl flex items-center justify-center mx-auto">
+            <Home className="w-8 h-8" />
+          </div>
+          <div className="max-w-md mx-auto space-y-1">
+            <h3 className="text-lg font-black text-zinc-900 uppercase">Sin Campamentos en {selectedZona}</h3>
+            <p className="text-xs text-zinc-500">
+              No hay campamentos o cabañas registradas aún en esta zona minera. Presiona el botón a continuación para dar de alta el primer campamento.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setNewCampZona(selectedZona === 'TODAS' ? 'Parajes' : selectedZona)
+              setShowAddCampModal(true)
+            }}
+            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-black font-black text-xs rounded-xl shadow-md"
+          >
+            + Registrar Primer Campamento en {selectedZona}
+          </button>
+        </div>
+      )}
 
       {/* MAIN VIEWPORT 1: THREE.JS WEBGL 3D REALISTIC ENGINE */}
       {viewMode === '3d' && selectedCampamento && (
@@ -1194,15 +1349,23 @@ export default function CampamentosPage() {
           <div className="bg-gradient-to-r from-amber-900 via-zinc-900 to-zinc-950 text-white p-6 rounded-3xl shadow-lg border border-amber-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
-                <HardHat className="w-4 h-4 text-amber-400" /> HISTORIAL DE CONTRATISTAS Y PERSONAL EVENTUAL (3 DÍAS / CORTA ESTADÍA)
+                <HardHat className="w-4 h-4 text-amber-400" /> PADRÓN & ALTA DE CONTRATISTAS (CORTA ESTADÍA)
               </span>
               <h2 className="text-xl font-black uppercase tracking-tight text-white mt-1">
-                Reactivación Rápida de Hospedaje para Contratistas
+                Gestión Directa y Asignación de Hospedaje a Contratistas
               </h2>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Los contratistas que se retiran quedan guardados aquí. Al regresar a la mina, presiona ⚡ Reactivar para asignarles cama en segundos.
+                Registra nuevos contratistas definiendo sus días de permanencia y asignándoles cama de inmediato en cualquier zona minera.
               </p>
             </div>
+
+            <button
+              onClick={() => setShowAddContratistaModal(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-black font-black text-xs px-5 py-3 rounded-2xl shadow-xl transition-all transform hover:scale-105 shrink-0"
+            >
+              <UserPlus2 className="w-5 h-5" />
+              <span>+ Registrar Nuevo Contratista</span>
+            </button>
           </div>
 
           <div className="bg-white border border-zinc-200 rounded-3xl overflow-hidden shadow-xs">
@@ -1211,15 +1374,15 @@ export default function CampamentosPage() {
                 <tr className="bg-zinc-50 border-b border-zinc-200 text-[10px] font-black text-zinc-400 uppercase tracking-wider">
                   <th className="px-6 py-4">Contratista / Empresa</th>
                   <th className="px-6 py-4">Puesto / Especialidad</th>
-                  <th className="px-6 py-4">Esquema / Rol</th>
-                  <th className="px-6 py-4">Acción Rápida</th>
+                  <th className="px-6 py-4">Permanencia (Días)</th>
+                  <th className="px-6 py-4">Acción de Hospedaje</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200 text-xs font-semibold">
                 {contratistasHistorial.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-6 py-12 text-center text-zinc-400 font-bold">
-                      No hay contratistas registrados en el historial de re-asignación.
+                      No hay contratistas registrados en el padrón. Presiona <strong>+ Registrar Nuevo Contratista</strong> para ingresar al primero.
                     </td>
                   </tr>
                 ) : (
@@ -1241,20 +1404,17 @@ export default function CampamentosPage() {
 
                       <td className="px-6 py-4 font-mono text-xs">
                         <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-1 rounded-lg font-black uppercase">
-                          👷🏼‍♂️ {emp.rol_tipo || 'Contratista (3 Días)'}
+                          ⏱️ {emp.dias_estadia || 3} Días de Estadía
                         </span>
                       </td>
 
                       <td className="px-6 py-4">
                         <button
-                          onClick={() => {
-                            setViewMode('tabla')
-                            alert(`Seleccione la cama en el campamento para asignar a "${emp.nombre} ${emp.apellido_paterno}".`)
-                          }}
+                          onClick={() => setAssigningBedContractor(emp)}
                           className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-black text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-all"
                         >
-                          <Zap className="w-4 h-4 fill-black" />
-                          <span>⚡ Reactivar y Asignar Cama</span>
+                          <Bed className="w-4 h-4" />
+                          <span>🏨 Asignar / Cambiar Cama</span>
                         </button>
                       </td>
                     </tr>
@@ -1392,6 +1552,264 @@ export default function CampamentosPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL REGISTRAR NUEVO CONTRATISTA (ALTA DIRECTA CON ESTADÍA Y CAMA) */}
+      {showAddContratistaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 border border-zinc-200 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <h3 className="text-base font-black text-zinc-900 uppercase flex items-center gap-2">
+                <HardHat className="w-5 h-5 text-amber-500" />
+                Registrar Nuevo Contratista (Estadía Corta)
+              </h3>
+              <button onClick={() => setShowAddContratistaModal(false)} className="text-zinc-400 hover:text-zinc-700 font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleCreateAndAssignContratista} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Nombre(s) *</label>
+                  <input
+                    type="text"
+                    required
+                    value={contratistaForm.nombre}
+                    onChange={e => setContratistaForm({ ...contratistaForm, nombre: e.target.value })}
+                    placeholder="Ej. Carlos Juan"
+                    className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Primer Apellido *</label>
+                  <input
+                    type="text"
+                    required
+                    value={contratistaForm.apellido_paterno}
+                    onChange={e => setContratistaForm({ ...contratistaForm, apellido_paterno: e.target.value })}
+                    placeholder="Ej. Gómez"
+                    className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Empresa / Puesto u Servicio</label>
+                <input
+                  type="text"
+                  value={contratistaForm.empresa_puesto}
+                  onChange={e => setContratistaForm({ ...contratistaForm, empresa_puesto: e.target.value })}
+                  placeholder="Ej. Mantenimiento Eléctrico - Contratistas Bacis"
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Días de Permanencia</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={contratistaForm.dias_estadia}
+                    onChange={e => setContratistaForm({ ...contratistaForm, dias_estadia: Number(e.target.value) })}
+                    className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha de Llegada</label>
+                  <input
+                    type="date"
+                    required
+                    value={contratistaForm.fecha_llegada}
+                    onChange={e => setContratistaForm({ ...contratistaForm, fecha_llegada: e.target.value })}
+                    className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                  />
+                </div>
+              </div>
+
+              {/* DIRECT BED ASSIGNMENT */}
+              <div className="bg-amber-50 p-3.5 rounded-2xl border border-amber-200 space-y-3">
+                <span className="text-xs font-black text-amber-900 uppercase flex items-center gap-1.5">
+                  <Bed className="w-4 h-4 text-amber-600" /> ASIGNACIÓN INMEDIATA DE CAMA EN CAMPAMENTO
+                </span>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-amber-950 mb-1">1. Seleccionar Campamento</label>
+                  <select
+                    value={contratistaForm.id_campamento}
+                    onChange={e => setContratistaForm({ ...contratistaForm, id_campamento: e.target.value, id_cuarto: '', id_cama: '' })}
+                    className="w-full text-xs font-bold border-amber-300 rounded-xl p-2 bg-white"
+                  >
+                    <option value="">-- Seleccionar Campamento --</option>
+                    {campamentos.map(c => (
+                      <option key={c.id_campamento} value={c.id_campamento}>
+                        {c.nombre} ({c.zona || 'Parajes'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {contratistaForm.id_campamento && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-amber-950 mb-1">2. Seleccionar Cuarto</label>
+                    <select
+                      value={contratistaForm.id_cuarto}
+                      onChange={e => setContratistaForm({ ...contratistaForm, id_cuarto: e.target.value, id_cama: '' })}
+                      className="w-full text-xs font-bold border-amber-300 rounded-xl p-2 bg-white"
+                    >
+                      <option value="">-- Seleccionar Cuarto --</option>
+                      {roomsForContractor.map(r => (
+                        <option key={r.id_cuarto} value={r.id_cuarto}>
+                          {r.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {contratistaForm.id_cuarto && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-amber-950 mb-1">3. Seleccionar Cama Disponible</label>
+                    <select
+                      value={contratistaForm.id_cama}
+                      onChange={e => setContratistaForm({ ...contratistaForm, id_cama: e.target.value })}
+                      className="w-full text-xs font-bold border-amber-300 rounded-xl p-2 bg-white"
+                    >
+                      <option value="">-- Seleccionar Cama --</option>
+                      {bedsForContractor.map(b => (
+                        <option key={b.id_cama} value={b.id_cama} disabled={Boolean(b.id_empleado)}>
+                          Cama #{b.numero} {b.id_empleado ? '(Ocupada)' : '(Libre)'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddContratistaModal(false)}
+                  className="px-4 py-2 text-xs font-bold text-zinc-600 hover:bg-zinc-100 rounded-xl"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingContratista}
+                  className="px-5 py-2.5 text-xs font-black bg-amber-500 hover:bg-amber-600 text-black rounded-xl shadow-md disabled:opacity-50"
+                >
+                  {savingContratista ? 'Guardando...' : 'Guardar y Asignar Cama'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ASIGNAR CAMA A CONTRATISTA EXISTENTE */}
+      {assigningBedContractor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-zinc-200 space-y-4">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <h3 className="text-base font-black text-zinc-900 uppercase flex items-center gap-2">
+                <Bed className="w-5 h-5 text-amber-500" />
+                Asignar Cama a Contratista
+              </h3>
+              <button onClick={() => setAssigningBedContractor(null)} className="text-zinc-400 hover:text-zinc-700 font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleQuickAssignBedContractor} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Contratista</label>
+                <div className="text-sm font-black text-zinc-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+                  {assigningBedContractor.nombre} {assigningBedContractor.apellido_paterno}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">1. Seleccionar Campamento</label>
+                <select
+                  required
+                  value={quickAssignCampId}
+                  onChange={e => {
+                    setQuickAssignCampId(e.target.value)
+                    setQuickAssignRoomId('')
+                    setQuickAssignBedId('')
+                  }}
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                >
+                  <option value="">-- Seleccionar Campamento --</option>
+                  {campamentos.map(c => (
+                    <option key={c.id_campamento} value={c.id_campamento}>
+                      {c.nombre} ({c.zona || 'Parajes'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {quickAssignCampId && (
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">2. Seleccionar Cuarto</label>
+                  <select
+                    required
+                    value={quickAssignRoomId}
+                    onChange={e => {
+                      setQuickAssignRoomId(e.target.value)
+                      setQuickAssignBedId('')
+                    }}
+                    className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                  >
+                    <option value="">-- Seleccionar Cuarto --</option>
+                    {quickAssignRooms.map(r => (
+                      <option key={r.id_cuarto} value={r.id_cuarto}>
+                        {r.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {quickAssignRoomId && (
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">3. Seleccionar Cama Disponible</label>
+                  <select
+                    required
+                    value={quickAssignBedId}
+                    onChange={e => setQuickAssignBedId(e.target.value)}
+                    className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                  >
+                    <option value="">-- Seleccionar Cama --</option>
+                    {quickAssignBeds.map(b => (
+                      <option key={b.id_cama} value={b.id_cama} disabled={Boolean(b.id_empleado)}>
+                        Cama #{b.numero} {b.id_empleado ? '(Ocupada)' : '(Libre)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAssigningBedContractor(null)}
+                  className="px-4 py-2 text-xs font-bold text-zinc-600 hover:bg-zinc-100 rounded-xl"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={!quickAssignBedId}
+                  className="px-5 py-2 text-xs font-black bg-amber-500 hover:bg-amber-600 text-black rounded-xl shadow-md disabled:opacity-50"
+                >
+                  Asignar Cama
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
