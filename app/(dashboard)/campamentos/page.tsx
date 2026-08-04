@@ -1,12 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/utils/supabase/client'
+// @ts-ignore
+import * as THREE from 'three'
 import { 
   Home, Plus, Bed, Trash2, UserPlus, Search, Building, MapPin, 
   CheckCircle, AlertTriangle, ChevronRight, Sparkles, Activity, ShieldCheck,
-  Box, Eye, Layers, RotateCw, User, Calendar, Clock, RefreshCw, X, Sparkle,
-  Check, Shirt, Sparkles as SparklesIcon, Zap, Settings, ShieldAlert
+  Box, Eye, Layers, RotateCw, User, Calendar, Clock, RefreshCw, X,
+  Shirt, Sparkles as SparklesIcon, Zap, Settings, ShieldAlert, Move, ZoomIn, Info
 } from 'lucide-react'
 
 interface Persona {
@@ -49,11 +51,8 @@ export default function CampamentosPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   
-  // Vistas: '3d' (Visor 3D Interactivo) vs 'tabla' (Gestión Operativa)
+  // Vistas: '3d' (Visor WebGL 3D Real) vs 'tabla' (Gestión Operativa)
   const [viewMode, setViewMode] = useState<'3d' | 'tabla'>('3d')
-  
-  // Ángulo 3D: 'isometric' (Isométrica), 'top' (Plano Cenital), 'front' (Fachada 3D)
-  const [viewAngle, setViewAngle] = useState<'isometric' | 'top' | 'front'>('isometric')
 
   // Ocupante / Cama Seleccionada para Modal Holográfico 3D
   const [selectedRoom3D, setSelectedRoom3D] = useState<Cuarto | null>(null)
@@ -72,6 +71,9 @@ export default function CampamentosPage() {
   // Assignment state
   const [assignmentTarget, setAssignmentTarget] = useState<{ id_cama: string, numero: number } | null>(null)
   const [assignmentSearch, setAssignmentSearch] = useState('')
+
+  // Canvas 3D Ref
+  const mountRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetchData()
@@ -128,6 +130,296 @@ export default function CampamentosPage() {
       .order('nombre')
     setEmpleados(data || [])
   }
+
+  // THREE.JS REAL-TIME 3D VOLUMETRIC SCENE ENGINE
+  useEffect(() => {
+    if (viewMode !== '3d' || !mountRef.current || !selectedCampamento) return
+
+    const container = mountRef.current
+    const width = container.clientWidth || 800
+    const height = container.clientHeight || 500
+
+    // 1. Scene setup
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x09090b) // Dark background
+    scene.fog = new THREE.FogExp2(0x09090b, 0.015)
+
+    // 2. Camera setup
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000)
+    camera.position.set(20, 22, 28)
+    camera.lookAt(0, 0, 0)
+
+    // 3. Renderer setup
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    renderer.setSize(width, height)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+
+    // Clear previous canvas
+    while (container.firstChild) {
+      container.removeChild(container.firstChild)
+    }
+    container.appendChild(renderer.domElement)
+
+    // 4. Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7)
+    scene.add(ambientLight)
+
+    const dirLight = new THREE.DirectionalLight(0xfff5ea, 1.2)
+    dirLight.position.set(20, 40, 20)
+    dirLight.castShadow = true
+    dirLight.shadow.mapSize.width = 2048
+    dirLight.shadow.mapSize.height = 2048
+    scene.add(dirLight)
+
+    const pointLight = new THREE.PointLight(0xf59e0b, 1.5, 50)
+    pointLight.position.set(0, 15, 0)
+    scene.add(pointLight)
+
+    // 5. Ground / Terrain Grid 3D
+    const gridHelper = new THREE.GridHelper(60, 30, 0xf59e0b, 0x27272a)
+    gridHelper.position.y = -0.01
+    scene.add(gridHelper)
+
+    const groundGeo = new THREE.PlaneGeometry(80, 80)
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x121215, roughness: 0.8, metalness: 0.2 })
+    const groundMesh = new THREE.Mesh(groundGeo, groundMat)
+    groundMesh.rotation.x = -Math.PI / 2
+    groundMesh.receiveShadow = true
+    scene.add(groundMesh)
+
+    // 6. Build 3D Volumetric Room Cubes & Beds & Person Figures
+    const rooms = selectedCampamento.campamento_cuartos || []
+    const roomsPerRow = 4
+    const roomSpacingX = 8.5
+    const roomSpacingZ = 8.5
+
+    const roomObjects: THREE.Object3D[] = []
+    const bedObjectsMap = new Map<THREE.Object3D, { room: Cuarto, bed: Cama }>()
+
+    rooms.forEach((cuarto, idx) => {
+      const row = Math.floor(idx / roomsPerRow)
+      const col = idx % roomsPerRow
+      const xPos = (col - (Math.min(rooms.length, roomsPerRow) - 1) / 2) * roomSpacingX
+      const zPos = (row - (Math.ceil(rooms.length / roomsPerRow) - 1) / 2) * roomSpacingZ
+
+      const roomGroup = new THREE.Group()
+      roomGroup.position.set(xPos, 0, zPos)
+
+      // Room Floor 3D
+      const floorGeo = new THREE.BoxGeometry(6.5, 0.2, 6.5)
+      const floorMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.5 })
+      const floorMesh = new THREE.Mesh(floorGeo, floorMat)
+      floorMesh.position.y = 0.1
+      floorMesh.receiveShadow = true
+      roomGroup.add(floorMesh)
+
+      // Glass Walls 3D (Semi-transparent cube)
+      const wallGeo = new THREE.BoxGeometry(6.5, 3.2, 6.5)
+      const isDirty = cuarto.estatus_limpieza === 'Sucio'
+      const isCleaning = cuarto.estatus_limpieza === 'En Limpieza'
+      const wallColor = isDirty ? 0xef4444 : isCleaning ? 0xf59e0b : 0x10b981
+
+      const wallMat = new THREE.MeshPhysicalMaterial({
+        color: wallColor,
+        transparent: true,
+        opacity: 0.15,
+        roughness: 0.1,
+        transmission: 0.6,
+        thickness: 0.5
+      })
+      const wallMesh = new THREE.Mesh(wallGeo, wallMat)
+      wallMesh.position.y = 1.7
+      roomGroup.add(wallMesh)
+
+      // Room Frame Borders (Wireframe 3D look)
+      const frameGeo = new THREE.BoxGeometry(6.6, 3.3, 6.6)
+      const frameMat = new THREE.MeshBasicMaterial({ color: wallColor, wireframe: true })
+      const frameMesh = new THREE.Mesh(frameGeo, frameMat)
+      frameMesh.position.y = 1.7
+      roomGroup.add(frameMesh)
+
+      // Room LED Ceiling Lamp 3D
+      const lampGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.1, 16)
+      const lampMat = new THREE.MeshBasicMaterial({ color: wallColor })
+      const lampMesh = new THREE.Mesh(lampGeo, lampMat)
+      lampMesh.position.set(0, 3.2, 0)
+      roomGroup.add(lampMesh)
+
+      // 3D Beds inside the room
+      const camas = cuarto.campamento_camas || []
+      camas.forEach((cama, cIdx) => {
+        const bedGroup = new THREE.Group()
+        const bedOffsetX = (cIdx % 2 === 0 ? -1.8 : 1.8)
+        const bedOffsetZ = (cIdx < 2 ? -1.5 : 1.5)
+        bedGroup.position.set(bedOffsetX, 0.2, bedOffsetZ)
+
+        // 3D Bed Frame
+        const bedFrameGeo = new THREE.BoxGeometry(2.0, 0.4, 2.8)
+        const bedFrameMat = new THREE.MeshStandardMaterial({ color: 0x3f3f46, roughness: 0.4 })
+        const bedFrameMesh = new THREE.Mesh(bedFrameGeo, bedFrameMat)
+        bedFrameMesh.position.y = 0.2
+        bedFrameMesh.castShadow = true
+        bedGroup.add(bedFrameMesh)
+
+        // 3D Mattress & Sheet
+        const isOccupied = Boolean(cama.id_empleado)
+        const sheetColor = isOccupied ? 0x10b981 : 0xe4e4e7
+        const matGeo = new THREE.BoxGeometry(1.8, 0.3, 2.6)
+        const matMaterial = new THREE.MeshStandardMaterial({ color: sheetColor, roughness: 0.7 })
+        const matMesh = new THREE.Mesh(matGeo, matMaterial)
+        matMesh.position.y = 0.5
+        matMesh.castShadow = true
+        bedGroup.add(matMesh)
+
+        // 3D Pillow
+        const pillowGeo = new THREE.BoxGeometry(1.4, 0.2, 0.6)
+        const pillowMat = new THREE.MeshStandardMaterial({ color: 0xffffff })
+        const pillowMesh = new THREE.Mesh(pillowGeo, pillowMat)
+        pillowMesh.position.set(0, 0.7, -0.9)
+        bedGroup.add(pillowMesh)
+
+        // 3D PERSON FIGURE / AVATAR (If Occupied)
+        if (isOccupied && cama.empleados) {
+          const personGroup = new THREE.Group()
+          personGroup.position.set(0, 0.65, 0)
+
+          // Torso (Shirt) 3D
+          const torsoGeo = new THREE.CylinderGeometry(0.4, 0.35, 0.9, 12)
+          const torsoMat = new THREE.MeshStandardMaterial({ color: 0x059669, roughness: 0.3 }) // Green Shirt
+          const torsoMesh = new THREE.Mesh(torsoGeo, torsoMat)
+          torsoMesh.position.y = 0.45
+          torsoMesh.castShadow = true
+          personGroup.add(torsoMesh)
+
+          // Head 3D
+          const headGeo = new THREE.SphereGeometry(0.32, 16, 16)
+          const headMat = new THREE.MeshStandardMaterial({ color: 0xfbd5a5, roughness: 0.6 })
+          const headMesh = new THREE.Mesh(headGeo, headMat)
+          headMesh.position.y = 1.15
+          headMesh.castShadow = true
+          personGroup.add(headMesh)
+
+          // Helmet 3D (Minero)
+          const helmetGeo = new THREE.SphereGeometry(0.35, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2)
+          const helmetMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.2, metalness: 0.3 })
+          const helmetMesh = new THREE.Mesh(helmetGeo, helmetMat)
+          helmetMesh.position.y = 1.25
+          personGroup.add(helmetMesh)
+
+          bedGroup.add(personGroup)
+        }
+
+        bedObjectsMap.set(bedGroup, { room: cuarto, bed: cama })
+        bedObjectsMap.set(matMesh, { room: cuarto, bed: cama })
+        roomGroup.add(bedGroup)
+      })
+
+      scene.add(roomGroup)
+      roomObjects.push(roomGroup)
+    })
+
+    // 7. Interactive Mouse Orbit & Raycasting (Clicking 3D Objects)
+    let isDragging = false
+    let previousMousePosition = { x: 0, y: 0 }
+    let cameraAngleX = 45 * (Math.PI / 180)
+    let cameraAngleY = 45 * (Math.PI / 180)
+    let cameraRadius = 35
+
+    const updateCameraPosition = () => {
+      camera.position.x = cameraRadius * Math.sin(cameraAngleY) * Math.cos(cameraAngleX)
+      camera.position.y = cameraRadius * Math.sin(cameraAngleX)
+      camera.position.z = cameraRadius * Math.cos(cameraAngleY) * Math.cos(cameraAngleX)
+      camera.lookAt(0, 1.5, 0)
+    }
+
+    const onMouseDown = (e: MouseEvent) => {
+      isDragging = true
+      previousMousePosition = { x: e.clientX, y: e.clientY }
+    }
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return
+      const deltaX = e.clientX - previousMousePosition.x
+      const deltaY = e.clientY - previousMousePosition.y
+
+      cameraAngleY -= deltaX * 0.008
+      cameraAngleX = Math.max(0.1, Math.min(Math.PI / 2.2, cameraAngleX + deltaY * 0.008))
+
+      previousMousePosition = { x: e.clientX, y: e.clientY }
+      updateCameraPosition()
+    }
+
+    const onMouseUp = () => {
+      isDragging = false
+    }
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      cameraRadius = Math.max(10, Math.min(80, cameraRadius + e.deltaY * 0.03))
+      updateCameraPosition()
+    }
+
+    // Raycaster for clicking 3D beds / person figures
+    const raycaster = new THREE.Raycaster()
+    const mouse = new THREE.Vector2()
+
+    const onClick = (e: MouseEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect()
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+
+      raycaster.setFromCamera(mouse, camera)
+      const intersects = raycaster.intersectObjects(scene.children, true)
+
+      if (intersects.length > 0) {
+        for (const intersect of intersects) {
+          let current: THREE.Object3D | null = intersect.object
+          while (current) {
+            if (bedObjectsMap.has(current)) {
+              const matched = bedObjectsMap.get(current)!
+              setSelectedRoom3D(matched.room)
+              setSelectedBed3D(matched)
+              return
+            }
+            current = current.parent
+          }
+        }
+      }
+    }
+
+    const domElement = renderer.domElement
+    domElement.addEventListener('mousedown', onMouseDown)
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    domElement.addEventListener('wheel', onWheel, { passive: false })
+    domElement.addEventListener('click', onClick)
+
+    updateCameraPosition()
+
+    // 8. Animation Loop
+    let animationFrameId: number
+    const animate = () => {
+      animationFrameId = requestAnimationFrame(animate)
+      renderer.render(scene, camera)
+    }
+    animate()
+
+    // Clean up on unmount or component change
+    return () => {
+      cancelAnimationFrame(animationFrameId)
+      domElement.removeEventListener('mousedown', onMouseDown)
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+      domElement.removeEventListener('wheel', onWheel)
+      domElement.removeEventListener('click', onClick)
+      if (container.contains(domElement)) {
+        container.removeChild(domElement)
+      }
+      renderer.dispose()
+    }
+  }, [viewMode, selectedCampamento])
 
   // Calculated Stats
   const getCamasStats = (camp: Campamento) => {
@@ -249,7 +541,7 @@ export default function CampamentosPage() {
   }
 
   const handleDeleteRoom = async (id_cuarto: string) => {
-    if (!confirm('¿Estás seguro de eliminar esta habitación y sus camas de la maqueta 3D?')) return
+    if (!confirm('¿Estás seguro de eliminar esta habitación y sus camas?')) return
     try {
       const { error } = await supabase.from('campamento_cuartos').delete().eq('id_cuarto', id_cuarto)
       if (error) throw error
@@ -284,29 +576,10 @@ export default function CampamentosPage() {
     }
   }
 
-  const filteredCampamentos = campamentos.filter(c => 
-    c.nombre.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    c.ubicacion.toLowerCase().includes(searchQuery.toLowerCase())
-  )
-
   const filteredEmployees = empleados.filter(emp => {
     const full = `${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.toLowerCase()
     return full.includes(assignmentSearch.toLowerCase())
   })
-
-  // CSS 3D Transform generator according to active angle
-  const getTransform3D = () => {
-    switch (viewAngle) {
-      case 'isometric':
-        return 'rotateX(50deg) rotateZ(-28deg) scale(0.92)'
-      case 'top':
-        return 'rotateX(0deg) rotateZ(0deg) scale(1)'
-      case 'front':
-        return 'rotateX(75deg) rotateZ(0deg) scale(0.95)'
-      default:
-        return 'rotateX(50deg) rotateZ(-28deg)'
-    }
-  }
 
   return (
     <div className="space-y-6 pb-20 font-sans text-zinc-900">
@@ -320,16 +593,16 @@ export default function CampamentosPage() {
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-amber-400 text-xs font-black uppercase tracking-widest">
               <SparklesIcon className="w-4 h-4 text-amber-400 animate-pulse" />
-              <span>Campamento 3D Studio — Diseñador & Control Hábito-Laboral</span>
+              <span>Campamento 3D WebGL Engine — Maqueta Volumétrica Real</span>
             </div>
             <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white uppercase italic flex items-center gap-3">
-              Alojamiento & Presencia 3D
-              <span className="text-[10px] font-black font-mono bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2.5 py-0.5 rounded-full not-italic">
-                REAL-TIME WEBGL
+              Visor Volumétrico 3D & Habitaciones
+              <span className="text-[10px] font-black font-mono bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2.5 py-0.5 rounded-full not-italic animate-pulse">
+                THREE.JS WEBGL 3D
               </span>
             </h1>
             <p className="text-zinc-400 text-xs max-w-2xl leading-relaxed">
-              Diseñador de cabañas y cuartos mineros en maquetación 3D. Controla la ocupación en tiempo real basándote en turnos de trabajo, estado de desinfección y lavandería de sábanas.
+              Modelado tridimensional volumétrico de cuartos, camas y figuras de trabajadores mineros en 3D. Rota 360°, haz zoom y haz clic en cualquier cama o muñeco 3D para consultar su información.
             </p>
           </div>
 
@@ -361,7 +634,7 @@ export default function CampamentosPage() {
               <Building className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Habitaciones 3D</p>
+              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Cuartos 3D</p>
               <h3 className="text-lg font-black text-white">{totalCuartos}</h3>
             </div>
           </div>
@@ -371,9 +644,9 @@ export default function CampamentosPage() {
               <Bed className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Ocupación Camas</p>
+              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Camas Ocupadas</p>
               <h3 className="text-lg font-black text-white">
-                {totalOcupadas} <span className="text-zinc-500 text-xs font-normal">/ {totalCamas} ({totalCamas > 0 ? Math.round((totalOcupadas/totalCamas)*100) : 0}%)</span>
+                {totalOcupadas} <span className="text-zinc-500 text-xs font-normal">/ {totalCamas}</span>
               </h3>
             </div>
           </div>
@@ -383,8 +656,8 @@ export default function CampamentosPage() {
               <Zap className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Camas Libres</p>
-              <h3 className="text-lg font-black text-emerald-400">{totalCamas - totalOcupadas} Libres</h3>
+              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Disponibles</p>
+              <h3 className="text-lg font-black text-emerald-400">{totalCamas - totalOcupadas} Camas</h3>
             </div>
           </div>
         </div>
@@ -392,7 +665,6 @@ export default function CampamentosPage() {
 
       {/* Camp Selectors & View Mode Toggles */}
       <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        {/* Camp Selector Tabs */}
         <div className="flex flex-wrap items-center gap-2 overflow-x-auto max-w-full pb-1 md:pb-0">
           {campamentos.map(camp => {
             const isSelected = selectedCampamento?.id_campamento === camp.id_campamento
@@ -417,8 +689,8 @@ export default function CampamentosPage() {
           })}
         </div>
 
-        {/* View Mode Switcher: 3D Viewport vs Table */}
-        <div className="flex items-center gap-2 bg-zinc-100 p-1 rounded-xl border border-zinc-200 self-end md:self-auto shrink-0">
+        {/* View Mode Switcher */}
+        <div className="flex items-center gap-2 bg-zinc-100 p-1 rounded-xl border border-zinc-200 shrink-0">
           <button
             onClick={() => setViewMode('3d')}
             className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase flex items-center gap-1.5 transition-all ${
@@ -428,7 +700,7 @@ export default function CampamentosPage() {
             }`}
           >
             <Box className="w-4 h-4 text-black" />
-            <span>🎮 Visor 3D Interactivo</span>
+            <span>🎮 Visor WebGL 3D Real</span>
           </button>
 
           <button
@@ -445,231 +717,48 @@ export default function CampamentosPage() {
         </div>
       </div>
 
-      {/* MAIN VIEWPORT: VISTA 3D INTERACTIVA */}
+      {/* MAIN VIEWPORT: THREE.JS WEBGL 3D VOLUMETRIC CANVAS */}
       {viewMode === '3d' && selectedCampamento && (
         <div className="space-y-4">
-          {/* 3D Toolbar & Controls */}
           <div className="bg-zinc-900 text-white p-4 rounded-2xl flex flex-wrap justify-between items-center gap-4 shadow-lg border border-zinc-800">
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 text-xs font-black text-amber-400 uppercase">
-                <Box className="w-4 h-4" />
-                <span>PERSPECTIVA 3D:</span>
-              </div>
-              <div className="flex gap-1 bg-zinc-800 p-1 rounded-xl">
-                <button
-                  onClick={() => setViewAngle('isometric')}
-                  className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all ${
-                    viewAngle === 'isometric' ? 'bg-amber-500 text-black font-extrabold' : 'text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  🎲 ISOMÉTRICA 3D
-                </button>
-                <button
-                  onClick={() => setViewAngle('top')}
-                  className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all ${
-                    viewAngle === 'top' ? 'bg-amber-500 text-black font-extrabold' : 'text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  🗺️ PLANO CENITAL 2D
-                </button>
-                <button
-                  onClick={() => setViewAngle('front')}
-                  className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all ${
-                    viewAngle === 'front' ? 'bg-amber-500 text-black font-extrabold' : 'text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  🏛️ FACHADA 3D
-                </button>
-              </div>
-            </div>
-
-            {/* LED Status Legend */}
-            <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold font-mono">
-              <div className="flex items-center gap-1.5 bg-zinc-800/80 px-2.5 py-1 rounded-lg border border-emerald-500/30">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping inline-block" />
-                <span className="text-emerald-400">🟢 Ocupado / En Sitio (Mina)</span>
-              </div>
-              <div className="flex items-center gap-1.5 bg-zinc-800/80 px-2.5 py-1 rounded-lg border border-amber-500/30">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
-                <span className="text-amber-300">🟡 En Franco (Descanso)</span>
-              </div>
-              <div className="flex items-center gap-1.5 bg-zinc-800/80 px-2.5 py-1 rounded-lg border border-zinc-500/30">
-                <span className="w-2.5 h-2.5 rounded-full bg-white inline-block" />
-                <span className="text-zinc-300">⚪ Cama Disponible</span>
-              </div>
+              <span className="text-xs font-black text-amber-400 uppercase flex items-center gap-1.5">
+                <Move className="w-4 h-4" /> INSTRUCCIONES 3D:
+              </span>
+              <span className="text-xs text-zinc-300 font-mono">
+                <strong>Arrastrar mouse:</strong> Rotar 360° | <strong>Rueda mouse:</strong> Zoom | <strong>Clic en cama:</strong> Abrir Ficha 3D
+              </span>
             </div>
 
             <button
               onClick={() => setShowAddRoomModal(true)}
               className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md"
             >
-              <Plus className="w-3.5 h-3.5" /> + Agregar Cuarto 3D
+              <Plus className="w-3.5 h-3.5" /> + Diseñar Cuarto 3D
             </button>
           </div>
 
-          {/* 3D STAGE STYLED CANVAS CONTAINER */}
-          <div className="bg-zinc-950 rounded-3xl p-8 min-h-[520px] border border-zinc-800 shadow-2xl relative overflow-hidden flex flex-col justify-center items-center">
-            {/* Grid background effect */}
-            <div 
-              className="absolute inset-0 opacity-15 pointer-events-none"
-              style={{
-                backgroundImage: 'radial-gradient(#f59e0b 1px, transparent 1px), radial-gradient(#3f3f46 1px, transparent 1px)',
-                backgroundSize: '24px 24px',
-                backgroundPosition: '0 0, 12px 12px'
-              }}
-            />
+          {/* THREE.JS CONTAINER */}
+          <div className="relative bg-zinc-950 rounded-3xl border border-zinc-800 shadow-2xl overflow-hidden min-h-[580px]">
+            <div ref={mountRef} className="w-full h-[580px] cursor-grab active:cursor-grabbing" />
 
-            {selectedCampamento.campamento_cuartos.length === 0 ? (
-              <div className="relative z-10 text-center space-y-3 p-12">
-                <Box className="w-12 h-12 text-amber-500/60 mx-auto animate-bounce" />
-                <h3 className="text-base font-black text-white uppercase">Este campamento aún no tiene cuartos diseñados en 3D</h3>
-                <p className="text-xs text-zinc-400 max-w-sm mx-auto">Agrega habitaciones para visualizar las maquetas tridimensionales y camas ocupadas.</p>
-                <button
-                  onClick={() => setShowAddRoomModal(true)}
-                  className="px-5 py-2.5 bg-amber-500 text-black font-black text-xs rounded-xl shadow-lg hover:bg-amber-400"
-                >
-                  + Diseñar Primera Habitación 3D
-                </button>
+            {/* Floating Overlay Controls Info */}
+            <div className="absolute bottom-4 left-4 bg-zinc-900/90 backdrop-blur-md p-3 rounded-2xl border border-zinc-800 text-white text-[10px] font-mono space-y-1 shadow-xl pointer-events-none">
+              <div className="font-black text-amber-400 flex items-center gap-1">
+                <Info className="w-3.5 h-3.5" /> MAQUETA 3D VOLUMÉTRICA EN TIEMPO REAL
               </div>
-            ) : (
-              <div 
-                className="w-full transition-all duration-700 ease-out transform-gpu py-8"
-                style={{
-                  transform: getTransform3D(),
-                  transformStyle: 'preserve-3d'
-                }}
-              >
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 max-w-6xl mx-auto">
-                  {selectedCampamento.campamento_cuartos.map((cuarto) => {
-                    const totalCamasQ = cuarto.campamento_camas.length
-                    const ocupadasQ = cuarto.campamento_camas.filter(c => c.id_empleado).length
-                    const isDirty = cuarto.estatus_limpieza === 'Sucio'
-                    const isCleaning = cuarto.estatus_limpieza === 'En Limpieza'
-
-                    return (
-                      <div
-                        key={cuarto.id_cuarto}
-                        className={`group relative bg-zinc-900/90 rounded-2xl border-2 p-5 shadow-2xl transition-all duration-300 transform hover:-translate-y-2 hover:scale-[1.03] ${
-                          isDirty ? 'border-rose-500/80 shadow-rose-500/10' :
-                          isCleaning ? 'border-amber-500/80 shadow-amber-500/10' :
-                          'border-zinc-700/80 hover:border-amber-500'
-                        }`}
-                        style={{
-                          boxShadow: '0 20px 30px -10px rgba(0,0,0,0.8), 0 0 15px rgba(245, 158, 11, 0.05)'
-                        }}
-                      >
-                        {/* Status Strip / LED Bar */}
-                        <div className="flex justify-between items-center border-b border-zinc-800 pb-2.5 mb-3">
-                          <div className="flex items-center gap-2">
-                            <span className={`w-3 h-3 rounded-full shadow-lg ${
-                              ocupadasQ === totalCamasQ ? 'bg-emerald-500 shadow-emerald-500/50 animate-pulse' :
-                              ocupadasQ > 0 ? 'bg-amber-400 shadow-amber-400/50' :
-                              'bg-zinc-600'
-                            }`} />
-                            <h4 className="font-black text-white text-sm uppercase tracking-wide">
-                              {cuarto.nombre}
-                            </h4>
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); toggleCleaningStatus(cuarto.id_cuarto, cuarto.estatus_limpieza); }}
-                              className={`text-[9px] font-black px-2 py-0.5 rounded-md uppercase border transition-all ${
-                                cuarto.estatus_limpieza === 'Limpio' ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700' :
-                                cuarto.estatus_limpieza === 'Sucio' ? 'bg-rose-950/80 text-rose-300 border-rose-700' :
-                                'bg-amber-950/80 text-amber-300 border-amber-700'
-                              }`}
-                            >
-                              🧼 {cuarto.estatus_limpieza}
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDeleteRoom(cuarto.id_cuarto); }}
-                              className="text-zinc-600 hover:text-rose-400 p-1"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Beds Grid inside Room 3D Cube */}
-                        <div className="grid grid-cols-2 gap-2.5 my-2">
-                          {cuarto.campamento_camas.map((cama) => {
-                            const emp = cama.empleados
-                            const isOccupied = Boolean(emp)
-
-                            return (
-                              <div
-                                key={cama.id_cama}
-                                onClick={() => {
-                                  if (isOccupied) {
-                                    setSelectedRoom3D(cuarto)
-                                    setSelectedBed3D({ room: cuarto, bed: cama })
-                                  } else {
-                                    setAssignmentTarget({ id_cama: cama.id_cama, numero: cama.numero })
-                                  }
-                                }}
-                                className={`p-3 rounded-xl border cursor-pointer transition-all flex flex-col justify-between min-h-[90px] relative overflow-hidden ${
-                                  isOccupied 
-                                    ? 'bg-gradient-to-b from-zinc-800 to-zinc-900 border-emerald-500/60 text-white hover:border-emerald-400 shadow-md'
-                                    : 'bg-zinc-950/60 border-zinc-800 text-zinc-500 hover:border-amber-500/60 hover:text-zinc-300'
-                                }`}
-                              >
-                                <div className="flex justify-between items-center">
-                                  <span className="text-[10px] font-black font-mono text-amber-400">
-                                    🛏️ CAMA #{cama.numero}
-                                  </span>
-                                  {isOccupied ? (
-                                    <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-xs shadow-emerald-500" />
-                                  ) : (
-                                    <span className="text-[8px] font-bold bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-400 uppercase">
-                                      LIBRE
-                                    </span>
-                                  )}
-                                </div>
-
-                                {isOccupied && emp ? (
-                                  <div className="space-y-0.5 mt-2">
-                                    <div className="font-black text-xs text-white truncate">
-                                      {emp.nombre} {emp.apellido_paterno}
-                                    </div>
-                                    <div className="text-[9px] text-zinc-400 truncate font-mono">
-                                      {emp.puesto || emp.departamento || 'Personal Mina'}
-                                    </div>
-                                    <div className="flex justify-between items-center mt-1 pt-1 border-t border-zinc-800 text-[8px] font-mono">
-                                      <span className="text-emerald-400 font-bold">🟢 En Sitio</span>
-                                      <span className={cama.estatus_lavado === 'Entregado' ? 'text-zinc-400' : 'text-amber-400'}>
-                                        🧺 {cama.estatus_lavado}
-                                      </span>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="text-[10px] font-black text-zinc-600 text-center my-auto flex items-center justify-center gap-1 group-hover:text-amber-400">
-                                    <Plus className="w-3.5 h-3.5" /> + Asignar
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-
-                        {/* Room Footer Info */}
-                        <div className="mt-3 pt-2 border-t border-zinc-800/80 flex justify-between items-center text-[10px] font-mono text-zinc-400">
-                          <span>Camas: <strong className="text-white">{ocupadasQ}/{totalCamasQ}</strong></span>
-                          <span className="text-amber-400 font-bold">
-                            {totalCamasQ - ocupadasQ === 0 ? 'COMPLETO' : `${totalCamasQ - ocupadasQ} Disponible(s)`}
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+              <div className="text-zinc-300">
+                🟩 Cuartos Verdes = Limpios | 🟧 Cuartos Amarillos = En Limpieza | 🟥 Cuartos Rojos = Sucios
               </div>
-            )}
+              <div className="text-zinc-400">
+                🟢 Camas Verdes = Con Muñeco 3D Ocupante | ⚪ Camas Blancas = Libres
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* MAIN VIEWPORT: VISTA EN TABLA OPERATIVA */}
+      {/* VISTA EN TABLA OPERATIVA */}
       {viewMode === 'tabla' && selectedCampamento && (
         <div className="space-y-4">
           <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-zinc-200 shadow-xs">
@@ -784,14 +873,14 @@ export default function CampamentosPage() {
 
       {/* MODAL HOLOGRÁFICO 3D DE OCUPANTE */}
       {selectedBed3D && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
           <div className="bg-zinc-950 rounded-3xl shadow-2xl max-w-lg w-full p-6 border border-zinc-800 text-white space-y-5 relative overflow-hidden">
             <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-amber-500 to-indigo-500" />
 
             <div className="flex justify-between items-start pt-1 border-b border-zinc-800 pb-3">
               <div>
                 <span className="text-[9px] font-black font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-2 py-0.5 rounded-full uppercase">
-                  FICHA HOLOGRÁFICA DE OCUPANTE
+                  FICHA HOLOGRÁFICA DE OCUPANTE 3D
                 </span>
                 <h2 className="text-lg font-black text-white uppercase mt-1">
                   {selectedBed3D.room.nombre} — Cama #{selectedBed3D.bed.numero}
