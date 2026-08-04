@@ -77,11 +77,31 @@ export default function ConsultaMedicaPortal() {
     const getClasificacionPase = (p: any) => {
         const parentesco = (p.parentesco || p.pacientes?.parentesco || '').toUpperCase().trim()
         const acompananteText = (p.acompanante || '').toUpperCase().trim()
-        const isWorker = !parentesco || parentesco === 'TITULAR' || parentesco === 'ELLA MISMA' || parentesco === 'EL MISMO' || parentesco === 'MISMO TRABAJADOR' || parentesco === 'TRABAJADOR'
         
-        const isAcompanante = p.es_acompanante || 
-            (acompananteText && acompananteText !== 'NO' && acompananteText !== 'NO REQUIERE' && !acompananteText.includes('ELLA MISMA') && !acompananteText.includes('EL MISMO')) ||
-            (!isWorker && parentesco)
+        // 1. Check if parentesco explicitly indicates the worker/titular
+        const isWorkerParentesco = !parentesco || 
+            parentesco === 'TITULAR' || 
+            parentesco.includes('TITULAR') || 
+            parentesco.includes('ELLA MISMA') || 
+            parentesco.includes('EL MISMO') || 
+            parentesco.includes('MISMO TRABAJADOR') || 
+            parentesco === 'TRABAJADOR'
+
+        // 2. Check if parentesco explicitly indicates a family member / accompanying person
+        const isFamilyRelation = parentesco.includes('HIJ') || 
+            parentesco.includes('ESPOS') || 
+            parentesco.includes('MADRE') || 
+            parentesco.includes('PADRE') || 
+            parentesco.includes('CONCUBIN') || 
+            parentesco.includes('FAMILIAR') ||
+            (parentesco.includes('ACOMPAÑANTE') && !parentesco.includes('ELLA MISMA') && !parentesco.includes('EL MISMO'))
+
+        // 3. A pass is an Acompañante ONLY IF not worker parentesco and is family/accompanying
+        const isAcompanante = !isWorkerParentesco && (
+            Boolean(p.es_acompanante) || 
+            isFamilyRelation ||
+            (acompananteText && acompananteText !== 'NO' && acompananteText !== 'NO REQUIERE' && !acompananteText.includes('ELLA MISMA') && !acompananteText.includes('EL MISMO'))
+        )
 
         if (isAcompanante) {
             return {
@@ -470,13 +490,13 @@ export default function ConsultaMedicaPortal() {
                 </div>
                 <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 shadow-xs">
                     <div className="text-2xl font-black text-emerald-900">
-                        {pases.filter(p => !p.pacientes?.parentesco || p.pacientes?.parentesco.toUpperCase() === 'TITULAR' || p.pacientes?.parentesco.toUpperCase() === 'ELLA MISMA').length}
+                        {pases.filter(p => !getClasificacionPase(p).isAcompanante).length}
                     </div>
                     <div className="text-[10px] font-bold text-emerald-700 uppercase mt-0.5">Trabajadores Titulares</div>
                 </div>
                 <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 shadow-xs">
                     <div className="text-2xl font-black text-amber-900">
-                        {pases.filter(p => p.pacientes?.parentesco && p.pacientes?.parentesco.toUpperCase() !== 'TITULAR' && p.pacientes?.parentesco.toUpperCase() !== 'ELLA MISMA').length}
+                        {pases.filter(p => getClasificacionPase(p).isAcompanante).length}
                     </div>
                     <div className="text-[10px] font-bold text-amber-700 uppercase mt-0.5">Acompañantes Autorizados</div>
                 </div>
