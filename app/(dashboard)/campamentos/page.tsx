@@ -125,9 +125,9 @@ export default function CampamentosPage() {
   // Helper to detect zone from campamento data
   const detectZona = (camp: any): string => {
     if (camp.zona && camp.zona !== '') return camp.zona
-    const nombre = (camp.nombre || '').toLowerCase()
-    if (nombre.includes('norte') || nombre.includes('(zona norte)')) return 'Zona Norte'
-    if (nombre.includes('paraje') || nombre.includes('(parajes)')) return 'Parajes'
+    const textToSearch = `${camp.nombre || ''} ${camp.ubicacion || ''}`.toLowerCase()
+    if (textToSearch.includes('norte')) return 'Zona Norte'
+    if (textToSearch.includes('paraje')) return 'Parajes'
     return 'Parajes' // default
   }
 
@@ -785,12 +785,13 @@ export default function CampamentosPage() {
     e.preventDefault()
     if (!newCampName) return
     try {
-      const formattedName = newCampName.includes('(') ? newCampName : `${newCampName} (${newCampZona})`
+      const formattedName = newCampName
+      const formattedUbi = newCampUbi ? `${newCampUbi} (${newCampZona})` : newCampZona
 
       // 1. Try inserting with zona column
       const { data, error } = await supabase.from('campamentos').insert([{
         nombre: formattedName,
-        ubicacion: newCampUbi || 'Sin ubicación',
+        ubicacion: formattedUbi,
         zona: newCampZona,
         tipo: newCampTipo
       }]).select().single()
@@ -800,7 +801,7 @@ export default function CampamentosPage() {
         // 2. Fallback if 'zona' column does not exist in Supabase schema
         const { data: fallbackData, error: fallbackErr } = await supabase.from('campamentos').insert([{
           nombre: formattedName,
-          ubicacion: newCampUbi || 'Sin ubicación',
+          ubicacion: formattedUbi,
           tipo: newCampTipo
         }]).select().single()
 
