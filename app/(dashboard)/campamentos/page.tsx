@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/utils/supabase/client'
-// @ts-ignore
-import * as THREE from 'three'
+
 import { 
   Home, Plus, Bed, Trash2, UserPlus, Search, Building, MapPin, 
   CheckCircle, AlertTriangle, ChevronRight, Sparkles, Activity, ShieldCheck,
@@ -135,289 +134,304 @@ export default function CampamentosPage() {
   useEffect(() => {
     if (viewMode !== '3d' || !mountRef.current || !selectedCampamento) return
 
-    const container = mountRef.current
-    const width = container.clientWidth || 800
-    const height = container.clientHeight || 500
+    let isDisposed = false
+    let animationFrameId: number
+    let cleanupEvents: (() => void) | undefined
 
-    // 1. Scene setup
-    const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x09090b) // Dark background
-    scene.fog = new THREE.FogExp2(0x09090b, 0.015)
+    const init3D = async () => {
+      // Dynamic client-side import for 100% Vercel Turbopack compatibility
+      const THREE = await import('three')
+      if (isDisposed || !mountRef.current) return
 
-    // 2. Camera setup
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000)
-    camera.position.set(20, 22, 28)
-    camera.lookAt(0, 0, 0)
+      const container = mountRef.current
+      const width = container.clientWidth || 800
+      const height = container.clientHeight || 500
 
-    // 3. Renderer setup
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-    renderer.setSize(width, height)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+      // 1. Scene setup
+      const scene = new THREE.Scene()
+      scene.background = new THREE.Color(0x09090b) // Dark background
+      scene.fog = new THREE.FogExp2(0x09090b, 0.015)
 
-    // Clear previous canvas
-    while (container.firstChild) {
-      container.removeChild(container.firstChild)
-    }
-    container.appendChild(renderer.domElement)
+      // 2. Camera setup
+      const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000)
+      camera.position.set(20, 22, 28)
+      camera.lookAt(0, 0, 0)
 
-    // 4. Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7)
-    scene.add(ambientLight)
+      // 3. Renderer setup
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+      renderer.setSize(width, height)
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+      renderer.shadowMap.enabled = true
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
-    const dirLight = new THREE.DirectionalLight(0xfff5ea, 1.2)
-    dirLight.position.set(20, 40, 20)
-    dirLight.castShadow = true
-    dirLight.shadow.mapSize.width = 2048
-    dirLight.shadow.mapSize.height = 2048
-    scene.add(dirLight)
+      // Clear previous canvas
+      while (container.firstChild) {
+        container.removeChild(container.firstChild)
+      }
+      container.appendChild(renderer.domElement)
 
-    const pointLight = new THREE.PointLight(0xf59e0b, 1.5, 50)
-    pointLight.position.set(0, 15, 0)
-    scene.add(pointLight)
+      // 4. Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.7)
+      scene.add(ambientLight)
 
-    // 5. Ground / Terrain Grid 3D
-    const gridHelper = new THREE.GridHelper(60, 30, 0xf59e0b, 0x27272a)
-    gridHelper.position.y = -0.01
-    scene.add(gridHelper)
+      const dirLight = new THREE.DirectionalLight(0xfff5ea, 1.2)
+      dirLight.position.set(20, 40, 20)
+      dirLight.castShadow = true
+      dirLight.shadow.mapSize.width = 2048
+      dirLight.shadow.mapSize.height = 2048
+      scene.add(dirLight)
 
-    const groundGeo = new THREE.PlaneGeometry(80, 80)
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x121215, roughness: 0.8, metalness: 0.2 })
-    const groundMesh = new THREE.Mesh(groundGeo, groundMat)
-    groundMesh.rotation.x = -Math.PI / 2
-    groundMesh.receiveShadow = true
-    scene.add(groundMesh)
+      const pointLight = new THREE.PointLight(0xf59e0b, 1.5, 50)
+      pointLight.position.set(0, 15, 0)
+      scene.add(pointLight)
 
-    // 6. Build 3D Volumetric Room Cubes & Beds & Person Figures
-    const rooms = selectedCampamento.campamento_cuartos || []
-    const roomsPerRow = 4
-    const roomSpacingX = 8.5
-    const roomSpacingZ = 8.5
+      // 5. Ground / Terrain Grid 3D
+      const gridHelper = new THREE.GridHelper(60, 30, 0xf59e0b, 0x27272a)
+      gridHelper.position.y = -0.01
+      scene.add(gridHelper)
 
-    const roomObjects: any[] = []
-    const bedObjectsMap = new Map<any, { room: Cuarto, bed: Cama }>()
+      const groundGeo = new THREE.PlaneGeometry(80, 80)
+      const groundMat = new THREE.MeshStandardMaterial({ color: 0x121215, roughness: 0.8, metalness: 0.2 })
+      const groundMesh = new THREE.Mesh(groundGeo, groundMat)
+      groundMesh.rotation.x = -Math.PI / 2
+      groundMesh.receiveShadow = true
+      scene.add(groundMesh)
 
-    rooms.forEach((cuarto, idx) => {
-      const row = Math.floor(idx / roomsPerRow)
-      const col = idx % roomsPerRow
-      const xPos = (col - (Math.min(rooms.length, roomsPerRow) - 1) / 2) * roomSpacingX
-      const zPos = (row - (Math.ceil(rooms.length / roomsPerRow) - 1) / 2) * roomSpacingZ
+      // 6. Build 3D Volumetric Room Cubes & Beds & Person Figures
+      const rooms = selectedCampamento.campamento_cuartos || []
+      const roomsPerRow = 4
+      const roomSpacingX = 8.5
+      const roomSpacingZ = 8.5
 
-      const roomGroup = new THREE.Group()
-      roomGroup.position.set(xPos, 0, zPos)
+      const roomObjects: any[] = []
+      const bedObjectsMap = new Map<any, { room: Cuarto, bed: Cama }>()
 
-      // Room Floor 3D
-      const floorGeo = new THREE.BoxGeometry(6.5, 0.2, 6.5)
-      const floorMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.5 })
-      const floorMesh = new THREE.Mesh(floorGeo, floorMat)
-      floorMesh.position.y = 0.1
-      floorMesh.receiveShadow = true
-      roomGroup.add(floorMesh)
+      rooms.forEach((cuarto, idx) => {
+        const row = Math.floor(idx / roomsPerRow)
+        const col = idx % roomsPerRow
+        const xPos = (col - (Math.min(rooms.length, roomsPerRow) - 1) / 2) * roomSpacingX
+        const zPos = (row - (Math.ceil(rooms.length / roomsPerRow) - 1) / 2) * roomSpacingZ
 
-      // Glass Walls 3D (Semi-transparent cube)
-      const wallGeo = new THREE.BoxGeometry(6.5, 3.2, 6.5)
-      const isDirty = cuarto.estatus_limpieza === 'Sucio'
-      const isCleaning = cuarto.estatus_limpieza === 'En Limpieza'
-      const wallColor = isDirty ? 0xef4444 : isCleaning ? 0xf59e0b : 0x10b981
+        const roomGroup = new THREE.Group()
+        roomGroup.position.set(xPos, 0, zPos)
 
-      const wallMat = new THREE.MeshPhysicalMaterial({
-        color: wallColor,
-        transparent: true,
-        opacity: 0.15,
-        roughness: 0.1,
-        transmission: 0.6,
-        thickness: 0.5
+        // Room Floor 3D
+        const floorGeo = new THREE.BoxGeometry(6.5, 0.2, 6.5)
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.5 })
+        const floorMesh = new THREE.Mesh(floorGeo, floorMat)
+        floorMesh.position.y = 0.1
+        floorMesh.receiveShadow = true
+        roomGroup.add(floorMesh)
+
+        // Glass Walls 3D (Semi-transparent cube)
+        const wallGeo = new THREE.BoxGeometry(6.5, 3.2, 6.5)
+        const isDirty = cuarto.estatus_limpieza === 'Sucio'
+        const isCleaning = cuarto.estatus_limpieza === 'En Limpieza'
+        const wallColor = isDirty ? 0xef4444 : isCleaning ? 0xf59e0b : 0x10b981
+
+        const wallMat = new THREE.MeshPhysicalMaterial({
+          color: wallColor,
+          transparent: true,
+          opacity: 0.15,
+          roughness: 0.1,
+          transmission: 0.6,
+          thickness: 0.5
+        })
+        const wallMesh = new THREE.Mesh(wallGeo, wallMat)
+        wallMesh.position.y = 1.7
+        roomGroup.add(wallMesh)
+
+        // Room Frame Borders (Wireframe 3D look)
+        const frameGeo = new THREE.BoxGeometry(6.6, 3.3, 6.6)
+        const frameMat = new THREE.MeshBasicMaterial({ color: wallColor, wireframe: true })
+        const frameMesh = new THREE.Mesh(frameGeo, frameMat)
+        frameMesh.position.y = 1.7
+        roomGroup.add(frameMesh)
+
+        // Room LED Ceiling Lamp 3D
+        const lampGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.1, 16)
+        const lampMat = new THREE.MeshBasicMaterial({ color: wallColor })
+        const lampMesh = new THREE.Mesh(lampGeo, lampMat)
+        lampMesh.position.set(0, 3.2, 0)
+        roomGroup.add(lampMesh)
+
+        // 3D Beds inside the room
+        const camas = cuarto.campamento_camas || []
+        camas.forEach((cama, cIdx) => {
+          const bedGroup = new THREE.Group()
+          const bedOffsetX = (cIdx % 2 === 0 ? -1.8 : 1.8)
+          const bedOffsetZ = (cIdx < 2 ? -1.5 : 1.5)
+          bedGroup.position.set(bedOffsetX, 0.2, bedOffsetZ)
+
+          // 3D Bed Frame
+          const bedFrameGeo = new THREE.BoxGeometry(2.0, 0.4, 2.8)
+          const bedFrameMat = new THREE.MeshStandardMaterial({ color: 0x3f3f46, roughness: 0.4 })
+          const bedFrameMesh = new THREE.Mesh(bedFrameGeo, bedFrameMat)
+          bedFrameMesh.position.y = 0.2
+          bedFrameMesh.castShadow = true
+          bedGroup.add(bedFrameMesh)
+
+          // 3D Mattress & Sheet
+          const isOccupied = Boolean(cama.id_empleado)
+          const sheetColor = isOccupied ? 0x10b981 : 0xe4e4e7
+          const matGeo = new THREE.BoxGeometry(1.8, 0.3, 2.6)
+          const matMaterial = new THREE.MeshStandardMaterial({ color: sheetColor, roughness: 0.7 })
+          const matMesh = new THREE.Mesh(matGeo, matMaterial)
+          matMesh.position.y = 0.5
+          matMesh.castShadow = true
+          bedGroup.add(matMesh)
+
+          // 3D Pillow
+          const pillowGeo = new THREE.BoxGeometry(1.4, 0.2, 0.6)
+          const pillowMat = new THREE.MeshStandardMaterial({ color: 0xffffff })
+          const pillowMesh = new THREE.Mesh(pillowGeo, pillowMat)
+          pillowMesh.position.set(0, 0.7, -0.9)
+          bedGroup.add(pillowMesh)
+
+          // 3D PERSON FIGURE / AVATAR (If Occupied)
+          if (isOccupied && cama.empleados) {
+            const personGroup = new THREE.Group()
+            personGroup.position.set(0, 0.65, 0)
+
+            // Torso (Shirt) 3D
+            const torsoGeo = new THREE.CylinderGeometry(0.4, 0.35, 0.9, 12)
+            const torsoMat = new THREE.MeshStandardMaterial({ color: 0x059669, roughness: 0.3 })
+            const torsoMesh = new THREE.Mesh(torsoGeo, torsoMat)
+            torsoMesh.position.y = 0.45
+            torsoMesh.castShadow = true
+            personGroup.add(torsoMesh)
+
+            // Head 3D
+            const headGeo = new THREE.SphereGeometry(0.32, 16, 16)
+            const headMat = new THREE.MeshStandardMaterial({ color: 0xfbd5a5, roughness: 0.6 })
+            const headMesh = new THREE.Mesh(headGeo, headMat)
+            headMesh.position.y = 1.15
+            headMesh.castShadow = true
+            personGroup.add(headMesh)
+
+            // Helmet 3D (Minero)
+            const helmetGeo = new THREE.SphereGeometry(0.35, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2)
+            const helmetMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.2, metalness: 0.3 })
+            const helmetMesh = new THREE.Mesh(helmetGeo, helmetMat)
+            helmetMesh.position.y = 1.25
+            personGroup.add(helmetMesh)
+
+            bedGroup.add(personGroup)
+          }
+
+          bedObjectsMap.set(bedGroup, { room: cuarto, bed: cama })
+          bedObjectsMap.set(matMesh, { room: cuarto, bed: cama })
+          roomGroup.add(bedGroup)
+        })
+
+        scene.add(roomGroup)
+        roomObjects.push(roomGroup)
       })
-      const wallMesh = new THREE.Mesh(wallGeo, wallMat)
-      wallMesh.position.y = 1.7
-      roomGroup.add(wallMesh)
 
-      // Room Frame Borders (Wireframe 3D look)
-      const frameGeo = new THREE.BoxGeometry(6.6, 3.3, 6.6)
-      const frameMat = new THREE.MeshBasicMaterial({ color: wallColor, wireframe: true })
-      const frameMesh = new THREE.Mesh(frameGeo, frameMat)
-      frameMesh.position.y = 1.7
-      roomGroup.add(frameMesh)
+      // 7. Interactive Mouse Orbit & Raycasting
+      let isDragging = false
+      let previousMousePosition = { x: 0, y: 0 }
+      let cameraAngleX = 45 * (Math.PI / 180)
+      let cameraAngleY = 45 * (Math.PI / 180)
+      let cameraRadius = 35
 
-      // Room LED Ceiling Lamp 3D
-      const lampGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.1, 16)
-      const lampMat = new THREE.MeshBasicMaterial({ color: wallColor })
-      const lampMesh = new THREE.Mesh(lampGeo, lampMat)
-      lampMesh.position.set(0, 3.2, 0)
-      roomGroup.add(lampMesh)
+      const updateCameraPosition = () => {
+        camera.position.x = cameraRadius * Math.sin(cameraAngleY) * Math.cos(cameraAngleX)
+        camera.position.y = cameraRadius * Math.sin(cameraAngleX)
+        camera.position.z = cameraRadius * Math.cos(cameraAngleY) * Math.cos(cameraAngleX)
+        camera.lookAt(0, 1.5, 0)
+      }
 
-      // 3D Beds inside the room
-      const camas = cuarto.campamento_camas || []
-      camas.forEach((cama, cIdx) => {
-        const bedGroup = new THREE.Group()
-        const bedOffsetX = (cIdx % 2 === 0 ? -1.8 : 1.8)
-        const bedOffsetZ = (cIdx < 2 ? -1.5 : 1.5)
-        bedGroup.position.set(bedOffsetX, 0.2, bedOffsetZ)
+      const onMouseDown = (e: MouseEvent) => {
+        isDragging = true
+        previousMousePosition = { x: e.clientX, y: e.clientY }
+      }
 
-        // 3D Bed Frame
-        const bedFrameGeo = new THREE.BoxGeometry(2.0, 0.4, 2.8)
-        const bedFrameMat = new THREE.MeshStandardMaterial({ color: 0x3f3f46, roughness: 0.4 })
-        const bedFrameMesh = new THREE.Mesh(bedFrameGeo, bedFrameMat)
-        bedFrameMesh.position.y = 0.2
-        bedFrameMesh.castShadow = true
-        bedGroup.add(bedFrameMesh)
+      const onMouseMove = (e: MouseEvent) => {
+        if (!isDragging) return
+        const deltaX = e.clientX - previousMousePosition.x
+        const deltaY = e.clientY - previousMousePosition.y
 
-        // 3D Mattress & Sheet
-        const isOccupied = Boolean(cama.id_empleado)
-        const sheetColor = isOccupied ? 0x10b981 : 0xe4e4e7
-        const matGeo = new THREE.BoxGeometry(1.8, 0.3, 2.6)
-        const matMaterial = new THREE.MeshStandardMaterial({ color: sheetColor, roughness: 0.7 })
-        const matMesh = new THREE.Mesh(matGeo, matMaterial)
-        matMesh.position.y = 0.5
-        matMesh.castShadow = true
-        bedGroup.add(matMesh)
+        cameraAngleY -= deltaX * 0.008
+        cameraAngleX = Math.max(0.1, Math.min(Math.PI / 2.2, cameraAngleX + deltaY * 0.008))
 
-        // 3D Pillow
-        const pillowGeo = new THREE.BoxGeometry(1.4, 0.2, 0.6)
-        const pillowMat = new THREE.MeshStandardMaterial({ color: 0xffffff })
-        const pillowMesh = new THREE.Mesh(pillowGeo, pillowMat)
-        pillowMesh.position.set(0, 0.7, -0.9)
-        bedGroup.add(pillowMesh)
+        previousMousePosition = { x: e.clientX, y: e.clientY }
+        updateCameraPosition()
+      }
 
-        // 3D PERSON FIGURE / AVATAR (If Occupied)
-        if (isOccupied && cama.empleados) {
-          const personGroup = new THREE.Group()
-          personGroup.position.set(0, 0.65, 0)
+      const onMouseUp = () => {
+        isDragging = false
+      }
 
-          // Torso (Shirt) 3D
-          const torsoGeo = new THREE.CylinderGeometry(0.4, 0.35, 0.9, 12)
-          const torsoMat = new THREE.MeshStandardMaterial({ color: 0x059669, roughness: 0.3 }) // Green Shirt
-          const torsoMesh = new THREE.Mesh(torsoGeo, torsoMat)
-          torsoMesh.position.y = 0.45
-          torsoMesh.castShadow = true
-          personGroup.add(torsoMesh)
+      const onWheel = (e: WheelEvent) => {
+        e.preventDefault()
+        cameraRadius = Math.max(10, Math.min(80, cameraRadius + e.deltaY * 0.03))
+        updateCameraPosition()
+      }
 
-          // Head 3D
-          const headGeo = new THREE.SphereGeometry(0.32, 16, 16)
-          const headMat = new THREE.MeshStandardMaterial({ color: 0xfbd5a5, roughness: 0.6 })
-          const headMesh = new THREE.Mesh(headGeo, headMat)
-          headMesh.position.y = 1.15
-          headMesh.castShadow = true
-          personGroup.add(headMesh)
+      const raycaster = new THREE.Raycaster()
+      const mouse = new THREE.Vector2()
 
-          // Helmet 3D (Minero)
-          const helmetGeo = new THREE.SphereGeometry(0.35, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2)
-          const helmetMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.2, metalness: 0.3 })
-          const helmetMesh = new THREE.Mesh(helmetGeo, helmetMat)
-          helmetMesh.position.y = 1.25
-          personGroup.add(helmetMesh)
+      const onClick = (e: MouseEvent) => {
+        const rect = renderer.domElement.getBoundingClientRect()
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
 
-          bedGroup.add(personGroup)
-        }
+        raycaster.setFromCamera(mouse, camera)
+        const intersects = raycaster.intersectObjects(scene.children, true)
 
-        bedObjectsMap.set(bedGroup, { room: cuarto, bed: cama })
-        bedObjectsMap.set(matMesh, { room: cuarto, bed: cama })
-        roomGroup.add(bedGroup)
-      })
-
-      scene.add(roomGroup)
-      roomObjects.push(roomGroup)
-    })
-
-    // 7. Interactive Mouse Orbit & Raycasting (Clicking 3D Objects)
-    let isDragging = false
-    let previousMousePosition = { x: 0, y: 0 }
-    let cameraAngleX = 45 * (Math.PI / 180)
-    let cameraAngleY = 45 * (Math.PI / 180)
-    let cameraRadius = 35
-
-    const updateCameraPosition = () => {
-      camera.position.x = cameraRadius * Math.sin(cameraAngleY) * Math.cos(cameraAngleX)
-      camera.position.y = cameraRadius * Math.sin(cameraAngleX)
-      camera.position.z = cameraRadius * Math.cos(cameraAngleY) * Math.cos(cameraAngleX)
-      camera.lookAt(0, 1.5, 0)
-    }
-
-    const onMouseDown = (e: MouseEvent) => {
-      isDragging = true
-      previousMousePosition = { x: e.clientX, y: e.clientY }
-    }
-
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return
-      const deltaX = e.clientX - previousMousePosition.x
-      const deltaY = e.clientY - previousMousePosition.y
-
-      cameraAngleY -= deltaX * 0.008
-      cameraAngleX = Math.max(0.1, Math.min(Math.PI / 2.2, cameraAngleX + deltaY * 0.008))
-
-      previousMousePosition = { x: e.clientX, y: e.clientY }
-      updateCameraPosition()
-    }
-
-    const onMouseUp = () => {
-      isDragging = false
-    }
-
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      cameraRadius = Math.max(10, Math.min(80, cameraRadius + e.deltaY * 0.03))
-      updateCameraPosition()
-    }
-
-    // Raycaster for clicking 3D beds / person figures
-    const raycaster = new THREE.Raycaster()
-    const mouse = new THREE.Vector2()
-
-    const onClick = (e: MouseEvent) => {
-      const rect = renderer.domElement.getBoundingClientRect()
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
-
-      raycaster.setFromCamera(mouse, camera)
-      const intersects = raycaster.intersectObjects(scene.children, true)
-
-      if (intersects.length > 0) {
-        for (const intersect of intersects) {
-          let current: any = intersect.object
-          while (current) {
-            if (bedObjectsMap.has(current)) {
-              const matched = bedObjectsMap.get(current)!
-              setSelectedRoom3D(matched.room)
-              setSelectedBed3D(matched)
-              return
+        if (intersects.length > 0) {
+          for (const intersect of intersects) {
+            let current: any = intersect.object
+            while (current) {
+              if (bedObjectsMap.has(current)) {
+                const matched = bedObjectsMap.get(current)!
+                setSelectedRoom3D(matched.room)
+                setSelectedBed3D(matched)
+                return
+              }
+              current = current.parent
             }
-            current = current.parent
           }
         }
       }
-    }
 
-    const domElement = renderer.domElement
-    domElement.addEventListener('mousedown', onMouseDown)
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp)
-    domElement.addEventListener('wheel', onWheel, { passive: false })
-    domElement.addEventListener('click', onClick)
+      const domElement = renderer.domElement
+      domElement.addEventListener('mousedown', onMouseDown)
+      window.addEventListener('mousemove', onMouseMove)
+      window.addEventListener('mouseup', onMouseUp)
+      domElement.addEventListener('wheel', onWheel, { passive: false })
+      domElement.addEventListener('click', onClick)
 
-    updateCameraPosition()
+      updateCameraPosition()
 
-    // 8. Animation Loop
-    let animationFrameId: number
-    const animate = () => {
-      animationFrameId = requestAnimationFrame(animate)
-      renderer.render(scene, camera)
-    }
-    animate()
-
-    // Clean up on unmount or component change
-    return () => {
-      cancelAnimationFrame(animationFrameId)
-      domElement.removeEventListener('mousedown', onMouseDown)
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
-      domElement.removeEventListener('wheel', onWheel)
-      domElement.removeEventListener('click', onClick)
-      if (container.contains(domElement)) {
-        container.removeChild(domElement)
+      // 8. Animation Loop
+      const animate = () => {
+        if (isDisposed) return
+        animationFrameId = requestAnimationFrame(animate)
+        renderer.render(scene, camera)
       }
-      renderer.dispose()
+      animate()
+
+      cleanupEvents = () => {
+        domElement.removeEventListener('mousedown', onMouseDown)
+        window.removeEventListener('mousemove', onMouseMove)
+        window.removeEventListener('mouseup', onMouseUp)
+        domElement.removeEventListener('wheel', onWheel)
+        domElement.removeEventListener('click', onClick)
+        if (container.contains(domElement)) {
+          container.removeChild(domElement)
+        }
+        renderer.dispose()
+      }
+    }
+
+    init3D()
+
+    return () => {
+      isDisposed = true
+      if (animationFrameId) cancelAnimationFrame(animationFrameId)
+      if (cleanupEvents) cleanupEvents()
     }
   }, [viewMode, selectedCampamento])
 
