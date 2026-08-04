@@ -77,6 +77,16 @@ export default function CampamentosPage() {
   const [newCampZona, setNewCampZona] = useState<'Parajes' | 'Zona Norte'>('Parajes')
   const [newCampTipo, setNewCampTipo] = useState('General')
 
+  // Edit Campamento state
+  const [editingCamp, setEditingCamp] = useState<Campamento | null>(null)
+  const [editingCampForm, setEditingCampForm] = useState({
+    nombre: '',
+    ubicacion: '',
+    zona: 'Parajes' as 'Parajes' | 'Zona Norte',
+    tipo: 'General'
+  })
+  const [savingEditCamp, setSavingEditCamp] = useState(false)
+
   const [showAddRoomModal, setShowAddRoomModal] = useState(false)
   const [newRoomName, setNewRoomName] = useState('')
   const [newRoomCamas, setNewRoomCamas] = useState(2)
@@ -888,6 +898,91 @@ export default function CampamentosPage() {
     }
   }
 
+  const handleStartEditCamp = (camp: Campamento) => {
+    setEditingCamp(camp)
+    setEditingCampForm({
+      nombre: camp.nombre,
+      ubicacion: camp.ubicacion || '',
+      zona: (camp.zona === 'Zona Norte' ? 'Zona Norte' : 'Parajes') as 'Parajes' | 'Zona Norte',
+      tipo: camp.tipo || 'General'
+    })
+  }
+
+  const handleSaveEditCamp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingCamp || !editingCampForm.nombre) return
+
+    setSavingEditCamp(true)
+    try {
+      const formattedName = editingCampForm.nombre
+      const formattedUbi = editingCampForm.ubicacion ? `${editingCampForm.ubicacion} (${editingCampForm.zona})` : editingCampForm.zona
+
+      // 1. Try updating with zona column
+      const { error } = await supabase
+        .from('campamentos')
+        .update({
+          nombre: formattedName,
+          ubicacion: formattedUbi,
+          zona: editingCampForm.zona,
+          tipo: editingCampForm.tipo
+        })
+        .eq('id_campamento', editingCamp.id_campamento)
+
+      if (error) {
+        console.warn('Fallback edit without zona column:', error.message)
+        // Fallback update without zona column
+        const { error: fallbackErr } = await supabase
+          .from('campamentos')
+          .update({
+            nombre: formattedName,
+            ubicacion: formattedUbi,
+            tipo: editingCampForm.tipo
+          })
+          .eq('id_campamento', editingCamp.id_campamento)
+
+        if (fallbackErr) throw fallbackErr
+      }
+
+      alert(`Campamento "${editingCampForm.nombre}" actualizado correctamente.`)
+      setEditingCamp(null)
+      await fetchData()
+    } catch (err: any) {
+      console.error('Error updating camp:', err)
+      alert('Error al editar campamento: ' + (err.message || err))
+    } finally {
+      setSavingEditCamp(false)
+    }
+  }
+
+  const handleDeleteCamp = async (camp: Campamento) => {
+    if (!confirm(`¿Estás seguro de eliminar el campamento "${camp.nombre}" y todos sus cuartos y camas asociados? Esta acción no se puede deshacer.`)) return
+
+    try {
+      const roomIds = (camp.campamento_cuartos || []).map(q => q.id_cuarto)
+
+      if (roomIds.length > 0) {
+        // Delete camas
+        await supabase.from('campamento_camas').delete().in('id_cuarto', roomIds)
+        // Delete cuartos
+        await supabase.from('campamento_cuartos').delete().in('id_cuarto', roomIds)
+      }
+
+      // Delete campamento
+      const { error } = await supabase.from('campamentos').delete().eq('id_campamento', camp.id_campamento)
+      if (error) throw error
+
+      alert(`Campamento "${camp.nombre}" eliminado correctamente.`)
+
+      if (selectedCampamento?.id_campamento === camp.id_campamento) {
+        setSelectedCampamento(null)
+      }
+      await fetchData()
+    } catch (err: any) {
+      console.error('Error deleting camp:', err)
+      alert('Error al eliminar el campamento: ' + (err.message || err))
+    }
+  }
+
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedCampamento || !newRoomName) return
@@ -1234,6 +1329,44 @@ export default function CampamentosPage() {
           </button>
         </div>
       </div>
+
+      {/* ACTIVE SELECTED CAMPAMENTO MANAGEMENT BAR */}
+      {selectedCampamento && (
+        <div className="bg-gradient-to-r from-zinc-900 to-zinc-950 text-white px-5 py-3 rounded-2xl border border-zinc-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-md">
+          <div className="flex items-center gap-3">
+            <Home className="w-5 h-5 text-amber-400" />
+            <div>
+              <div className="text-[10px] font-black uppercase text-amber-400 tracking-wider">CAMPAMENTO SELECCIONADO</div>
+              <div className="text-sm font-black uppercase flex flex-wrap items-center gap-2">
+                {selectedCampamento.nombre}
+                <span className="text-[10px] font-mono font-bold bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-md border border-amber-500/30">
+                  {selectedCampamento.zona || 'Parajes'}
+                </span>
+                <span className="text-[10px] font-mono text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded-md">
+                  {selectedCampamento.tipo || 'General'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleStartEditCamp(selectedCampamento)}
+              className="px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 border border-zinc-700 shadow-sm transition-all"
+            >
+              <span>✏️ Editar Campamento</span>
+            </button>
+
+            <button
+              onClick={() => handleDeleteCamp(selectedCampamento)}
+              className="px-3.5 py-1.5 bg-red-900/40 hover:bg-red-800 text-red-300 rounded-xl text-xs font-black uppercase flex items-center gap-1.5 border border-red-800/80 shadow-sm transition-all"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-red-400" />
+              <span>Eliminar Campamento</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* FALLBACK EMPTY STATE WHEN NO CAMPAMENTO IN ZONE */}
       {viewMode !== 'contratistas' && !selectedCampamento && (
@@ -2331,6 +2464,102 @@ export default function CampamentosPage() {
                 >
                   Generar Cuarto 3D
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDITAR CAMPAMENTO */}
+      {editingCamp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-zinc-200 space-y-4">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <h3 className="text-base font-black text-zinc-900 uppercase flex items-center gap-2">
+                <Home className="w-5 h-5 text-amber-500" />
+                Editar Campamento Minero
+              </h3>
+              <button onClick={() => setEditingCamp(null)} className="text-zinc-400 hover:text-zinc-700 font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleSaveEditCamp} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Nombre del Campamento / Cabaña</label>
+                <input
+                  type="text"
+                  required
+                  value={editingCampForm.nombre}
+                  onChange={e => setEditingCampForm({ ...editingCampForm, nombre: e.target.value })}
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Zona Minera Destinada</label>
+                <select
+                  value={editingCampForm.zona}
+                  onChange={e => setEditingCampForm({ ...editingCampForm, zona: e.target.value as any })}
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                >
+                  <option value="Parajes">📍 Zona Parajes</option>
+                  <option value="Zona Norte">📍 Zona Norte</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Ubicación Específica</label>
+                <input
+                  type="text"
+                  value={editingCampForm.ubicacion}
+                  onChange={e => setEditingCampForm({ ...editingCampForm, ubicacion: e.target.value })}
+                  placeholder="Ej. Planta Alta - Sector Norte"
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Tipo de Personal Destinado</label>
+                <select
+                  value={editingCampForm.tipo}
+                  onChange={e => setEditingCampForm({ ...editingCampForm, tipo: e.target.value })}
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                >
+                  <option value="General">General / Personal Operativo</option>
+                  <option value="Supervisores">Supervisores & Ingenieros</option>
+                  <option value="Staff">Staff / Administración</option>
+                  <option value="Contratistas">Contratistas</option>
+                </select>
+              </div>
+
+              <div className="pt-2 flex justify-between items-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (editingCamp) handleDeleteCamp(editingCamp)
+                    setEditingCamp(null)
+                  }}
+                  className="px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-50 rounded-xl flex items-center gap-1 border border-red-200"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Eliminar
+                </button>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingCamp(null)}
+                    className="px-4 py-2 text-xs font-bold text-zinc-600 hover:bg-zinc-100 rounded-xl"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingEditCamp}
+                    className="px-5 py-2 text-xs font-black bg-amber-500 hover:bg-amber-600 text-black rounded-xl shadow-md"
+                  >
+                    {savingEditCamp ? 'Guardando...' : 'Guardar Cambios'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
