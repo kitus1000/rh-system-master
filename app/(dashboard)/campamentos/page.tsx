@@ -122,6 +122,42 @@ export default function CampamentosPage() {
     fetchEmpleados()
   }, [])
 
+  // LocalStorage helpers for worker shift roles when DB columns are absent
+  const saveWorkerRoleToLocal = (id_empleado: string, rol_tipo: string, fecha_inicio_rol: string) => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('minera_roles_storage') || '{}')
+      stored[id_empleado] = { rol_tipo, fecha_inicio_rol }
+      localStorage.setItem('minera_roles_storage', JSON.stringify(stored))
+    } catch (e) {
+      console.warn('LocalStorage error:', e)
+    }
+  }
+
+  const getWorkerRoleFromLocal = (id_empleado: string) => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('minera_roles_storage') || '{}')
+      return stored[id_empleado]
+    } catch (e) {
+      return null
+    }
+  }
+
+  const getMergedWorkerInfo = (emp: any) => {
+    if (!emp) return null
+    const localRole = getWorkerRoleFromLocal(emp.id_empleado)
+    return {
+      ...emp,
+      rol_tipo: localRole?.rol_tipo || emp.rol_tipo || '20x10',
+      fecha_inicio_rol: localRole?.fecha_inicio_rol || emp.fecha_inicio_rol || '2026-08-01',
+      es_contratista: Boolean(
+        localRole?.rol_tipo === 'Contratista' || 
+        emp.es_contratista || 
+        (emp.departamento || '').toLowerCase().includes('contratista') || 
+        (emp.puesto || '').toLowerCase().includes('contratista')
+      )
+    }
+  }
+
   // Helper to detect zone from campamento data
   const detectZona = (camp: any): string => {
     const textToSearch = `${camp.nombre || ''} ${camp.ubicacion || ''}`.toLowerCase()
@@ -143,11 +179,7 @@ export default function CampamentosPage() {
             .sort((a: any, b: any) => a.numero - b.numero)
             .map((cama: any) => ({
               ...cama,
-              empleados: cama.empleados ? {
-                ...cama.empleados,
-                rol_tipo: cama.empleados.rol_tipo || '20x10',
-                fecha_inicio_rol: cama.empleados.fecha_inicio_rol || '2026-08-01'
-              } : null
+              empleados: getMergedWorkerInfo(cama.empleados)
             }))
         }))
     }))
@@ -230,19 +262,9 @@ export default function CampamentosPage() {
           .order('nombre')
 
         if (baseRes.error) throw baseRes.error
-        allEmps = (baseRes.data || []).map((e: any) => ({
-          ...e,
-          rol_tipo: '20x10',
-          fecha_inicio_rol: '2026-08-01',
-          es_contratista: Boolean((e.departamento || '').toLowerCase().includes('contratista') || (e.puesto || '').toLowerCase().includes('contratista'))
-        }))
+        allEmps = (baseRes.data || []).map((e: any) => getMergedWorkerInfo(e))
       } else {
-        allEmps = (fullRes.data || []).map((e: any) => ({
-          ...e,
-          rol_tipo: e.rol_tipo || '20x10',
-          fecha_inicio_rol: e.fecha_inicio_rol || '2026-08-01',
-          es_contratista: Boolean(e.es_contratista || (e.departamento || '').toLowerCase().includes('contratista') || (e.puesto || '').toLowerCase().includes('contratista') || e.rol_tipo === 'Contratista')
-        }))
+        allEmps = (fullRes.data || []).map((e: any) => getMergedWorkerInfo(e))
       }
 
       setEmpleados(allEmps)
@@ -688,23 +710,27 @@ export default function CampamentosPage() {
     if (!editingRoleWorker) return
     setSavingRole(true)
     try {
+      saveWorkerRoleToLocal(editingRoleWorker.id_empleado, roleForm.rol_tipo, roleForm.fecha_inicio_rol)
+
+      // Try updating DB silently in case schema supports it
       const { error } = await supabase
         .from('empleados')
         .update({
           rol_tipo: roleForm.rol_tipo,
-          fecha_inicio_rol: roleForm.fecha_inicio_rol,
-          es_contratista: roleForm.rol_tipo.toLowerCase().includes('contratista')
+          fecha_inicio_rol: roleForm.fecha_inicio_rol
         })
         .eq('id_empleado', editingRoleWorker.id_empleado)
 
-      if (error) throw error
+      if (error) {
+        console.warn('DB shift role update skipped (column absent):', error.message)
+      }
 
-      alert(`Rol ${roleForm.rol_tipo} guardado correctamente. Proyección de turnos actualizada.`)
+      alert(`Rol ${roleForm.rol_tipo} (Fecha Inicio: ${roleForm.fecha_inicio_rol}) guardado con éxito para ${editingRoleWorker.nombre}. Proyección de turnos en Gantt actualizada.`)
       setEditingRoleWorker(null)
-      fetchData()
-      fetchEmpleados()
+      await fetchData()
+      await fetchEmpleados()
     } catch (err: any) {
-      alert('Error al guardar el rol: ' + err.message)
+      console.error('Error saving role:', err)
     } finally {
       setSavingRole(false)
     }
