@@ -4,13 +4,19 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { 
   Home, Plus, Bed, Trash2, UserPlus, Search, Building, MapPin, 
-  CheckCircle, AlertTriangle, ChevronRight, Sparkles, Activity, ShieldCheck
+  CheckCircle, AlertTriangle, ChevronRight, Sparkles, Activity, ShieldCheck,
+  Box, Eye, Layers, RotateCw, User, Calendar, Clock, RefreshCw, X, Sparkle,
+  Check, Shirt, Sparkles as SparklesIcon, Zap, Settings, ShieldAlert
 } from 'lucide-react'
 
 interface Persona {
   id_empleado: string
   nombre: string
   apellido_paterno: string
+  apellido_materno?: string
+  puesto?: string
+  departamento?: string
+  numero_empleado?: number | string
 }
 
 interface Cama {
@@ -43,6 +49,16 @@ export default function CampamentosPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   
+  // Vistas: '3d' (Visor 3D Interactivo) vs 'tabla' (Gestión Operativa)
+  const [viewMode, setViewMode] = useState<'3d' | 'tabla'>('3d')
+  
+  // Ángulo 3D: 'isometric' (Isométrica), 'top' (Plano Cenital), 'front' (Fachada 3D)
+  const [viewAngle, setViewAngle] = useState<'isometric' | 'top' | 'front'>('isometric')
+
+  // Ocupante / Cama Seleccionada para Modal Holográfico 3D
+  const [selectedRoom3D, setSelectedRoom3D] = useState<Cuarto | null>(null)
+  const [selectedBed3D, setSelectedBed3D] = useState<{ room: Cuarto, bed: Cama } | null>(null)
+
   // Modales/Form states
   const [showAddCampModal, setShowAddCampModal] = useState(false)
   const [newCampName, setNewCampName] = useState('')
@@ -72,7 +88,7 @@ export default function CampamentosPage() {
             id_cuarto, nombre, estatus_limpieza,
             campamento_camas (
               id_cama, numero, estatus_lavado, id_empleado,
-              empleados ( id_empleado, nombre, apellido_paterno )
+              empleados ( id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado )
             )
           )
         `)
@@ -80,11 +96,10 @@ export default function CampamentosPage() {
       
       if (error) throw error
 
-      // Sort cuartos and camas to display in order
       const processed: Campamento[] = (data || []).map((camp: any) => ({
         ...camp,
         campamento_cuartos: (camp.campamento_cuartos || [])
-          .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre))
+          .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre, undefined, { numeric: true, sensitivity: 'base' }))
           .map((q: any) => ({
             ...q,
             campamento_camas: (q.campamento_camas || []).sort((a: any, b: any) => a.numero - b.numero)
@@ -96,7 +111,7 @@ export default function CampamentosPage() {
       if (!selectedCampamento && processed.length > 0) {
         setSelectedCampamento(processed[0])
       } else if (selectedCampamento) {
-        setSelectedCampamento(processed.find(c => c.id_campamento === selectedCampamento.id_campamento) || null)
+        setSelectedCampamento(processed.find(c => c.id_campamento === selectedCampamento.id_campamento) || processed[0] || null)
       }
     } catch (error) {
       console.error('Error fetching campamentos:', error)
@@ -106,11 +121,15 @@ export default function CampamentosPage() {
   }
 
   const fetchEmpleados = async () => {
-    const { data } = await supabase.from('empleados').select('id_empleado, nombre, apellido_paterno').eq('estado_empleado', 'Activo')
+    const { data } = await supabase
+      .from('empleados')
+      .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado')
+      .eq('estado_empleado', 'Activo')
+      .order('nombre')
     setEmpleados(data || [])
   }
 
-  // Calculations
+  // Calculated Stats
   const getCamasStats = (camp: Campamento) => {
     let totales = 0
     let ocupadas = 0
@@ -168,7 +187,6 @@ export default function CampamentosPage() {
     if (!selectedCampamento || !newRoomName) return
 
     try {
-      // 1. Create Room
       const { data: roomData, error: roomError } = await supabase.from('campamento_cuartos').insert([{
         id_campamento: selectedCampamento.id_campamento,
         nombre: newRoomName
@@ -176,7 +194,6 @@ export default function CampamentosPage() {
 
       if (roomError) throw roomError
 
-      // 2. Create Beds
       const camasArray = Array.from({ length: Number(newRoomCamas) }, (_, i) => ({
         id_cuarto: roomData.id_cuarto,
         numero: i + 1
@@ -205,6 +222,9 @@ export default function CampamentosPage() {
       if (error) throw error
       setAssignmentTarget(null)
       setAssignmentSearch('')
+      if (selectedBed3D) {
+        setSelectedBed3D(null)
+      }
       fetchData()
     } catch (error) {
       console.error('Error assigning person:', error)
@@ -212,13 +232,16 @@ export default function CampamentosPage() {
   }
 
   const handleRemovePerson = async (id_cama: string) => {
-    if (!confirm('¿Desocupar cama?')) return
+    if (!confirm('¿Desocupar esta cama? El trabajador será liberado del cuarto.')) return
     try {
       const { error } = await supabase.from('campamento_camas')
         .update({ id_empleado: null })
         .eq('id_cama', id_cama)
       
       if (error) throw error
+      if (selectedBed3D?.bed.id_cama === id_cama) {
+        setSelectedBed3D(null)
+      }
       fetchData()
     } catch (error) {
       console.error('Error removing person:', error)
@@ -226,7 +249,7 @@ export default function CampamentosPage() {
   }
 
   const handleDeleteRoom = async (id_cuarto: string) => {
-    if (!confirm('¿Estás seguro de eliminar esta habitación y sus camas?')) return
+    if (!confirm('¿Estás seguro de eliminar esta habitación y sus camas de la maqueta 3D?')) return
     try {
       const { error } = await supabase.from('campamento_cuartos').delete().eq('id_cuarto', id_cuarto)
       if (error) throw error
@@ -266,445 +289,731 @@ export default function CampamentosPage() {
     c.ubicacion.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  const filteredEmployees = empleados.filter(emp => 
-    `${emp.nombre} ${emp.apellido_paterno}`.toLowerCase().includes(assignmentSearch.toLowerCase())
-  )
+  const filteredEmployees = empleados.filter(emp => {
+    const full = `${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.toLowerCase()
+    return full.includes(assignmentSearch.toLowerCase())
+  })
+
+  // CSS 3D Transform generator according to active angle
+  const getTransform3D = () => {
+    switch (viewAngle) {
+      case 'isometric':
+        return 'rotateX(50deg) rotateZ(-28deg) scale(0.92)'
+      case 'top':
+        return 'rotateX(0deg) rotateZ(0deg) scale(1)'
+      case 'front':
+        return 'rotateX(75deg) rotateZ(0deg) scale(0.95)'
+      default:
+        return 'rotateX(50deg) rotateZ(-28deg)'
+    }
+  }
 
   return (
-    <div className="space-y-8 pb-16 font-mono text-zinc-850">
-      {/* Header Banner */}
-      <div className="relative rounded-2xl overflow-hidden bg-zinc-950 p-8 text-white border border-zinc-900 shadow-xl">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-amber-500/10 via-zinc-950 to-zinc-950 pointer-events-none" />
-        <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-          <div>
-            <div className="flex items-center gap-2 text-amber-500 font-semibold mb-1">
-              <Sparkles className="w-5 h-5 text-amber-500 animate-pulse" />
-              <span>Control de Campamentos Mineros v2</span>
-            </div>
-            <h1 className="text-3xl font-black tracking-tight text-white uppercase italic">
-              Alojamiento y Capacidad
-            </h1>
-            <p className="text-zinc-400 mt-1 max-w-xl">
-              Administra cabañas, distribución de habitaciones, asignación de personal, servicio de lavado de ropa de cama y estatus de limpieza sincronizado con la base de datos real.
-            </p>
-          </div>
-          <button 
-            onClick={() => setShowAddCampModal(true)}
-            className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-bold px-5 py-3 rounded-lg shadow-lg shadow-amber-500/20 transition-all duration-300 transform hover:scale-[1.02]"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Registrar Campamento</span>
-          </button>
+    <div className="space-y-6 pb-20 font-sans text-zinc-900">
+      {/* Header Studio 3D */}
+      <div className="relative rounded-3xl overflow-hidden bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 p-6 md:p-8 text-white border border-zinc-800 shadow-2xl">
+        <div className="absolute top-0 right-0 p-12 opacity-15 pointer-events-none">
+          <Box className="w-64 h-64 text-amber-500" />
         </div>
 
-        {/* Global Statistics */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-8 pt-8 border-t border-zinc-900">
-          <div className="flex items-center gap-4 bg-zinc-900/60 p-4 rounded-xl border border-zinc-850">
-            <div className="h-12 w-12 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-500">
-              <Home className="w-6 h-6" />
+        <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-amber-400 text-xs font-black uppercase tracking-widest">
+              <SparklesIcon className="w-4 h-4 text-amber-400 animate-pulse" />
+              <span>Campamento 3D Studio — Diseñador & Control Hábito-Laboral</span>
+            </div>
+            <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white uppercase italic flex items-center gap-3">
+              Alojamiento & Presencia 3D
+              <span className="text-[10px] font-black font-mono bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2.5 py-0.5 rounded-full not-italic">
+                REAL-TIME WEBGL
+              </span>
+            </h1>
+            <p className="text-zinc-400 text-xs max-w-2xl leading-relaxed">
+              Diseñador de cabañas y cuartos mineros en maquetación 3D. Controla la ocupación en tiempo real basándote en turnos de trabajo, estado de desinfección y lavandería de sábanas.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button 
+              onClick={() => setShowAddCampModal(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-extrabold text-xs px-4 py-2.5 rounded-xl shadow-lg shadow-amber-500/20 transition-all transform hover:scale-105"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Nuevo Campamento</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Global Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-zinc-800/80">
+          <div className="bg-zinc-900/80 p-3.5 rounded-2xl border border-zinc-800 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400 font-black">
+              <Home className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Campamentos Activos</p>
-              <h3 className="text-2xl font-black text-white">{campamentos.length}</h3>
+              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Campamentos</p>
+              <h3 className="text-lg font-black text-white">{campamentos.length}</h3>
             </div>
           </div>
-          <div className="flex items-center gap-4 bg-zinc-900/60 p-4 rounded-xl border border-zinc-850">
-            <div className="h-12 w-12 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
-              <Building className="w-6 h-6" />
+
+          <div className="bg-zinc-900/80 p-3.5 rounded-2xl border border-zinc-800 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 font-black">
+              <Building className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Habitaciones / Cabañas</p>
-              <h3 className="text-2xl font-black text-white">{totalCuartos}</h3>
+              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Habitaciones 3D</p>
+              <h3 className="text-lg font-black text-white">{totalCuartos}</h3>
             </div>
           </div>
-          <div className="flex items-center gap-4 bg-zinc-900/60 p-4 rounded-xl border border-zinc-850">
-            <div className="h-12 w-12 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
-              <Bed className="w-6 h-6" />
+
+          <div className="bg-zinc-900/80 p-3.5 rounded-2xl border border-zinc-800 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 font-black">
+              <Bed className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Camas y Ocupación</p>
-              <h3 className="text-2xl font-black text-white">
-                {totalOcupadas} <span className="text-zinc-500 text-sm font-normal">/ {totalCamas} ({totalCamas > 0 ? Math.round((totalOcupadas/totalCamas)*100) : 0}%)</span>
+              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Ocupación Camas</p>
+              <h3 className="text-lg font-black text-white">
+                {totalOcupadas} <span className="text-zinc-500 text-xs font-normal">/ {totalCamas} ({totalCamas > 0 ? Math.round((totalOcupadas/totalCamas)*100) : 0}%)</span>
               </h3>
+            </div>
+          </div>
+
+          <div className="bg-zinc-900/80 p-3.5 rounded-2xl border border-zinc-800 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400 font-black">
+              <Zap className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Camas Libres</p>
+              <h3 className="text-lg font-black text-emerald-400">{totalCamas - totalOcupadas} Libres</h3>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Side: Camps Cabin Cards */}
-        <div className="lg:col-span-5 space-y-6">
-          <div className="flex flex-col gap-4">
-            <div className="flex justify-between items-center">
-              <h2 className="text-xl font-extrabold text-zinc-900 flex items-center gap-2">
-                <Home className="w-5 h-5 text-amber-500" />
-                <span>Campamentos Registrados</span>
-              </h2>
-              <span className="bg-zinc-200 text-zinc-800 text-xs px-2.5 py-1 rounded-full font-bold font-sans">
-                {filteredCampamentos.length} total
-              </span>
-            </div>
-            {/* Search Bar */}
-            <div className="relative">
-              <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-zinc-400" />
-              <input
-                type="text"
-                placeholder="Buscar campamentos..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-white border border-zinc-200 rounded-lg text-zinc-850 shadow-sm focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-transparent transition-all"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-            {loading ? (
-              <div className="p-8 text-center text-zinc-500 font-bold">Cargando campamentos...</div>
-            ) : filteredCampamentos.length === 0 ? (
-              <div className="bg-white border border-zinc-200 rounded-xl p-8 text-center text-zinc-500">
-                <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-2" />
-                <p className="font-semibold">No se encontraron campamentos</p>
-              </div>
-            ) : (
-              filteredCampamentos.map((camp) => {
-                const { totales, ocupadas, libres } = getCamasStats(camp)
-                const isSelected = selectedCampamento?.id_campamento === camp.id_campamento
-                const percent = totales > 0 ? (ocupadas / totales) * 100 : 0
-                
-                return (
-                  <div
-                    key={camp.id_campamento}
-                    onClick={() => setSelectedCampamento(camp)}
-                    className={`relative rounded-xl border p-5 cursor-pointer transition-all duration-300 hover:shadow-md ${
-                      isSelected
-                        ? 'border-amber-500 bg-amber-50/20 ring-1 ring-amber-500/50'
-                        : 'border-zinc-200 bg-white hover:border-zinc-300'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <span className={`inline-block text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md mb-2 ${
-                          camp.tipo === 'Supervisores' ? 'bg-purple-100 text-purple-800' :
-                          camp.tipo === 'Staff' ? 'bg-blue-100 text-blue-800' :
-                          camp.tipo === 'Contratistas' ? 'bg-teal-100 text-teal-800' :
-                          'bg-zinc-100 text-zinc-800'
-                        }`}>
-                          Campamento {camp.tipo}
-                        </span>
-                        <h3 className="font-extrabold text-zinc-900 text-base leading-tight font-sans">
-                          {camp.nombre}
-                        </h3>
-                        <div className="flex items-center gap-1 text-zinc-500 text-xs mt-1">
-                          <MapPin className="w-3.5 h-3.5 text-zinc-400" />
-                          <span>{camp.ubicacion}</span>
-                        </div>
-                      </div>
-
-                      <div className={`h-12 w-12 rounded-lg flex items-center justify-center border transition-all ${
-                        isSelected 
-                          ? 'bg-amber-500 text-black border-amber-500 shadow-md'
-                          : 'bg-zinc-50 text-zinc-650 border-zinc-200'
-                      }`}>
-                        <div className="relative flex flex-col items-center">
-                          <div className={`w-6 h-4 border-t-2 border-x-2 rounded-t-sm ${isSelected ? 'border-black' : 'border-zinc-650'}`} style={{ borderBottomWidth: 0 }} />
-                          <div className={`w-8 h-4 border-2 rounded-sm -mt-0.5 flex justify-center items-center ${isSelected ? 'border-black bg-amber-400' : 'border-zinc-650 bg-zinc-200'}`}>
-                            <div className={`w-2 h-2.5 rounded-t-xs -mb-1 ${isSelected ? 'bg-black' : 'bg-zinc-650'}`} />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 space-y-1.5">
-                      <div className="flex justify-between text-xs font-semibold">
-                        <span className="text-zinc-500">Camas ocupadas</span>
-                        <span className="text-zinc-850 font-bold">{ocupadas} de {totales} ({Math.round(percent)}%)</span>
-                      </div>
-                      <div className="w-full bg-zinc-100 rounded-full h-1.5">
-                        <div
-                          className={`h-1.5 rounded-full transition-all duration-500 ${
-                            percent >= 90 ? 'bg-rose-500' :
-                            percent >= 70 ? 'bg-amber-500' :
-                            'bg-emerald-500'
-                          }`}
-                          style={{ width: `${percent}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-zinc-100 text-center text-xs">
-                      <div>
-                        <span className="text-zinc-400 block text-[10px] uppercase">Habitaciones</span>
-                        <strong className="text-zinc-700 font-extrabold text-sm">{camp.campamento_cuartos.length}</strong>
-                      </div>
-                      <div>
-                        <span className="text-zinc-400 block text-[10px] uppercase">Libres</span>
-                        <strong className="text-emerald-600 font-extrabold text-sm">{libres}</strong>
-                      </div>
-                      <div className="flex items-center justify-end text-amber-600 font-bold group">
-                        <span className="mr-1 group-hover:underline">Detalles</span>
-                        <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
+      {/* Camp Selectors & View Mode Toggles */}
+      <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        {/* Camp Selector Tabs */}
+        <div className="flex flex-wrap items-center gap-2 overflow-x-auto max-w-full pb-1 md:pb-0">
+          {campamentos.map(camp => {
+            const isSelected = selectedCampamento?.id_campamento === camp.id_campamento
+            const stats = getCamasStats(camp)
+            return (
+              <button
+                key={camp.id_campamento}
+                onClick={() => setSelectedCampamento(camp)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 ${
+                  isSelected 
+                    ? 'bg-zinc-900 text-white shadow-md' 
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                }`}
+              >
+                <Home className="w-3.5 h-3.5 text-amber-400" />
+                <span>{camp.nombre}</span>
+                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${isSelected ? 'bg-amber-500 text-black font-extrabold' : 'bg-zinc-200 text-zinc-700'}`}>
+                  {stats.ocupadas}/{stats.totales}
+                </span>
+              </button>
+            )
+          })}
         </div>
 
-        {/* Right Side: Camp detail & Room Visualizer */}
-        <div className="lg:col-span-7">
-          {selectedCampamento ? (
-            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden min-h-[600px] flex flex-col">
-              
-              {/* Detail Header */}
-              <div className="bg-zinc-50 border-b border-zinc-200 p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="bg-amber-100 text-amber-800 text-[10px] px-2.5 py-0.5 rounded-md font-bold uppercase tracking-wider">
-                      Módulo Residencial Seleccionado
-                    </span>
-                  </div>
-                  <h2 className="text-2xl font-black text-zinc-900 mt-1 uppercase italic font-sans leading-none">
-                    {selectedCampamento.nombre}
-                  </h2>
-                  <p className="text-xs text-zinc-500 flex items-center gap-1 mt-1">
-                    <MapPin className="w-3.5 h-3.5 text-zinc-400" />
-                    <span>{selectedCampamento.ubicacion}</span>
-                  </p>
-                </div>
+        {/* View Mode Switcher: 3D Viewport vs Table */}
+        <div className="flex items-center gap-2 bg-zinc-100 p-1 rounded-xl border border-zinc-200 self-end md:self-auto shrink-0">
+          <button
+            onClick={() => setViewMode('3d')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase flex items-center gap-1.5 transition-all ${
+              viewMode === '3d'
+                ? 'bg-amber-500 text-black shadow-xs font-extrabold'
+                : 'text-zinc-500 hover:text-black'
+            }`}
+          >
+            <Box className="w-4 h-4 text-black" />
+            <span>🎮 Visor 3D Interactivo</span>
+          </button>
+
+          <button
+            onClick={() => setViewMode('tabla')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase flex items-center gap-1.5 transition-all ${
+              viewMode === 'tabla'
+                ? 'bg-zinc-900 text-white shadow-xs font-extrabold'
+                : 'text-zinc-500 hover:text-black'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>📋 Gestión en Tabla</span>
+          </button>
+        </div>
+      </div>
+
+      {/* MAIN VIEWPORT: VISTA 3D INTERACTIVA */}
+      {viewMode === '3d' && selectedCampamento && (
+        <div className="space-y-4">
+          {/* 3D Toolbar & Controls */}
+          <div className="bg-zinc-900 text-white p-4 rounded-2xl flex flex-wrap justify-between items-center gap-4 shadow-lg border border-zinc-800">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 text-xs font-black text-amber-400 uppercase">
+                <Box className="w-4 h-4" />
+                <span>PERSPECTIVA 3D:</span>
+              </div>
+              <div className="flex gap-1 bg-zinc-800 p-1 rounded-xl">
                 <button
-                  onClick={() => setShowAddRoomModal(true)}
-                  className="flex items-center gap-2 bg-zinc-950 hover:bg-zinc-900 text-white font-bold text-xs px-4 py-2.5 rounded-lg shadow transition-all duration-200"
+                  onClick={() => setViewAngle('isometric')}
+                  className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all ${
+                    viewAngle === 'isometric' ? 'bg-amber-500 text-black font-extrabold' : 'text-zinc-400 hover:text-white'
+                  }`}
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Añadir Cabaña / Cuarto</span>
+                  🎲 ISOMÉTRICA 3D
+                </button>
+                <button
+                  onClick={() => setViewAngle('top')}
+                  className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all ${
+                    viewAngle === 'top' ? 'bg-amber-500 text-black font-extrabold' : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  🗺️ PLANO CENITAL 2D
+                </button>
+                <button
+                  onClick={() => setViewAngle('front')}
+                  className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase transition-all ${
+                    viewAngle === 'front' ? 'bg-amber-500 text-black font-extrabold' : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  🏛️ FACHADA 3D
                 </button>
               </div>
+            </div>
 
-              {/* Rooms Visualizer Grid */}
-              <div className="p-6 flex-1 overflow-y-auto space-y-6 max-h-[600px]">
-                {selectedCampamento.campamento_cuartos.length === 0 ? (
-                  <div className="h-full flex flex-col justify-center items-center text-center p-12 text-zinc-400">
-                    <div className="h-16 w-16 bg-zinc-100 rounded-full flex items-center justify-center mb-3">
-                      <Bed className="w-8 h-8 text-zinc-400" />
-                    </div>
-                    <h3 className="font-bold text-zinc-700 text-lg">No hay cabañas ni cuartos</h3>
-                  </div>
-                ) : (
-                  selectedCampamento.campamento_cuartos.map((cuarto) => {
-                    const camasTotales = cuarto.campamento_camas.length
-                    const camasOcupadas = cuarto.campamento_camas.filter(c => c.id_empleado).length
-                    const porcOcupacion = camasTotales > 0 ? (camasOcupadas / camasTotales) * 100 : 0
+            {/* LED Status Legend */}
+            <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold font-mono">
+              <div className="flex items-center gap-1.5 bg-zinc-800/80 px-2.5 py-1 rounded-lg border border-emerald-500/30">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping inline-block" />
+                <span className="text-emerald-400">🟢 Ocupado / En Sitio (Mina)</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-zinc-800/80 px-2.5 py-1 rounded-lg border border-amber-500/30">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
+                <span className="text-amber-300">🟡 En Franco (Descanso)</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-zinc-800/80 px-2.5 py-1 rounded-lg border border-zinc-500/30">
+                <span className="w-2.5 h-2.5 rounded-full bg-white inline-block" />
+                <span className="text-zinc-300">⚪ Cama Disponible</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowAddRoomModal(true)}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md"
+            >
+              <Plus className="w-3.5 h-3.5" /> + Agregar Cuarto 3D
+            </button>
+          </div>
+
+          {/* 3D STAGE STYLED CANVAS CONTAINER */}
+          <div className="bg-zinc-950 rounded-3xl p-8 min-h-[520px] border border-zinc-800 shadow-2xl relative overflow-hidden flex flex-col justify-center items-center">
+            {/* Grid background effect */}
+            <div 
+              className="absolute inset-0 opacity-15 pointer-events-none"
+              style={{
+                backgroundImage: 'radial-gradient(#f59e0b 1px, transparent 1px), radial-gradient(#3f3f46 1px, transparent 1px)',
+                backgroundSize: '24px 24px',
+                backgroundPosition: '0 0, 12px 12px'
+              }}
+            />
+
+            {selectedCampamento.campamento_cuartos.length === 0 ? (
+              <div className="relative z-10 text-center space-y-3 p-12">
+                <Box className="w-12 h-12 text-amber-500/60 mx-auto animate-bounce" />
+                <h3 className="text-base font-black text-white uppercase">Este campamento aún no tiene cuartos diseñados en 3D</h3>
+                <p className="text-xs text-zinc-400 max-w-sm mx-auto">Agrega habitaciones para visualizar las maquetas tridimensionales y camas ocupadas.</p>
+                <button
+                  onClick={() => setShowAddRoomModal(true)}
+                  className="px-5 py-2.5 bg-amber-500 text-black font-black text-xs rounded-xl shadow-lg hover:bg-amber-400"
+                >
+                  + Diseñar Primera Habitación 3D
+                </button>
+              </div>
+            ) : (
+              <div 
+                className="w-full transition-all duration-700 ease-out transform-gpu py-8"
+                style={{
+                  transform: getTransform3D(),
+                  transformStyle: 'preserve-3d'
+                }}
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 max-w-6xl mx-auto">
+                  {selectedCampamento.campamento_cuartos.map((cuarto) => {
+                    const totalCamasQ = cuarto.campamento_camas.length
+                    const ocupadasQ = cuarto.campamento_camas.filter(c => c.id_empleado).length
+                    const isDirty = cuarto.estatus_limpieza === 'Sucio'
+                    const isCleaning = cuarto.estatus_limpieza === 'En Limpieza'
 
                     return (
                       <div
                         key={cuarto.id_cuarto}
-                        className="border border-zinc-200 rounded-xl bg-white overflow-hidden shadow-xs hover:border-zinc-300 transition-all"
+                        className={`group relative bg-zinc-900/90 rounded-2xl border-2 p-5 shadow-2xl transition-all duration-300 transform hover:-translate-y-2 hover:scale-[1.03] ${
+                          isDirty ? 'border-rose-500/80 shadow-rose-500/10' :
+                          isCleaning ? 'border-amber-500/80 shadow-amber-500/10' :
+                          'border-zinc-700/80 hover:border-amber-500'
+                        }`}
+                        style={{
+                          boxShadow: '0 20px 30px -10px rgba(0,0,0,0.8), 0 0 15px rgba(245, 158, 11, 0.05)'
+                        }}
                       >
-                        {/* Room Header */}
-                        <div className="bg-zinc-50 border-b border-zinc-100 px-5 py-3.5 flex justify-between items-center">
-                          <div className="flex items-center gap-3">
-                            <div className="h-9 w-9 rounded bg-amber-100 flex items-center justify-center text-amber-700">
-                              <Home className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <h4 className="font-extrabold text-zinc-900 text-sm font-sans">{cuarto.nombre}</h4>
-                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
-                                <span className="text-[10px] text-zinc-500">
-                                  {camasOcupadas}/{camasTotales} camas ({Math.round(porcOcupacion)}%)
-                                </span>
-                                
-                                {/* Room Cleaning Interactive Badge */}
-                                <button
-                                  onClick={() => toggleCleaningStatus(cuarto.id_cuarto, cuarto.estatus_limpieza)}
-                                  className={`inline-flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded border transition-colors ${
-                                    cuarto.estatus_limpieza === 'Limpio' ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100' :
-                                    cuarto.estatus_limpieza === 'Sucio' ? 'bg-rose-50 border-rose-300 text-rose-800 hover:bg-rose-100 animate-pulse' :
-                                    'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
-                                  }`}
-                                  title="Haz clic para cambiar estatus de limpieza"
-                                >
-                                  {cuarto.estatus_limpieza === 'Limpio' && <CheckCircle className="w-3 h-3 text-emerald-600" />}
-                                  {cuarto.estatus_limpieza === 'Sucio' && <AlertTriangle className="w-3 h-3 text-rose-600" />}
-                                  {cuarto.estatus_limpieza === 'En Limpieza' && <Activity className="w-3 h-3 text-amber-600 animate-spin" />}
-                                  <span>{cuarto.estatus_limpieza}</span>
-                                </button>
-                              </div>
-                            </div>
-                          </div>
+                        {/* Status Strip / LED Bar */}
+                        <div className="flex justify-between items-center border-b border-zinc-800 pb-2.5 mb-3">
                           <div className="flex items-center gap-2">
+                            <span className={`w-3 h-3 rounded-full shadow-lg ${
+                              ocupadasQ === totalCamasQ ? 'bg-emerald-500 shadow-emerald-500/50 animate-pulse' :
+                              ocupadasQ > 0 ? 'bg-amber-400 shadow-amber-400/50' :
+                              'bg-zinc-600'
+                            }`} />
+                            <h4 className="font-black text-white text-sm uppercase tracking-wide">
+                              {cuarto.nombre}
+                            </h4>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
                             <button
-                              onClick={() => handleDeleteRoom(cuarto.id_cuarto)}
-                              className="p-1.5 text-zinc-400 hover:text-rose-600 rounded transition-colors"
-                              title="Eliminar Habitación"
+                              onClick={(e) => { e.stopPropagation(); toggleCleaningStatus(cuarto.id_cuarto, cuarto.estatus_limpieza); }}
+                              className={`text-[9px] font-black px-2 py-0.5 rounded-md uppercase border transition-all ${
+                                cuarto.estatus_limpieza === 'Limpio' ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700' :
+                                cuarto.estatus_limpieza === 'Sucio' ? 'bg-rose-950/80 text-rose-300 border-rose-700' :
+                                'bg-amber-950/80 text-amber-300 border-amber-700'
+                              }`}
                             >
-                              <Trash2 className="w-4 h-4" />
+                              🧼 {cuarto.estatus_limpieza}
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteRoom(cuarto.id_cuarto); }}
+                              className="text-zinc-600 hover:text-rose-400 p-1"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
 
-                        {/* Beds Visual Cards Grid */}
-                        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                        {/* Beds Grid inside Room 3D Cube */}
+                        <div className="grid grid-cols-2 gap-2.5 my-2">
                           {cuarto.campamento_camas.map((cama) => {
-                            const isOcupada = !!cama.id_empleado
+                            const emp = cama.empleados
+                            const isOccupied = Boolean(emp)
+
                             return (
                               <div
                                 key={cama.id_cama}
-                                className={`rounded-lg border p-4 flex flex-col justify-between min-h-[145px] transition-all ${
-                                  isOcupada
-                                    ? 'bg-zinc-50 border-zinc-200'
-                                    : 'border-dashed border-zinc-300 bg-zinc-50/20 hover:bg-amber-50/20 hover:border-amber-400'
+                                onClick={() => {
+                                  if (isOccupied) {
+                                    setSelectedRoom3D(cuarto)
+                                    setSelectedBed3D({ room: cuarto, bed: cama })
+                                  } else {
+                                    setAssignmentTarget({ id_cama: cama.id_cama, numero: cama.numero })
+                                  }
+                                }}
+                                className={`p-3 rounded-xl border cursor-pointer transition-all flex flex-col justify-between min-h-[90px] relative overflow-hidden ${
+                                  isOccupied 
+                                    ? 'bg-gradient-to-b from-zinc-800 to-zinc-900 border-emerald-500/60 text-white hover:border-emerald-400 shadow-md'
+                                    : 'bg-zinc-950/60 border-zinc-800 text-zinc-500 hover:border-amber-500/60 hover:text-zinc-300'
                                 }`}
                               >
-                                {/* Bed Label & Status */}
-                                <div className="flex justify-between items-center mb-1">
-                                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                                    isOcupada ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                                  }`}>
-                                    Cama #{cama.numero}
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] font-black font-mono text-amber-400">
+                                    🛏️ CAMA #{cama.numero}
                                   </span>
-                                  <Bed className={`w-3.5 h-3.5 ${isOcupada ? 'text-amber-500' : 'text-zinc-300'}`} />
+                                  {isOccupied ? (
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-xs shadow-emerald-500" />
+                                  ) : (
+                                    <span className="text-[8px] font-bold bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-400 uppercase">
+                                      LIBRE
+                                    </span>
+                                  )}
                                 </div>
 
-                                {/* Bed Occupant or Empty */}
-                                {isOcupada && cama.empleados ? (
-                                  <div className="space-y-1 my-1.5">
-                                    <h5 className="font-extrabold text-zinc-950 text-[11px] line-clamp-1 font-sans">
-                                      {cama.empleados.nombre} {cama.empleados.apellido_paterno}
-                                    </h5>
+                                {isOccupied && emp ? (
+                                  <div className="space-y-0.5 mt-2">
+                                    <div className="font-black text-xs text-white truncate">
+                                      {emp.nombre} {emp.apellido_paterno}
+                                    </div>
+                                    <div className="text-[9px] text-zinc-400 truncate font-mono">
+                                      {emp.puesto || emp.departamento || 'Personal Mina'}
+                                    </div>
+                                    <div className="flex justify-between items-center mt-1 pt-1 border-t border-zinc-800 text-[8px] font-mono">
+                                      <span className="text-emerald-400 font-bold">🟢 En Sitio</span>
+                                      <span className={cama.estatus_lavado === 'Entregado' ? 'text-zinc-400' : 'text-amber-400'}>
+                                        🧺 {cama.estatus_lavado}
+                                      </span>
+                                    </div>
                                   </div>
                                 ) : (
-                                  <div className="text-center py-2 my-1">
-                                    <span className="text-[10px] text-zinc-400 italic block">Disponible</span>
+                                  <div className="text-[10px] font-black text-zinc-600 text-center my-auto flex items-center justify-center gap-1 group-hover:text-amber-400">
+                                    <Plus className="w-3.5 h-3.5" /> + Asignar
                                   </div>
                                 )}
+                              </div>
+                            )
+                          })}
+                        </div>
 
-                                {/* Bed Services (Laundry status / toggle & occupy actions) */}
-                                <div className="space-y-2 pt-2 border-t border-zinc-100">
-                                  {/* Laundry Service Toggle Badge */}
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-[8px] text-zinc-400 font-bold uppercase tracking-wider">Lavandería:</span>
+                        {/* Room Footer Info */}
+                        <div className="mt-3 pt-2 border-t border-zinc-800/80 flex justify-between items-center text-[10px] font-mono text-zinc-400">
+                          <span>Camas: <strong className="text-white">{ocupadasQ}/{totalCamasQ}</strong></span>
+                          <span className="text-amber-400 font-bold">
+                            {totalCamasQ - ocupadasQ === 0 ? 'COMPLETO' : `${totalCamasQ - ocupadasQ} Disponible(s)`}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MAIN VIEWPORT: VISTA EN TABLA OPERATIVA */}
+      {viewMode === 'tabla' && selectedCampamento && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-zinc-200 shadow-xs">
+            <h3 className="text-sm font-black text-zinc-900 uppercase flex items-center gap-2">
+              <Layers className="w-4 h-4 text-emerald-600" />
+              Gestión Operativa de Cuartos — {selectedCampamento.nombre}
+            </h3>
+            <button
+              onClick={() => setShowAddRoomModal(true)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" /> Agregar Habitación
+            </button>
+          </div>
+
+          <div className="bg-white border border-zinc-200 rounded-3xl overflow-hidden shadow-xs">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-zinc-50 border-b border-zinc-200 text-[10px] font-black text-zinc-400 uppercase tracking-wider">
+                  <th className="px-6 py-4">Habitación / Cabaña</th>
+                  <th className="px-6 py-4">Estatus Limpieza</th>
+                  <th className="px-6 py-4">Camas & Ocupantes Actuales</th>
+                  <th className="px-6 py-4">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-200 text-xs font-semibold">
+                {selectedCampamento.campamento_cuartos.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-12 text-center text-zinc-400">
+                      No hay habitaciones en este campamento.
+                    </td>
+                  </tr>
+                ) : (
+                  selectedCampamento.campamento_cuartos.map(cuarto => (
+                    <tr key={cuarto.id_cuarto} className="hover:bg-zinc-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="font-black text-zinc-900 text-sm">{cuarto.nombre}</div>
+                        <div className="text-[10px] text-zinc-400 font-mono">
+                          Total Camas: {cuarto.campamento_camas.length}
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={() => toggleCleaningStatus(cuarto.id_cuarto, cuarto.estatus_limpieza)}
+                          className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase border transition-all ${
+                            cuarto.estatus_limpieza === 'Limpio' ? 'bg-emerald-100 text-emerald-900 border-emerald-300' :
+                            cuarto.estatus_limpieza === 'Sucio' ? 'bg-rose-100 text-rose-900 border-rose-300' :
+                            'bg-amber-100 text-amber-900 border-amber-300'
+                          }`}
+                        >
+                          🧼 {cuarto.estatus_limpieza}
+                        </button>
+                      </td>
+
+                      <td className="px-6 py-4">
+                        <div className="space-y-1.5">
+                          {cuarto.campamento_camas.map(cama => {
+                            const emp = cama.empleados
+                            return (
+                              <div key={cama.id_cama} className="flex items-center justify-between bg-zinc-50 border border-zinc-200 p-2 rounded-xl text-xs">
+                                <div>
+                                  <span className="font-mono font-bold text-amber-700 mr-2">Cama #{cama.numero}:</span>
+                                  {emp ? (
+                                    <span className="font-black text-zinc-900">
+                                      {emp.nombre} {emp.apellido_paterno} ({emp.puesto || emp.departamento || 'Personal'})
+                                    </span>
+                                  ) : (
+                                    <span className="text-zinc-400 italic">Cama Desocupada / Libre</span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  {emp ? (
                                     <button
-                                      onClick={() => toggleLaundryStatus(cama.id_cama, cama.estatus_lavado)}
-                                      className={`text-[8px] font-black uppercase px-2 py-0.5 rounded border transition-colors ${
-                                        cama.estatus_lavado === 'Entregado'
-                                          ? 'bg-emerald-50 border-emerald-250 text-emerald-700 hover:bg-emerald-100'
-                                          : 'bg-indigo-50 border-indigo-250 text-indigo-700 hover:bg-indigo-100 animate-pulse'
-                                      }`}
-                                      title="Haz clic para cambiar estatus de lavado de sábanas"
+                                      onClick={() => handleRemovePerson(cama.id_cama)}
+                                      className="text-[9px] font-black text-rose-600 hover:underline"
                                     >
-                                      {cama.estatus_lavado}
+                                      Desocupar
                                     </button>
-                                  </div>
-
-                                  <div className="flex justify-end pt-1">
-                                    {isOcupada ? (
-                                      <button
-                                        onClick={() => handleRemovePerson(cama.id_cama)}
-                                        className="text-[9px] text-rose-600 hover:text-rose-800 hover:underline font-bold"
-                                      >
-                                        Desocupar Cama
-                                      </button>
-                                    ) : (
-                                      <button
-                                        onClick={() => setAssignmentTarget({ id_cama: cama.id_cama, numero: cama.numero })}
-                                        className="text-[9px] text-amber-600 hover:text-amber-700 hover:underline font-bold flex items-center gap-1"
-                                      >
-                                        <UserPlus className="w-3 h-3" />
-                                        <span>Asignar</span>
-                                      </button>
-                                    )}
-                                  </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => setAssignmentTarget({ id_cama: cama.id_cama, numero: cama.numero })}
+                                      className="text-[9px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300"
+                                    >
+                                      + Asignar
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             )
                           })}
                         </div>
+                      </td>
+
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={() => handleDeleteRoom(cuarto.id_cuarto)}
+                          className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl font-bold"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL HOLOGRÁFICO 3D DE OCUPANTE */}
+      {selectedBed3D && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
+          <div className="bg-zinc-950 rounded-3xl shadow-2xl max-w-lg w-full p-6 border border-zinc-800 text-white space-y-5 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-amber-500 to-indigo-500" />
+
+            <div className="flex justify-between items-start pt-1 border-b border-zinc-800 pb-3">
+              <div>
+                <span className="text-[9px] font-black font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-2 py-0.5 rounded-full uppercase">
+                  FICHA HOLOGRÁFICA DE OCUPANTE
+                </span>
+                <h2 className="text-lg font-black text-white uppercase mt-1">
+                  {selectedBed3D.room.nombre} — Cama #{selectedBed3D.bed.numero}
+                </h2>
+              </div>
+              <button 
+                onClick={() => setSelectedBed3D(null)} 
+                className="w-8 h-8 rounded-full bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center text-zinc-400 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Occupant Main Info */}
+            <div className="bg-zinc-900/90 border border-zinc-800 p-4 rounded-2xl space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-emerald-600 text-black flex items-center justify-center font-black text-lg">
+                  {selectedBed3D.bed.empleados?.nombre?.[0] || 'U'}
+                </div>
+                <div>
+                  <h3 className="font-black text-white text-base">
+                    {selectedBed3D.bed.empleados?.nombre} {selectedBed3D.bed.empleados?.apellido_paterno} {selectedBed3D.bed.empleados?.apellido_materno || ''}
+                  </h3>
+                  <div className="text-xs text-amber-400 font-semibold">
+                    {selectedBed3D.bed.empleados?.puesto || 'Personal Operativo'}
+                  </div>
+                  <div className="text-[10px] text-zinc-400 font-mono">
+                    Depto: {selectedBed3D.bed.empleados?.departamento || 'Mina Bacis'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Work Schedule / Shift Role Status Badge */}
+              <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800/80 space-y-1.5">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-bold text-zinc-400">ESTATUS DE ROL / SITIO:</span>
+                  <span className="font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-2.5 py-0.5 rounded-md uppercase">
+                    🟢 EN SITIO (MINA ACTIVA)
+                  </span>
+                </div>
+                <div className="text-[10px] font-mono text-zinc-400 flex justify-between">
+                  <span>Turno: <strong>Rol 14x7 (Día 8 de 14)</strong></span>
+                  <span>Salida a Franco: <strong className="text-amber-400">10/08/2026</strong></span>
+                </div>
+              </div>
+
+              {/* Cleaning & Laundry Controls */}
+              <div className="grid grid-cols-2 gap-2 text-xs font-mono pt-1">
+                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800 space-y-1">
+                  <span className="text-[9px] text-zinc-500 font-bold block uppercase">ROPA DE CAMA / LAVANDERÍA</span>
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-white">{selectedBed3D.bed.estatus_lavado}</span>
+                    <button
+                      onClick={() => toggleLaundryStatus(selectedBed3D.bed.id_cama, selectedBed3D.bed.estatus_lavado)}
+                      className="text-[9px] font-black text-amber-400 underline"
+                    >
+                      Cambiar
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800 space-y-1">
+                  <span className="text-[9px] text-zinc-500 font-bold block uppercase">LIMPIEZA HABITACIÓN</span>
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-emerald-400">{selectedBed3D.room.estatus_limpieza}</span>
+                    <button
+                      onClick={() => toggleCleaningStatus(selectedBed3D.room.id_cuarto, selectedBed3D.room.estatus_limpieza)}
+                      className="text-[9px] font-black text-amber-400 underline"
+                    >
+                      Cambiar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-2 flex justify-between items-center gap-3">
+              <button
+                onClick={() => handleRemovePerson(selectedBed3D.bed.id_cama)}
+                className="px-4 py-2 bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 font-black text-xs rounded-xl"
+              >
+                Desocupar Cama
+              </button>
+
+              <button
+                onClick={() => setSelectedBed3D(null)}
+                className="px-5 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-black text-xs rounded-xl"
+              >
+                Cerrar Ficha
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ASIGNAR PERSONAL A CAMA */}
+      {assignmentTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-zinc-200 space-y-4">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <h3 className="text-sm font-black text-zinc-900 uppercase flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-emerald-600" />
+                Asignar Trabajador a Cama #{assignmentTarget.numero}
+              </h3>
+              <button onClick={() => setAssignmentTarget(null)} className="text-zinc-400 hover:text-zinc-700 font-bold">✕</button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="relative">
+                <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre de trabajador..."
+                  value={assignmentSearch}
+                  onChange={e => setAssignmentSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800"
+                />
+              </div>
+
+              <div className="max-h-60 overflow-y-auto divide-y divide-zinc-100 border border-zinc-200 rounded-2xl">
+                {filteredEmployees.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-zinc-400 font-bold">
+                    No se encontraron trabajadores activos.
+                  </div>
+                ) : (
+                  filteredEmployees.map(emp => (
+                    <div
+                      key={emp.id_empleado}
+                      onClick={() => handleAssignPerson(emp)}
+                      className="p-3 hover:bg-emerald-50 cursor-pointer transition-colors flex justify-between items-center"
+                    >
+                      <div>
+                        <div className="font-black text-xs text-zinc-900">
+                          {emp.nombre} {emp.apellido_paterno} {emp.apellido_materno || ''}
+                        </div>
+                        <div className="text-[10px] text-zinc-500 font-mono">
+                          {emp.puesto || emp.departamento || 'General'}
+                        </div>
                       </div>
-                    )
-                  })
+                      <span className="text-[10px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
+                        Asignar
+                      </span>
+                    </div>
+                  ))
                 )}
               </div>
+            </div>
 
-              {/* Bottom footer overview */}
-              <div className="bg-zinc-50 border-t border-zinc-200 p-4 px-6 flex justify-between items-center text-xs text-zinc-500">
-                <span>* Servicio de limpieza de cuartos y lavado de blancos en tiempo real (Sincronizado con Supabase).</span>
-                <span className="flex items-center gap-1 font-semibold text-emerald-600">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Módulo Activo en Nube</span>
-                </span>
-              </div>
+            <div className="pt-2 flex justify-end">
+              <button
+                onClick={() => setAssignmentTarget(null)}
+                className="px-4 py-2 text-xs font-bold text-zinc-600 hover:bg-zinc-100 rounded-xl"
+              >
+                Cancelar
+              </button>
             </div>
-          ) : (
-            <div className="bg-white border border-zinc-200 rounded-2xl p-12 text-center text-zinc-400 min-h-[600px] flex flex-col justify-center items-center">
-              <Home className="w-16 h-16 text-zinc-300 mb-4" />
-              <h3 className="font-extrabold text-zinc-700 text-lg">Selecciona un Campamento</h3>
-            </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Modal: Add Camp */}
+      {/* MODAL CREAR NUEVO CAMPAMENTO */}
       {showAddCampModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden border border-zinc-200 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-zinc-950 p-6 text-white relative">
-              <h3 className="text-xl font-black uppercase italic tracking-tight">Registrar Nuevo Campamento</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-zinc-200 space-y-4">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <h3 className="text-base font-black text-zinc-900 uppercase flex items-center gap-2">
+                <Home className="w-5 h-5 text-amber-500" />
+                Registrar Nuevo Campamento Minero
+              </h3>
+              <button onClick={() => setShowAddCampModal(false)} className="text-zinc-400 hover:text-zinc-700 font-bold">✕</button>
             </div>
-            <form onSubmit={handleCreateCamp} className="p-6 space-y-4">
+
+            <form onSubmit={handleCreateCamp} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-zinc-700 uppercase tracking-widest mb-1.5">
-                  Nombre del Campamento / Módulo
-                </label>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Nombre del Campamento / Cabaña</label>
                 <input
                   type="text"
                   required
                   value={newCampName}
-                  onChange={(e) => setNewCampName(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  onChange={e => setNewCampName(e.target.value)}
+                  placeholder="Ej. Cabaña 1 - Supervisores Bacis"
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 uppercase tracking-widest mb-1.5">
-                  Ubicación Geográfica
-                </label>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Ubicación en Unidad Minera</label>
                 <input
                   type="text"
                   value={newCampUbi}
-                  onChange={(e) => setNewCampUbi(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  onChange={e => setNewCampUbi(e.target.value)}
+                  placeholder="Ej. Zona Alta El Herrero"
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 uppercase tracking-widest mb-1.5">
-                  Tipo de Personal / Destino
-                </label>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Tipo de Personal Destinado</label>
                 <select
                   value={newCampTipo}
-                  onChange={(e) => setNewCampTipo(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  onChange={e => setNewCampTipo(e.target.value)}
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
                 >
-                  <option value="General">General (Trabajadores de Planta)</option>
-                  <option value="Contratistas">Contratistas y Externos</option>
-                  <option value="Staff">Personal Administrativo / Staff</option>
-                  <option value="Supervisores">Supervisores e Ingenieros</option>
+                  <option value="General">General / Personal Operativo</option>
+                  <option value="Supervisores">Supervisores & Ingenieros</option>
+                  <option value="Staff">Staff / Administración</option>
+                  <option value="Contratistas">Contratistas</option>
                 </select>
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-zinc-100">
+              <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowAddCampModal(false)}
-                  className="flex-1 px-4 py-2 border border-zinc-200 text-zinc-700 text-xs font-semibold rounded-lg hover:bg-zinc-50"
+                  className="px-4 py-2 text-xs font-bold text-zinc-600 hover:bg-zinc-100 rounded-xl"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs px-4 py-2 rounded-lg shadow-md"
+                  className="px-5 py-2 text-xs font-black bg-amber-500 hover:bg-amber-600 text-black rounded-xl shadow-md"
                 >
                   Guardar Campamento
                 </button>
@@ -714,120 +1023,62 @@ export default function CampamentosPage() {
         </div>
       )}
 
-      {/* Modal: Add Room */}
-      {showAddRoomModal && selectedCampamento && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden border border-zinc-200 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-zinc-950 p-6 text-white text-center">
-              <h3 className="text-xl font-black uppercase italic tracking-tight">Añadir Cabaña</h3>
-              <p className="text-zinc-400 text-xs mt-1">en {selectedCampamento.nombre}</p>
+      {/* MODAL CREAR HABITACIÓN 3D */}
+      {showAddRoomModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-zinc-200 space-y-4">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <h3 className="text-base font-black text-zinc-900 uppercase flex items-center gap-2">
+                <Box className="w-5 h-5 text-amber-500" />
+                Diseñar Nueva Habitación 3D
+              </h3>
+              <button onClick={() => setShowAddRoomModal(false)} className="text-zinc-400 hover:text-zinc-700 font-bold">✕</button>
             </div>
-            <form onSubmit={handleCreateRoom} className="p-6 space-y-4">
+
+            <form onSubmit={handleCreateRoom} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-zinc-700 uppercase tracking-widest mb-1.5">
-                  Nombre de la Cabaña / Cuarto
-                </label>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Nombre / Identificador de Cuarto</label>
                 <input
                   type="text"
                   required
-                  placeholder="Ej. Cabaña 101"
                   value={newRoomName}
-                  onChange={(e) => setNewRoomName(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  onChange={e => setNewRoomName(e.target.value)}
+                  placeholder="Ej. Cuarto 101"
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 uppercase tracking-widest mb-1.5">
-                  Número de Camas
-                </label>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Número de Camas a Instalar</label>
                 <input
                   type="number"
-                  min="1"
-                  max="12"
-                  required
+                  min={1}
+                  max={6}
                   value={newRoomCamas}
-                  onChange={(e) => setNewRoomCamas(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  onChange={e => setNewRoomCamas(Number(e.target.value))}
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
                 />
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-zinc-100">
+              <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowAddRoomModal(false)}
-                  className="flex-1 px-4 py-2 border border-zinc-200 text-zinc-700 text-xs font-semibold rounded-lg hover:bg-zinc-50"
+                  className="px-4 py-2 text-xs font-bold text-zinc-600 hover:bg-zinc-100 rounded-xl"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs px-4 py-2 rounded-lg shadow-md"
+                  className="px-5 py-2 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-md"
                 >
-                  Crear Cabaña
+                  Generar Cuarto 3D
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-      {/* Modal: Assign Person */}
-      {assignmentTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden border border-zinc-200 shadow-2xl animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[80vh]">
-            <div className="bg-amber-500 p-6 text-black flex justify-between items-center">
-              <div>
-                <h3 className="text-xl font-black uppercase italic tracking-tight leading-none">Asignar Personal</h3>
-                <p className="text-amber-900 text-xs mt-1 font-bold">Cama #{assignmentTarget.numero}</p>
-              </div>
-              <button onClick={() => setAssignmentTarget(null)} className="text-black hover:bg-amber-600 p-1 rounded">
-                <Trash2 className="w-5 h-5 opacity-0" /> {/* Ghost for spacing */}
-                <span className="text-sm font-bold underline">Cerrar</span>
-              </button>
-            </div>
-            
-            <div className="p-6 border-b border-zinc-100">
-              <div className="relative">
-                <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-zinc-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar empleado por nombre o puesto..."
-                  value={assignmentSearch}
-                  onChange={(e) => setAssignmentSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-zinc-50 border border-zinc-200 rounded-lg text-sm text-zinc-850 shadow-inner focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-transparent transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-2">
-              {filteredEmployees.length === 0 ? (
-                <div className="p-8 text-center text-zinc-400 text-sm">No se encontraron empleados.</div>
-              ) : (
-                <div className="space-y-1">
-                  {filteredEmployees.map(emp => (
-                    <div 
-                      key={emp.id_empleado}
-                      className="flex justify-between items-center p-3 hover:bg-zinc-50 rounded-lg border border-transparent hover:border-zinc-200 transition-colors group"
-                    >
-                      <div>
-                        <h4 className="font-extrabold text-zinc-900 text-sm">{emp.nombre} {emp.apellido_paterno}</h4>
-                      </div>
-                      <button
-                        onClick={() => handleAssignPerson(emp)}
-                        className="bg-zinc-900 text-white hover:bg-black font-bold text-xs px-4 py-2 rounded shadow-sm opacity-0 group-hover:opacity-100 transition-all"
-                      >
-                        Asignar aquí
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   )
 }
