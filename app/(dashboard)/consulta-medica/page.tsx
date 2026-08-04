@@ -6,7 +6,8 @@ import { useAuth } from '@/components/AuthProvider'
 import { 
     Hospital, Building2, Search, Heart, ShieldAlert, Users, ClipboardList, 
     FolderLock, Eye, Calendar, PlusCircle, Clock, Hotel, Stethoscope, Shield,
-    UserCheck, AlertTriangle, FileText, CheckCircle2, RefreshCw
+    UserCheck, AlertTriangle, FileText, CheckCircle2, RefreshCw, Settings,
+    ToggleLeft, ToggleRight, Edit3, Save, Check, User
 } from 'lucide-react'
 
 export default function ConsultaMedicaPortal() {
@@ -16,8 +17,8 @@ export default function ConsultaMedicaPortal() {
     const [pases, setPases] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     
-    // Main Tab State: 'departamento' (Operativo), 'clinico' (Médico Privado), 'hotel' (Hospedaje)
-    const [activeTab, setActiveTab] = useState<'departamento' | 'clinico' | 'hotel'>('departamento')
+    // Main Tab State: 'departamento' (Operativo Jefes), 'control' (Centro de Mando Médicos), 'clinico' (Historial Clínico), 'hotel' (Hospedaje)
+    const [activeTab, setActiveTab] = useState<'departamento' | 'control' | 'clinico' | 'hotel'>('departamento')
     
     // Search & Date Range Filters
     const [searchTerm, setSearchTerm] = useState('')
@@ -33,7 +34,19 @@ export default function ConsultaMedicaPortal() {
     const [extendingPase, setExtendingPase] = useState<any | null>(null)
     const [nuevaFechaRetorno, setNuevaFechaRetorno] = useState('')
     const [motivoExtension, setMotivoExtension] = useState('')
+    const [medicoAutorizaExtension, setMedicoAutorizaExtension] = useState('')
     const [savingExtension, setSavingExtension] = useState(false)
+
+    // Edit Pass Modal State (Control de Información)
+    const [editingPase, setEditingPase] = useState<any | null>(null)
+    const [editForm, setEditForm] = useState({
+        fecha_salida: '',
+        fecha_retorno: '',
+        medico_refiere: '',
+        compartido_departamentos: true,
+        comentarios: ''
+    })
+    const [savingEdit, setSavingEdit] = useState(false)
 
     // Clean role evaluation
     const rolClean = (profile?.rol || '').toUpperCase()
@@ -44,6 +57,21 @@ export default function ConsultaMedicaPortal() {
                             rolClean.includes('ADMINISTRATIVO') || 
                             rolClean.includes('RECURSOS HUMANOS') ||
                             (profile?.nombre_completo || '').toUpperCase().includes('RECURSOS')
+
+    // Formatter to present clean DD/MM/YYYY dates
+    const formatFecha = (dateStr?: string | null, fallbackDateStr?: string | null) => {
+        const str = dateStr || fallbackDateStr
+        if (!str) return 'Pendiente de valoración'
+        if (str.toUpperCase().includes('INMEDIATA') || str.toUpperCase().includes('ABIERTO')) return 'Pendiente de valoración'
+        
+        const cleanStr = str.split('T')[0]
+        const parts = cleanStr.split('-')
+        if (parts.length === 3) {
+            const [y, m, d] = parts
+            return `${d}/${m}/${y}`
+        }
+        return cleanStr
+    }
 
     // Helper to determine exact classification: Pase Médico vs Acompañante Médico
     const getClasificacionPase = (p: any) => {
@@ -107,6 +135,21 @@ export default function ConsultaMedicaPortal() {
             isClosed: false,
             label: 'EN ATENCIÓN / VIGENTE',
             badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold'
+        }
+    }
+
+    // Toggle visibility with departments (Control de Información)
+    const handleToggleVisibilidad = async (paseId: string, currentVal: boolean) => {
+        const newVal = !currentVal
+        const { error } = await supabase
+            .from('pases_medicos')
+            .update({ compartido_departamentos: newVal })
+            .eq('id_pase', paseId)
+
+        if (error) {
+            alert('Error al actualizar visibilidad: ' + error.message)
+        } else {
+            fetchPases()
         }
     }
 
@@ -243,6 +286,9 @@ export default function ConsultaMedicaPortal() {
 
             // Client-side role and department filtering
             if (!isDoctorOrAdmin) {
+                // Non-doctors ONLY see passes marked as shared with departments
+                filteredPases = filteredPases.filter(p => p.compartido_departamentos !== false)
+
                 if (activeDeptId) {
                     filteredPases = filteredPases.filter(p => {
                         const empDeptName = p.empleados?.departamento
@@ -289,13 +335,15 @@ export default function ConsultaMedicaPortal() {
         setSavingExtension(true)
         try {
             const comentariosPrevios = extendingPase.comentarios || ''
-            const notaExtension = `[AMPLIACIÓN DÍAS: Nueva fecha ${nuevaFechaRetorno}. Motivo: ${motivoExtension || 'Diagnóstico médico ampliado'}]`
+            const doctorNombre = medicoAutorizaExtension.trim() || profile?.nombre_completo || 'Médico de Turno'
+            const notaExtension = `[AMPLIACIÓN DÍAS: Nueva fecha ${nuevaFechaRetorno}. Autoriza: ${doctorNombre}. Motivo: ${motivoExtension || 'Diagnóstico médico ampliado'}]`
             const nuevosComentarios = comentariosPrevios ? `${comentariosPrevios}\n${notaExtension}` : notaExtension
 
             const { error } = await supabase
                 .from('pases_medicos')
                 .update({ 
                     fecha_retorno: nuevaFechaRetorno,
+                    medico_refiere: doctorNombre,
                     comentarios: nuevosComentarios
                 })
                 .eq('id_pase', extendingPase.id_pase)
@@ -306,11 +354,52 @@ export default function ConsultaMedicaPortal() {
             setExtendingPase(null)
             setNuevaFechaRetorno('')
             setMotivoExtension('')
+            setMedicoAutorizaExtension('')
             fetchPases()
         } catch (err: any) {
             alert('Error al ampliar días: ' + err.message)
         } finally {
             setSavingExtension(false)
+        }
+    }
+
+    // Handle full pass edit from Control de Información
+    const handleStartEdit = (p: any) => {
+        setEditingPase(p)
+        setEditForm({
+            fecha_salida: p.fecha_salida || (p.creado_el ? p.creado_el.split('T')[0] : ''),
+            fecha_retorno: p.fecha_retorno || '',
+            medico_refiere: p.medico_refiere || profile?.nombre_completo || '',
+            compartido_departamentos: p.compartido_departamentos !== false,
+            comentarios: p.comentarios || ''
+        })
+    }
+
+    const handleSaveEdit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!editingPase) return
+        setSavingEdit(true)
+        try {
+            const { error } = await supabase
+                .from('pases_medicos')
+                .update({
+                    fecha_salida: editForm.fecha_salida || null,
+                    fecha_retorno: editForm.fecha_retorno || null,
+                    medico_refiere: editForm.medico_refiere || null,
+                    compartido_departamentos: editForm.compartido_departamentos,
+                    comentarios: editForm.comentarios
+                })
+                .eq('id_pase', editingPase.id_pase)
+
+            if (error) throw error
+
+            alert('Información del pase actualizada exitosamente.')
+            setEditingPase(null)
+            fetchPases()
+        } catch (err: any) {
+            alert('Error al guardar cambios: ' + err.message)
+        } finally {
+            setSavingEdit(false)
         }
     }
 
@@ -329,7 +418,7 @@ export default function ConsultaMedicaPortal() {
 
     if (loading) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[420px] space-y-6 bg-white border border-zinc-200 rounded-3xl p-12 shadow-sm relative overflow-hidden">
+            <div className="flex flex-col items-center justify-center min-h-[420px] space-y-6 bg-white border border-zinc-200 rounded-3xl p-12 shadow-xs relative overflow-hidden">
                 <div className="relative flex items-center justify-center">
                     <div className="absolute w-20 h-20 bg-emerald-500/10 rounded-full animate-ping" />
                     <div className="relative w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/30">
@@ -350,7 +439,7 @@ export default function ConsultaMedicaPortal() {
     return (
         <div className="space-y-6 relative overflow-hidden font-sans">
             {/* Header Principal */}
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-zinc-200 relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="bg-white p-6 rounded-3xl shadow-xs border border-zinc-200 relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-amber-500" />
                 <div className="flex items-center gap-4 relative z-10">
                     <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center border border-emerald-100">
@@ -399,19 +488,33 @@ export default function ConsultaMedicaPortal() {
                 </div>
             </div>
 
-            {/* Navigation Tabs (3 Functional Tabs) */}
+            {/* Navigation Tabs (Central Concentrador) */}
             <div className="flex flex-wrap gap-2 p-1.5 bg-zinc-100 rounded-2xl border border-zinc-200">
                 <button
                     onClick={() => setActiveTab('departamento')}
                     className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${
                         activeTab === 'departamento'
-                            ? 'bg-white text-zinc-900 shadow-sm border border-zinc-200'
+                            ? 'bg-white text-zinc-900 shadow-xs border border-zinc-200'
                             : 'text-zinc-500 hover:text-black'
                     }`}
                 >
                     <Building2 className="w-4 h-4 text-emerald-600" />
-                    <span>🏢 Ausencias por Departamento</span>
+                    <span>🏢 Resumen para Departamentos</span>
                 </button>
+
+                {isDoctorOrAdmin && (
+                    <button
+                        onClick={() => setActiveTab('control')}
+                        className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-2 transition-all ${
+                            activeTab === 'control'
+                                ? 'bg-amber-500 text-black shadow-md font-extrabold'
+                                : 'text-zinc-600 hover:text-black font-bold'
+                        }`}
+                    >
+                        <Settings className="w-4 h-4 text-black animate-spin-slow" />
+                        <span>⚙️ Control de Información (Médicos)</span>
+                    </button>
+                )}
 
                 {isDoctorOrAdmin && (
                     <button
@@ -423,7 +526,7 @@ export default function ConsultaMedicaPortal() {
                         }`}
                     >
                         <Stethoscope className="w-4 h-4" />
-                        <span>🛡️ Expediente Clínico & Privacidad</span>
+                        <span>🛡️ Expediente Clínico Completo</span>
                     </button>
                 )}
 
@@ -436,7 +539,7 @@ export default function ConsultaMedicaPortal() {
                     }`}
                 >
                     <Hotel className="w-4 h-4" />
-                    <span>🏨 Hospedaje & Traslados en Durango</span>
+                    <span>🏨 Hospedaje & Traslados</span>
                 </button>
             </div>
 
@@ -498,7 +601,7 @@ export default function ConsultaMedicaPortal() {
                 </button>
             </div>
 
-            {/* TAB 1: AUSENCIAS POR DEPARTAMENTO (OPERATIVO / JEFES) */}
+            {/* TAB 1: RESUMEN PARA DEPARTAMENTOS (OPERATIVO / JEFES) */}
             {activeTab === 'departamento' && (
                 <div className="space-y-4">
                     {searchFilteredPases.length === 0 ? (
@@ -545,11 +648,11 @@ export default function ConsultaMedicaPortal() {
                                                 </div>
                                             </div>
 
-                                            {/* Alerta de Reposo Ampliado */}
+                                            {/* Alerta de Reposo Ampliado por Doctor */}
                                             {ext.hasExtension && (
                                                 <div className="bg-blue-50 border border-blue-200 text-blue-900 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-xs">
                                                     <Clock className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
-                                                    <span> ℹ️ Reposo médico ampliado por doctor</span>
+                                                    <span>ℹ️ Reposo médico ampliado por doctor</span>
                                                 </div>
                                             )}
 
@@ -561,15 +664,15 @@ export default function ConsultaMedicaPortal() {
                                                 </div>
                                             )}
 
-                                            {/* Vigencia / Fechas */}
+                                            {/* Vigencia / Fechas Legibles de Calendario */}
                                             <div className="bg-zinc-50 border border-zinc-200 p-3 rounded-xl text-[11px] space-y-1.5 font-mono">
                                                 <div className="flex justify-between items-center">
                                                     <span className="text-zinc-400 font-bold text-[10px]">🚀 SALIDA DE MINA:</span>
-                                                    <span className="font-black text-zinc-800">{p.fecha_salida || 'Inmediata'}</span>
+                                                    <span className="font-black text-zinc-900">{formatFecha(p.fecha_salida, p.creado_el)}</span>
                                                 </div>
                                                 <div className="flex justify-between items-center">
                                                     <span className="text-zinc-400 font-bold text-[10px]">🛬 RETORNO PREVISTO:</span>
-                                                    <span className="font-black text-emerald-700">{p.fecha_retorno || 'Abierto'}</span>
+                                                    <span className="font-black text-emerald-700">{formatFecha(p.fecha_retorno)}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -602,7 +705,135 @@ export default function ConsultaMedicaPortal() {
                 </div>
             )}
 
-            {/* TAB 2: EXPEDIENTE CLÍNICO & PRIVACIDAD MÉDICA (SÓLO MÉDICOS / ADMIN) */}
+            {/* TAB 2: CONTROL DE INFORMACIÓN (CENTRO DE MANDO MÉDICOS & ADMIN) */}
+            {activeTab === 'control' && isDoctorOrAdmin && (
+                <div className="space-y-4">
+                    <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                        <div>
+                            <h3 className="text-xs font-black text-amber-950 uppercase flex items-center gap-1.5">
+                                <Settings className="w-4 h-4 text-amber-600" /> Centro de Control y Ajustes de Ausencias Médicas
+                            </h3>
+                            <p className="text-[11px] text-amber-800 font-medium mt-0.5">
+                                Concentrador de pases y consultas. Ajusta fechas reales de salida/retorno, asigna el Médico Autorizante y activa/desactiva la visibilidad para los departamentos.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="bg-white border border-zinc-200 rounded-3xl overflow-hidden shadow-xs">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="border-b border-zinc-200 bg-zinc-50 text-[10px] font-black text-zinc-400 uppercase tracking-wider">
+                                        <th className="px-6 py-4">Paciente / Folio</th>
+                                        <th className="px-6 py-4">Departamento</th>
+                                        <th className="px-6 py-4">👨‍⚕️ Doctor / Clínica Autoriza</th>
+                                        <th className="px-6 py-4">📅 Fechas Reales (Salida / Retorno)</th>
+                                        <th className="px-6 py-4">📢 Compartido Deptos</th>
+                                        <th className="px-6 py-4">Acciones de Control</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-zinc-200 text-xs font-semibold">
+                                    {searchFilteredPases.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={6} className="px-6 py-12 text-center text-zinc-400">
+                                                No hay registros de ausencias en esta vista.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        searchFilteredPases.map(p => {
+                                            const clasif = getClasificacionPase(p)
+                                            const vig = getVigenciaStatus(p)
+                                            const isShared = p.compartido_departamentos !== false
+
+                                            return (
+                                                <tr key={p.id_pase} className="hover:bg-zinc-50 transition-colors">
+                                                    <td className="px-6 py-4">
+                                                        <div className="font-black text-zinc-900">
+                                                            {p.pacientes?.nombre_completo || p.nombre_trabajador || (p.empleados ? `${p.empleados.nombre || ''} ${p.empleados.apellido_paterno || ''}` : 'PACIENTE')}
+                                                        </div>
+                                                        <div className="text-[10px] text-zinc-400 font-mono mt-0.5">
+                                                            Folio: {p.folio || p.id_pase}
+                                                        </div>
+                                                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[8px] uppercase mt-1 ${clasif.badgeClass}`}>
+                                                            {clasif.tipo}
+                                                        </span>
+                                                    </td>
+
+                                                    <td className="px-6 py-4">
+                                                        <div className="font-bold text-zinc-800">{p.empleados?.puesto || 'General'}</div>
+                                                        <div className="text-[10px] text-emerald-700 font-bold uppercase mt-0.5">
+                                                            {p.empleados?.departamento || 'Sin Asignar'}
+                                                        </div>
+                                                    </td>
+
+                                                    <td className="px-6 py-4">
+                                                        <div className="font-bold text-zinc-900 flex items-center gap-1">
+                                                            <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                                            <span>{p.medico_refiere || 'Médico Bacis / Turno'}</span>
+                                                        </div>
+                                                        <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">
+                                                            Destino: {p.clinica_destino?.nombre || 'Durango / Externo'}
+                                                        </div>
+                                                    </td>
+
+                                                    <td className="px-6 py-4 font-mono text-[11px]">
+                                                        <div className="flex items-center gap-1 text-zinc-700">
+                                                            <span className="text-zinc-400 text-[10px]">🚀 Salida:</span>
+                                                            <span className="font-bold">{formatFecha(p.fecha_salida, p.creado_el)}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1 text-emerald-800">
+                                                            <span className="text-zinc-400 text-[10px]">🛬 Retorno:</span>
+                                                            <span className="font-black">{formatFecha(p.fecha_retorno)}</span>
+                                                        </div>
+                                                    </td>
+
+                                                    <td className="px-6 py-4">
+                                                        <button
+                                                            onClick={() => handleToggleVisibilidad(p.id_pase, isShared)}
+                                                            className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase flex items-center gap-1.5 transition-all shadow-xs ${
+                                                                isShared 
+                                                                    ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' 
+                                                                    : 'bg-zinc-100 text-zinc-500 border border-zinc-300'
+                                                            }`}
+                                                        >
+                                                            {isShared ? <ToggleRight className="w-4 h-4 text-emerald-600" /> : <ToggleLeft className="w-4 h-4 text-zinc-400" />}
+                                                            <span>{isShared ? '📢 Publicado' : '🔒 Privado'}</span>
+                                                        </button>
+                                                    </td>
+
+                                                    <td className="px-6 py-4 space-y-1.5">
+                                                        <button
+                                                            onClick={() => handleStartEdit(p)}
+                                                            className="w-full text-[9px] font-black text-amber-900 hover:text-black bg-amber-100 hover:bg-amber-200 px-2.5 py-1 rounded-lg border border-amber-300 flex items-center justify-center gap-1 transition-colors"
+                                                        >
+                                                            <Edit3 className="w-3 h-3 text-amber-700" />
+                                                            <span>Editar Fechas & Doctor</span>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => {
+                                                                setExtendingPase(p)
+                                                                setNuevaFechaRetorno(p.fecha_retorno || '')
+                                                                setMedicoAutorizaExtension(p.medico_refiere || profile?.nombre_completo || '')
+                                                            }}
+                                                            className="w-full text-[9px] font-black text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 flex items-center justify-center gap-1 transition-colors"
+                                                        >
+                                                            <PlusCircle className="w-3 h-3 text-blue-600" />
+                                                            <span>+ Ampliar Reposo</span>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* TAB 3: EXPEDIENTE CLÍNICO COMPLETO (MÉDICOS & ADMIN) */}
             {activeTab === 'clinico' && isDoctorOrAdmin && (
                 <div className="bg-white border border-zinc-200 rounded-3xl overflow-hidden shadow-xs">
                     <div className="overflow-x-auto">
@@ -667,10 +898,13 @@ export default function ConsultaMedicaPortal() {
                                                         <span>&rarr;</span>
                                                         <span className="bg-blue-50 text-blue-800 px-2 py-0.5 rounded">{p.clinica_destino?.nombre || 'Durango / Externo'}</span>
                                                     </div>
+                                                    <div className="text-[10px] text-zinc-400 font-mono mt-0.5">
+                                                        👨‍⚕️ {p.medico_refiere || 'Médico General'}
+                                                    </div>
                                                 </td>
                                                 <td className="px-6 py-4.5 text-[10px] font-mono">
-                                                    <div>Salida: <strong>{p.fecha_salida || 'Inmediata'}</strong></div>
-                                                    <div>Retorno: <strong className="text-emerald-700">{p.fecha_retorno || 'Abierto'}</strong></div>
+                                                    <div>Salida: <strong>{formatFecha(p.fecha_salida, p.creado_el)}</strong></div>
+                                                    <div>Retorno: <strong className="text-emerald-700">{formatFecha(p.fecha_retorno)}</strong></div>
                                                 </td>
                                                 <td className="px-6 py-4.5 space-y-1.5">
                                                     <button
@@ -679,16 +913,6 @@ export default function ConsultaMedicaPortal() {
                                                     >
                                                         <Stethoscope className="w-3 h-3 text-emerald-600" />
                                                         <span>Expediente & Recetas</span>
-                                                    </button>
-                                                    <button
-                                                        onClick={() => {
-                                                            setExtendingPase(p)
-                                                            setNuevaFechaRetorno(p.fecha_retorno || '')
-                                                        }}
-                                                        className="w-full text-[9px] font-black text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 flex items-center justify-center gap-1 transition-colors"
-                                                    >
-                                                        <PlusCircle className="w-3 h-3 text-blue-600" />
-                                                        <span>+ Ampliar Días</span>
                                                     </button>
                                                 </td>
                                             </tr>
@@ -701,7 +925,7 @@ export default function ConsultaMedicaPortal() {
                 </div>
             )}
 
-            {/* TAB 3: HOSPEDAJE & TRASLADOS EN DURANGO */}
+            {/* TAB 4: HOSPEDAJE & TRASLADOS EN DURANGO */}
             {activeTab === 'hotel' && (
                 <div className="space-y-4">
                     {searchFilteredPases.length === 0 ? (
@@ -715,8 +939,6 @@ export default function ConsultaMedicaPortal() {
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             {searchFilteredPases.map(p => {
-                                const vig = getVigenciaStatus(p)
-
                                 return (
                                     <div key={p.id_pase} className="bg-white border border-purple-200 rounded-2xl p-5 shadow-xs space-y-3 relative overflow-hidden">
                                         <div className="absolute top-0 left-0 right-0 h-1.5 bg-purple-500" />
@@ -746,14 +968,110 @@ export default function ConsultaMedicaPortal() {
                                         </div>
 
                                         <div className="bg-zinc-50 border border-zinc-200 p-2.5 rounded-xl text-[11px] font-mono flex justify-between">
-                                            <span>Entrada: <strong>{p.fecha_salida || 'Hoy'}</strong></span>
-                                            <span>Salida Prevista: <strong className="text-purple-700">{p.fecha_retorno || 'Abierta'}</strong></span>
+                                            <span>Entrada: <strong>{formatFecha(p.fecha_salida, p.creado_el)}</strong></span>
+                                            <span>Salida Prevista: <strong className="text-purple-700">{formatFecha(p.fecha_retorno)}</strong></span>
                                         </div>
                                     </div>
                                 )
                             })}
                         </div>
                     )}
+                </div>
+            )}
+
+            {/* MODAL DE EDICIÓN RÁPIDA (CONTROL DE INFORMACIÓN) */}
+            {editingPase && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-zinc-200 space-y-4">
+                        <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+                            <h3 className="text-base font-black text-zinc-900 uppercase flex items-center gap-2">
+                                <Settings className="w-5 h-5 text-amber-600" />
+                                Ajustar Información de Ausencia
+                            </h3>
+                            <button onClick={() => setEditingPase(null)} className="text-zinc-400 hover:text-zinc-700 font-bold">✕</button>
+                        </div>
+
+                        <form onSubmit={handleSaveEdit} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Paciente / Trabajador</label>
+                                <div className="text-sm font-black text-zinc-800 bg-zinc-50 p-2.5 rounded-xl border border-zinc-200">
+                                    {editingPase.pacientes?.nombre_completo || editingPase.empleados?.nombre}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha Salida Mina</label>
+                                    <input 
+                                        type="date"
+                                        value={editForm.fecha_salida}
+                                        onChange={(e) => setEditForm({ ...editForm, fecha_salida: e.target.value })}
+                                        className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha Retorno Previsto</label>
+                                    <input 
+                                        type="date"
+                                        value={editForm.fecha_retorno}
+                                        onChange={(e) => setEditForm({ ...editForm, fecha_retorno: e.target.value })}
+                                        className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">👨‍⚕️ Médico / Doctor Autorizante</label>
+                                <input 
+                                    type="text"
+                                    required
+                                    value={editForm.medico_refiere}
+                                    onChange={(e) => setEditForm({ ...editForm, medico_refiere: e.target.value })}
+                                    placeholder="Ej. Dr. Adriana / Consultorio Bacis"
+                                    className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="flex items-center space-x-2 cursor-pointer bg-zinc-50 p-3 rounded-xl border border-zinc-200">
+                                    <input 
+                                        type="checkbox"
+                                        checked={editForm.compartido_departamentos}
+                                        onChange={(e) => setEditForm({ ...editForm, compartido_departamentos: e.target.checked })}
+                                        className="w-4 h-4 text-emerald-600 rounded border-zinc-300 focus:ring-emerald-500"
+                                    />
+                                    <span className="text-xs font-bold text-zinc-800">📢 Publicar y compartir fechas con Departamentos</span>
+                                </label>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Notas / Observaciones</label>
+                                <textarea
+                                    rows={2}
+                                    value={editForm.comentarios}
+                                    onChange={(e) => setEditForm({ ...editForm, comentarios: e.target.value })}
+                                    className="w-full text-xs border-zinc-300 rounded-xl p-2.5"
+                                />
+                            </div>
+
+                            <div className="pt-2 flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingPase(null)}
+                                    className="px-4 py-2 text-xs font-bold text-zinc-600 hover:bg-zinc-100 rounded-xl"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={savingEdit}
+                                    className="px-5 py-2 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-md disabled:opacity-50"
+                                >
+                                    {savingEdit ? 'Guardando...' : 'Guardar Ajustes'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             )}
 
@@ -785,6 +1103,18 @@ export default function ConsultaMedicaPortal() {
                                     value={nuevaFechaRetorno}
                                     onChange={(e) => setNuevaFechaRetorno(e.target.value)}
                                     className="w-full text-sm font-bold border-zinc-300 rounded-xl p-2.5 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">👨‍⚕️ Médico / Doctor Autorizante</label>
+                                <input 
+                                    type="text"
+                                    required
+                                    value={medicoAutorizaExtension}
+                                    onChange={(e) => setMedicoAutorizaExtension(e.target.value)}
+                                    placeholder="Nombre del médico tratante que autoriza"
+                                    className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
                                 />
                             </div>
 
@@ -851,8 +1181,11 @@ export default function ConsultaMedicaPortal() {
                                 </span>
                             </div>
                             <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                                <div>🚀 Fecha Salida: <strong>{selectedPaseExpediente.fecha_salida || 'Inmediata'}</strong></div>
-                                <div>🛬 Retorno Previsto: <strong>{selectedPaseExpediente.fecha_retorno || 'Abierto'}</strong></div>
+                                <div>🚀 Fecha Salida: <strong>{formatFecha(selectedPaseExpediente.fecha_salida, selectedPaseExpediente.creado_el)}</strong></div>
+                                <div>🛬 Retorno Previsto: <strong>{formatFecha(selectedPaseExpediente.fecha_retorno)}</strong></div>
+                            </div>
+                            <div className="text-xs text-zinc-700 bg-white p-2.5 rounded-xl border border-emerald-100 mt-2 font-mono">
+                                <strong>👨‍⚕️ Médico Responsable:</strong> {selectedPaseExpediente.medico_refiere || 'Consultorio Médico Bacis'}
                             </div>
                             {selectedPaseExpediente.comentarios && (
                                 <div className="text-xs text-zinc-700 bg-white p-2.5 rounded-xl border border-emerald-100 mt-2">
@@ -881,7 +1214,7 @@ export default function ConsultaMedicaPortal() {
                                     {expedienteConsultas.map((c: any) => (
                                         <div key={c.id_consulta} className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl space-y-2">
                                             <div className="flex justify-between items-center border-b border-zinc-200/80 pb-2">
-                                                <span className="text-xs font-bold text-zinc-700 font-mono">📅 Fecha: {c.fecha || c.creado_el?.split('T')[0]}</span>
+                                                <span className="text-xs font-bold text-zinc-700 font-mono">📅 Fecha: {formatFecha(c.fecha, c.creado_el)}</span>
                                                 <span className="text-[10px] font-black bg-blue-100 text-blue-900 px-2 py-0.5 rounded">CONSULTA # {c.id_consulta}</span>
                                             </div>
 
