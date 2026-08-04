@@ -122,10 +122,35 @@ export default function CampamentosPage() {
     fetchEmpleados()
   }, [])
 
+  // Helper to detect zone from campamento data
+  const detectZona = (camp: any): string => {
+    if (camp.zona && camp.zona !== '') return camp.zona
+    const nombre = (camp.nombre || '').toLowerCase()
+    if (nombre.includes('norte') || nombre.includes('(zona norte)')) return 'Zona Norte'
+    if (nombre.includes('paraje') || nombre.includes('(parajes)')) return 'Parajes'
+    return 'Parajes' // default
+  }
+
+  const processCampamentos = (rawData: any[]): Campamento[] => {
+    return rawData.map((camp: any) => ({
+      ...camp,
+      zona: detectZona(camp),
+      campamento_cuartos: (camp.campamento_cuartos || [])
+        .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre, undefined, { numeric: true, sensitivity: 'base' }))
+        .map((q: any) => ({
+          ...q,
+          campamento_camas: (q.campamento_camas || []).sort((a: any, b: any) => a.numero - b.numero)
+        }))
+    }))
+  }
+
   const fetchData = async () => {
     setLoading(true)
     try {
-      const { data, error } = await supabase.from('campamentos')
+      // Try full query with zona column
+      let rawData: any[] = []
+      
+      const fullQuery = await (supabase.from('campamentos') as any)
         .select(`
           id_campamento, nombre, ubicacion, zona, tipo,
           campamento_cuartos (
@@ -136,28 +161,42 @@ export default function CampamentosPage() {
             )
           )
         `)
-        .order('creado_el')
-      
-      if (error) throw error
+        .order('id_campamento')
 
-      const processed: Campamento[] = (data || []).map((camp: any) => ({
-        ...camp,
-        zona: camp.zona || (camp.nombre.toLowerCase().includes('norte') ? 'Zona Norte' : 'Parajes'),
-        campamento_cuartos: (camp.campamento_cuartos || [])
-          .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre, undefined, { numeric: true, sensitivity: 'base' }))
-          .map((q: any) => ({
-            ...q,
-            campamento_camas: (q.campamento_camas || []).sort((a: any, b: any) => a.numero - b.numero)
-          }))
-      }))
+      if (fullQuery.error) {
+        console.warn('Full query failed, fallback without zona:', fullQuery.error.message)
+        // Fallback: no zona column
+        const fallback = await (supabase.from('campamentos') as any)
+          .select(`
+            id_campamento, nombre, ubicacion, tipo,
+            campamento_cuartos (
+              id_cuarto, nombre, estatus_limpieza,
+              campamento_camas (
+                id_cama, numero, estatus_lavado, id_empleado,
+                empleados ( id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado, rol_tipo, fecha_inicio_rol )
+              )
+            )
+          `)
+          .order('id_campamento')
 
+        if (fallback.error) throw fallback.error
+        rawData = fallback.data || []
+      } else {
+        rawData = fullQuery.data || []
+      }
+
+      const processed = processCampamentos(rawData)
       setCampamentos(processed)
       
+      // Preserve selection if it still exists, else pick first
       if (processed.length > 0) {
-        setSelectedCampamento(processed[0])
+        setSelectedCampamento(prev => {
+          const stillExists = processed.find((c: Campamento) => c.id_campamento === prev?.id_campamento)
+          return stillExists || processed[0]
+        })
       }
-    } catch (error) {
-      console.error('Error fetching campamentos:', error)
+    } catch (err: any) {
+      console.error('Error fetching campamentos:', err)
     } finally {
       setLoading(false)
     }
@@ -177,10 +216,11 @@ export default function CampamentosPage() {
     setContratistasHistorial(contratistas)
   }
 
-  // Filtered Campamentos by Zone
+  // Filtered Campamentos by Zone — checks both camp.zona and the embedded zone in name e.g. "Cabaña 1 (Parajes)"
   const filteredCampamentosByZona = campamentos.filter(c => {
-    const matchesZona = selectedZona === 'TODAS' || (c.zona || 'Parajes') === selectedZona
-    const matchesSearch = !searchQuery || c.nombre.toLowerCase().includes(searchQuery.toLowerCase()) || c.ubicacion.toLowerCase().includes(searchQuery.toLowerCase())
+    const zonaValue = c.zona || detectZona(c)
+    const matchesZona = selectedZona === 'TODAS' || zonaValue === selectedZona
+    const matchesSearch = !searchQuery || c.nombre.toLowerCase().includes(searchQuery.toLowerCase()) || (c.ubicacion || '').toLowerCase().includes(searchQuery.toLowerCase())
     return matchesZona && matchesSearch
   })
 
@@ -190,7 +230,7 @@ export default function CampamentosPage() {
       if (!selectedCampamento || !filteredCampamentosByZona.some(c => c.id_campamento === selectedCampamento.id_campamento)) {
         setSelectedCampamento(filteredCampamentosByZona[0])
       }
-    } else {
+    } else if (campamentos.length > 0 && filteredCampamentosByZona.length === 0) {
       setSelectedCampamento(null)
     }
   }, [selectedZona, campamentos])
