@@ -7,7 +7,8 @@ import {
   CheckCircle, AlertTriangle, ChevronRight, Sparkles, Activity, ShieldCheck,
   Box, Eye, Layers, RotateCw, User, Calendar, Clock, RefreshCw, X,
   Shirt, Sparkles as SparklesIcon, Zap, Settings, ShieldAlert, Move, ZoomIn, Info,
-  BarChart3, ChevronLeft, ArrowRight, CheckCircle2, Sliders, CalendarDays
+  BarChart3, ChevronLeft, ArrowRight, CheckCircle2, Sliders, CalendarDays,
+  HardHat, UserCheck, Repeat
 } from 'lucide-react'
 
 interface Persona {
@@ -18,8 +19,9 @@ interface Persona {
   puesto?: string
   departamento?: string
   numero_empleado?: number | string
-  rol_tipo?: string // '14x7', '21x7', '28x14', '10x5', '5x2'
+  rol_tipo?: string // '20x10', '14x7', '10x5', '6x1', 'Contratista'
   fecha_inicio_rol?: string
+  es_contratista?: boolean
 }
 
 interface Cama {
@@ -41,6 +43,7 @@ interface Campamento {
   id_campamento: string
   nombre: string
   ubicacion: string
+  zona?: 'Parajes' | 'Zona Norte' | string
   tipo: 'General' | 'Contratistas' | 'Staff' | 'Supervisores' | string
   campamento_cuartos: Cuarto[]
 }
@@ -48,12 +51,16 @@ interface Campamento {
 export default function CampamentosPage() {
   const [campamentos, setCampamentos] = useState<Campamento[]>([])
   const [empleados, setEmpleados] = useState<Persona[]>([])
+  const [contratistasHistorial, setContratistasHistorial] = useState<Persona[]>([])
   const [selectedCampamento, setSelectedCampamento] = useState<Campamento | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   
-  // Vistas: '3d' (Visor WebGL 3D Real), 'gantt' (Diagrama de Gantt / Cronograma), 'tabla' (Gestión Operativa)
-  const [viewMode, setViewMode] = useState<'3d' | 'gantt' | 'tabla'>('3d')
+  // Filtro por Zona Minera: 'TODAS' | 'Parajes' | 'Zona Norte'
+  const [selectedZona, setSelectedZona] = useState<'TODAS' | 'Parajes' | 'Zona Norte'>('TODAS')
+
+  // Vistas: '3d' (Visor WebGL 3D Real), 'gantt' (Diagrama de Gantt / Cronograma), 'tabla' (Gestión Operativa), 'contratistas' (Historial Contratistas)
+  const [viewMode, setViewMode] = useState<'3d' | 'gantt' | 'tabla' | 'contratistas'>('3d')
 
   // Gantt Timeline Selected Month & Year
   const [ganttDate, setGanttDate] = useState<Date>(new Date(2026, 7, 1)) // August 2026
@@ -66,6 +73,7 @@ export default function CampamentosPage() {
   const [showAddCampModal, setShowAddCampModal] = useState(false)
   const [newCampName, setNewCampName] = useState('')
   const [newCampUbi, setNewCampUbi] = useState('')
+  const [newCampZona, setNewCampZona] = useState<'Parajes' | 'Zona Norte'>('Parajes')
   const [newCampTipo, setNewCampTipo] = useState('General')
 
   const [showAddRoomModal, setShowAddRoomModal] = useState(false)
@@ -75,7 +83,7 @@ export default function CampamentosPage() {
   // Modal para configurar rol de trabajador
   const [editingRoleWorker, setEditingRoleWorker] = useState<Persona | null>(null)
   const [roleForm, setRoleForm] = useState({
-    rol_tipo: '14x7',
+    rol_tipo: '20x10',
     fecha_inicio_rol: new Date().toISOString().split('T')[0]
   })
   const [savingRole, setSavingRole] = useState(false)
@@ -97,12 +105,12 @@ export default function CampamentosPage() {
     try {
       const { data, error } = await supabase.from('campamentos')
         .select(`
-          id_campamento, nombre, ubicacion, tipo,
+          id_campamento, nombre, ubicacion, zona, tipo,
           campamento_cuartos (
             id_cuarto, nombre, estatus_limpieza,
             campamento_camas (
               id_cama, numero, estatus_lavado, id_empleado,
-              empleados ( id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado )
+              empleados ( id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado, rol_tipo, fecha_inicio_rol )
             )
           )
         `)
@@ -112,6 +120,7 @@ export default function CampamentosPage() {
 
       const processed: Campamento[] = (data || []).map((camp: any) => ({
         ...camp,
+        zona: camp.zona || (camp.nombre.toLowerCase().includes('norte') ? 'Zona Norte' : 'Parajes'),
         campamento_cuartos: (camp.campamento_cuartos || [])
           .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre, undefined, { numeric: true, sensitivity: 'base' }))
           .map((q: any) => ({
@@ -137,22 +146,53 @@ export default function CampamentosPage() {
   const fetchEmpleados = async () => {
     const { data } = await supabase
       .from('empleados')
-      .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado')
+      .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado, rol_tipo, fecha_inicio_rol, es_contratista')
       .eq('estado_empleado', 'Activo')
       .order('nombre')
-    setEmpleados(data || [])
+
+    const allEmps = data || []
+    setEmpleados(allEmps)
+
+    // Separate contractors for quick reactivation panel
+    const contratistas = allEmps.filter(e => e.es_contratista || (e.departamento || '').toLowerCase().includes('contratista') || (e.puesto || '').toLowerCase().includes('contratista') || e.rol_tipo === 'Contratista')
+    setContratistasHistorial(contratistas)
   }
 
-  // Shift Role Projection Engine (Calculate status for any target date)
+  // Shift Role Projection Engine (Supports 20x10, 14x7, 10x5, 6x1, Contratista 3 días)
   const calculateShiftProjection = (emp?: Persona | null, targetDate: Date = new Date()) => {
     if (!emp) return { isWorkDay: false, statusLabel: 'Desocupado', isFranco: false }
 
-    const rolStr = emp.rol_tipo || '14x7'
-    const match = rolStr.match(/(\d+)x(\d+)/)
-    const workDays = match ? parseInt(match[1]) : 14
-    const restDays = match ? parseInt(match[2]) : 7
-    const cycleDays = workDays + restDays
+    const rolStr = emp.rol_tipo || '20x10'
 
+    // Contratistas / Eventual 3 Días
+    if (rolStr.toUpperCase().includes('CONTRATISTA') || rolStr === '3DIAS') {
+      const startDateStr = emp.fecha_inicio_rol || '2026-08-01'
+      const startDate = new Date(startDateStr + 'T00:00:00')
+      const diffTime = targetDate.getTime() - startDate.getTime()
+      const diffDays = Math.floor(diffTime / (1000 * 3600 * 24))
+
+      const isWorkDay = diffDays >= 0 && diffDays < 3
+
+      return {
+        isWorkDay,
+        isFranco: !isWorkDay,
+        statusLabel: isWorkDay ? '👷🏼‍♂️ Contratista (En Sitio - 3 Días)' : '✈️ Contratista Retirado',
+        periodName: isWorkDay ? `Estadía Corta (Día ${diffDays + 1} de 3)` : 'Concluido (Disponible Reactivación)',
+        daysLeft: isWorkDay ? (3 - diffDays) : 0,
+        nextChangeFormatted: '',
+        nextChangeText: isWorkDay ? `Concluye estadía en ${3 - diffDays} días` : 'Listo para Re-asignación'
+      }
+    }
+
+    let workDays = 20
+    let restDays = 10
+
+    if (rolStr === '20x10') { workDays = 20; restDays = 10; }
+    else if (rolStr === '14x7') { workDays = 14; restDays = 7; }
+    else if (rolStr === '10x5') { workDays = 10; restDays = 5; }
+    else if (rolStr === '6x1') { workDays = 6; restDays = 1; }
+
+    const cycleDays = workDays + restDays
     const startDateStr = emp.fecha_inicio_rol || '2026-08-01'
     const startDate = new Date(startDateStr + 'T00:00:00')
 
@@ -165,7 +205,6 @@ export default function CampamentosPage() {
     const isWorkDay = dayInCycle < workDays
     const daysLeftInPeriod = isWorkDay ? (workDays - dayInCycle) : (cycleDays - dayInCycle)
 
-    // Next change date
     const nextChangeDate = new Date(targetDate)
     nextChangeDate.setDate(nextChangeDate.getDate() + daysLeftInPeriod)
 
@@ -193,6 +232,13 @@ export default function CampamentosPage() {
       }
     }
   }
+
+  // Filtered Campamentos by Zone
+  const filteredCampamentosByZona = campamentos.filter(c => {
+    const matchesZona = selectedZona === 'TODAS' || (c.zona || 'Parajes') === selectedZona
+    const matchesSearch = !searchQuery || c.nombre.toLowerCase().includes(searchQuery.toLowerCase()) || c.ubicacion.toLowerCase().includes(searchQuery.toLowerCase())
+    return matchesZona && matchesSearch
+  })
 
   // THREE.JS REAL-TIME 3D VOLUMETRIC SCENE ENGINE WITH REALISTIC ROOM DESIGN & FIXED RAYCASTER
   useEffect(() => {
@@ -232,7 +278,7 @@ export default function CampamentosPage() {
       }
       container.appendChild(renderer.domElement)
 
-      // 4. Lighting setup (Warm realistic lighting)
+      // 4. Lighting setup
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.8)
       scene.add(ambientLight)
 
@@ -284,7 +330,7 @@ export default function CampamentosPage() {
         floorMesh.receiveShadow = true
         roomGroup.add(floorMesh)
 
-        // Realistic Cabin Walls (Solid back & side walls with open front/top for interior view)
+        // Realistic Cabin Walls
         const isDirty = cuarto.estatus_limpieza === 'Sucio'
         const isCleaning = cuarto.estatus_limpieza === 'En Limpieza'
         const wallAccentColor = isDirty ? 0xef4444 : isCleaning ? 0xf59e0b : 0x10b981
@@ -402,13 +448,11 @@ export default function CampamentosPage() {
             bedGroup.add(personGroup)
           }
 
-          // Register bed & components in map
           roomObjectsMap.set(bedGroup, { room: cuarto, bed: cama })
           roomObjectsMap.set(matMesh, { room: cuarto, bed: cama })
           roomGroup.add(bedGroup)
         })
 
-        // Register room components in map so clicking ANY wall/floor selects the room!
         roomObjectsMap.set(roomGroup, { room: cuarto })
         roomObjectsMap.set(floorMesh, { room: cuarto })
         roomObjectsMap.set(backWallMesh, { room: cuarto })
@@ -480,7 +524,6 @@ export default function CampamentosPage() {
                 if (matched.bed) {
                   setSelectedBed3D({ room: matched.room, bed: matched.bed })
                 } else {
-                  // Pick first bed or open room modal
                   const firstBed = matched.room.campamento_camas[0]
                   setSelectedBed3D({ room: matched.room, bed: firstBed })
                 }
@@ -541,13 +584,14 @@ export default function CampamentosPage() {
         .from('empleados')
         .update({
           rol_tipo: roleForm.rol_tipo,
-          fecha_inicio_rol: roleForm.fecha_inicio_rol
+          fecha_inicio_rol: roleForm.fecha_inicio_rol,
+          es_contratista: roleForm.rol_tipo.toLowerCase().includes('contratista')
         })
         .eq('id_empleado', editingRoleWorker.id_empleado)
 
       if (error) throw error
 
-      alert(`Rol ${roleForm.rol_tipo} guardado correctamente. Las proyecciones del campamento se han actualizado.`)
+      alert(`Rol ${roleForm.rol_tipo} guardado correctamente. Proyección de turnos actualizada.`)
       setEditingRoleWorker(null)
       fetchData()
       fetchEmpleados()
@@ -597,6 +641,7 @@ export default function CampamentosPage() {
       const { error } = await supabase.from('campamentos').insert([{
         nombre: newCampName,
         ubicacion: newCampUbi || 'Sin ubicación',
+        zona: newCampZona,
         tipo: newCampTipo
       }])
       if (error) throw error
@@ -661,7 +706,7 @@ export default function CampamentosPage() {
   }
 
   const handleRemovePerson = async (id_cama: string) => {
-    if (!confirm('¿Desocupar esta cama? El trabajador será liberado del cuarto.')) return
+    if (!confirm('¿Desocupar esta cama? El trabajador o contratista quedará guardado para reactivación rápida.')) return
     try {
       const { error } = await supabase.from('campamento_camas')
         .update({ id_empleado: null })
@@ -745,16 +790,16 @@ export default function CampamentosPage() {
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-amber-400 text-xs font-black uppercase tracking-widest">
               <SparklesIcon className="w-4 h-4 text-amber-400 animate-pulse" />
-              <span>Campamentos Mineros — Maqueta 3D & Cronograma Gantt de Francos</span>
+              <span>Unidad Minera Bacis — Zonas Parajes & Zona Norte</span>
             </div>
             <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white uppercase italic flex items-center gap-3">
-              Maqueta 3D Realista & Proyección de Roles
+              Control de Campamentos & Roles
               <span className="text-[10px] font-black font-mono bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2.5 py-0.5 rounded-full not-italic animate-pulse">
-                ROLES 14x7 / 21x7
+                ROLES: 20x10 / 14x7 / 10x5 / 6x1
               </span>
             </h1>
             <p className="text-zinc-400 text-xs max-w-2xl leading-relaxed">
-              Visualizador tridimensional realista de cuartos de cabaña, control de francos y Diagrama de Gantt para proyectar la ocupación futura del campamento.
+              Zonificación en Parajes y Zona Norte. Controla la ocupación en tiempo real, maquetas 3D realistas, historial de contratistas y proyecciones en Diagrama de Gantt.
             </p>
           </div>
 
@@ -815,10 +860,48 @@ export default function CampamentosPage() {
         </div>
       </div>
 
+      {/* ZONE SELECTOR (PARAJES VS ZONA NORTE) */}
+      <div className="bg-gradient-to-r from-zinc-900 via-zinc-850 to-zinc-900 text-white p-4 rounded-2xl border border-zinc-800 shadow-md flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="flex items-center gap-3">
+          <MapPin className="w-5 h-5 text-amber-400" />
+          <div>
+            <div className="text-[10px] font-black uppercase text-amber-400 tracking-wider">DIVISIÓN GEOGRÁFICA MINERA</div>
+            <div className="text-sm font-black uppercase">Filtrar Campamentos por Zona</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 bg-zinc-950 p-1 rounded-xl border border-zinc-800 w-full md:w-auto">
+          <button
+            onClick={() => setSelectedZona('TODAS')}
+            className={`flex-1 md:flex-initial px-4 py-2 rounded-lg text-xs font-black uppercase transition-all ${
+              selectedZona === 'TODAS' ? 'bg-amber-500 text-black shadow-xs font-extrabold' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            ⛰️ TODAS LAS ZONAS
+          </button>
+          <button
+            onClick={() => setSelectedZona('Parajes')}
+            className={`flex-1 md:flex-initial px-4 py-2 rounded-lg text-xs font-black uppercase transition-all ${
+              selectedZona === 'Parajes' ? 'bg-amber-500 text-black shadow-xs font-extrabold' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            📍 ZONA PARAJES
+          </button>
+          <button
+            onClick={() => setSelectedZona('Zona Norte')}
+            className={`flex-1 md:flex-initial px-4 py-2 rounded-lg text-xs font-black uppercase transition-all ${
+              selectedZona === 'Zona Norte' ? 'bg-amber-500 text-black shadow-xs font-extrabold' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            📍 ZONA NORTE
+          </button>
+        </div>
+      </div>
+
       {/* Camp Selectors & View Mode Toggles */}
       <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="flex flex-wrap items-center gap-2 overflow-x-auto max-w-full pb-1 md:pb-0">
-          {campamentos.map(camp => {
+          {filteredCampamentosByZona.map(camp => {
             const isSelected = selectedCampamento?.id_campamento === camp.id_campamento
             const stats = getCamasStats(camp)
             return (
@@ -833,6 +916,9 @@ export default function CampamentosPage() {
               >
                 <Home className="w-3.5 h-3.5 text-amber-400" />
                 <span>{camp.nombre}</span>
+                <span className="text-[9px] font-mono text-zinc-400 bg-zinc-800/20 px-1.5 py-0.5 rounded uppercase">
+                  {camp.zona || 'Parajes'}
+                </span>
                 <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${isSelected ? 'bg-amber-500 text-black font-extrabold' : 'bg-zinc-200 text-zinc-700'}`}>
                   {stats.ocupadas}/{stats.totales}
                 </span>
@@ -864,7 +950,19 @@ export default function CampamentosPage() {
             }`}
           >
             <BarChart3 className="w-4 h-4" />
-            <span>📊 Diagrama de Gantt (Roles)</span>
+            <span>📊 Diagrama de Gantt</span>
+          </button>
+
+          <button
+            onClick={() => setViewMode('contratistas')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase flex items-center gap-1.5 transition-all ${
+              viewMode === 'contratistas'
+                ? 'bg-amber-600 text-white shadow-xs font-extrabold'
+                : 'text-zinc-500 hover:text-black'
+            }`}
+          >
+            <HardHat className="w-4 h-4" />
+            <span>👷🏼‍♂️ Contratistas</span>
           </button>
 
           <button
@@ -908,7 +1006,7 @@ export default function CampamentosPage() {
 
             <div className="absolute bottom-4 left-4 bg-zinc-900/90 backdrop-blur-md p-3.5 rounded-2xl border border-zinc-800 text-white text-[10px] font-mono space-y-1.5 shadow-xl pointer-events-none">
               <div className="font-black text-amber-400 flex items-center gap-1">
-                <Info className="w-3.5 h-3.5" /> MAQUETA DE CABAÑAS 3D CON MODELADO DE HABITACIONES
+                <Info className="w-3.5 h-3.5" /> MAQUETA DE CABAÑAS 3D — {selectedCampamento.zona || 'Zona Parajes'}
               </div>
               <div className="text-zinc-300">
                 🟢 Muñeco Verde = Trabajador en Mina (En Sitio) | 🟡 Muñeco Naranja = Trabajador en Franco Descanso
@@ -928,7 +1026,7 @@ export default function CampamentosPage() {
           <div className="bg-zinc-900 text-white p-5 rounded-3xl shadow-lg border border-zinc-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <span className="text-[10px] font-black uppercase text-indigo-400 tracking-wider flex items-center gap-1">
-                <BarChart3 className="w-3.5 h-3.5" /> PROYECCIÓN MENSUAL DE ROLES Y OCUPACIÓN EN CAMPAMENTO
+                <BarChart3 className="w-3.5 h-3.5" /> PROYECCIÓN MENSUAL DE ROLES EN {selectedCampamento.zona || 'ZONA PARAJES'}
               </span>
               <h2 className="text-xl font-black uppercase tracking-tight text-white mt-0.5">
                 Diagrama de Gantt — {ganttMonthName}
@@ -975,7 +1073,7 @@ export default function CampamentosPage() {
             </div>
 
             <div className="text-[10px] text-zinc-500 font-mono">
-              Proyección matemática automática según rol (14x7, 21x7, etc.)
+              Roles soportados: 20x10, 14x7, 10x5, 6x1, Contratistas 3 Días
             </div>
           </div>
 
@@ -1019,7 +1117,6 @@ export default function CampamentosPage() {
                         const emp = cama.empleados
                         return (
                           <tr key={cama.id_cama} className="hover:bg-zinc-50 transition-colors">
-                            {/* Room & Employee Cell */}
                             <td className="px-4 py-3 border-r border-zinc-200 sticky left-0 bg-white shadow-xs z-10">
                               <div className="font-black text-zinc-900 text-xs flex items-center justify-between">
                                 <span className="truncate">{cuarto.nombre} — Cama #{cama.numero}</span>
@@ -1033,28 +1130,25 @@ export default function CampamentosPage() {
                               )}
                             </td>
 
-                            {/* Shift Role Badge & Edit Action */}
                             <td className="px-3 py-3 border-r border-zinc-200 text-center font-mono text-[10px]">
                               {emp ? (
                                 <button
                                   onClick={() => {
                                     setEditingRoleWorker(emp)
                                     setRoleForm({
-                                      rol_tipo: emp.rol_tipo || '14x7',
+                                      rol_tipo: emp.rol_tipo || '20x10',
                                       fecha_inicio_rol: emp.fecha_inicio_rol || '2026-08-01'
                                     })
                                   }}
                                   className="px-2 py-0.5 bg-zinc-100 hover:bg-amber-100 text-zinc-800 font-bold rounded border border-zinc-300 transition-colors"
-                                  title="Haga clic para editar el rol de trabajo"
                                 >
-                                  {emp.rol_tipo || '14x7'} ✏️
+                                  {emp.rol_tipo || '20x10'} ✏️
                                 </button>
                               ) : (
                                 <span className="text-zinc-400">-</span>
                               )}
                             </td>
 
-                            {/* Gantt Daily Blocks */}
                             {ganttDays.map(day => {
                               if (!emp) {
                                 return (
@@ -1094,13 +1188,91 @@ export default function CampamentosPage() {
         </div>
       )}
 
-      {/* MAIN VIEWPORT 3: VISTA EN TABLA OPERATIVA */}
+      {/* MAIN VIEWPORT 3: HISTORIAL & REACTIVACIÓN RÁPIDA DE CONTRATISTAS */}
+      {viewMode === 'contratistas' && (
+        <div className="space-y-4">
+          <div className="bg-gradient-to-r from-amber-900 via-zinc-900 to-zinc-950 text-white p-6 rounded-3xl shadow-lg border border-amber-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
+                <HardHat className="w-4 h-4 text-amber-400" /> HISTORIAL DE CONTRATISTAS Y PERSONAL EVENTUAL (3 DÍAS / CORTA ESTADÍA)
+              </span>
+              <h2 className="text-xl font-black uppercase tracking-tight text-white mt-1">
+                Reactivación Rápida de Hospedaje para Contratistas
+              </h2>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Los contratistas que se retiran quedan guardados aquí. Al regresar a la mina, presiona ⚡ Reactivar para asignarles cama en segundos.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-zinc-200 rounded-3xl overflow-hidden shadow-xs">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-zinc-50 border-b border-zinc-200 text-[10px] font-black text-zinc-400 uppercase tracking-wider">
+                  <th className="px-6 py-4">Contratista / Empresa</th>
+                  <th className="px-6 py-4">Puesto / Especialidad</th>
+                  <th className="px-6 py-4">Esquema / Rol</th>
+                  <th className="px-6 py-4">Acción Rápida</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-200 text-xs font-semibold">
+                {contratistasHistorial.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-12 text-center text-zinc-400 font-bold">
+                      No hay contratistas registrados en el historial de re-asignación.
+                    </td>
+                  </tr>
+                ) : (
+                  contratistasHistorial.map(emp => (
+                    <tr key={emp.id_empleado} className="hover:bg-amber-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="font-black text-zinc-900 text-sm">
+                          {emp.nombre} {emp.apellido_paterno} {emp.apellido_materno || ''}
+                        </div>
+                        <div className="text-[10px] text-amber-700 font-mono font-bold mt-0.5">
+                          ID: {emp.id_empleado}
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4">
+                        <div className="font-bold text-zinc-800">{emp.puesto || 'Contratista Eventual'}</div>
+                        <div className="text-[10px] text-zinc-500 font-mono">{emp.departamento || 'Contratistas Bacis'}</div>
+                      </td>
+
+                      <td className="px-6 py-4 font-mono text-xs">
+                        <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-1 rounded-lg font-black uppercase">
+                          👷🏼‍♂️ {emp.rol_tipo || 'Contratista (3 Días)'}
+                        </span>
+                      </td>
+
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={() => {
+                            setViewMode('tabla')
+                            alert(`Seleccione la cama en el campamento para asignar a "${emp.nombre} ${emp.apellido_paterno}".`)
+                          }}
+                          className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-black text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-all"
+                        >
+                          <Zap className="w-4 h-4 fill-black" />
+                          <span>⚡ Reactivar y Asignar Cama</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MAIN VIEWPORT 4: VISTA EN TABLA OPERATIVA */}
       {viewMode === 'tabla' && selectedCampamento && (
         <div className="space-y-4">
           <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-zinc-200 shadow-xs">
             <h3 className="text-sm font-black text-zinc-900 uppercase flex items-center gap-2">
               <Layers className="w-4 h-4 text-emerald-600" />
-              Gestión Operativa de Cuartos — {selectedCampamento.nombre}
+              Gestión Operativa de Cuartos — {selectedCampamento.nombre} ({selectedCampamento.zona || 'Zona Parajes'})
             </h3>
             <button
               onClick={() => setShowAddRoomModal(true)}
@@ -1176,13 +1348,13 @@ export default function CampamentosPage() {
                                         onClick={() => {
                                           setEditingRoleWorker(emp)
                                           setRoleForm({
-                                            rol_tipo: emp.rol_tipo || '14x7',
+                                            rol_tipo: emp.rol_tipo || '20x10',
                                             fecha_inicio_rol: emp.fecha_inicio_rol || '2026-08-01'
                                           })
                                         }}
                                         className="text-[9px] font-black bg-zinc-200 hover:bg-amber-200 text-zinc-900 px-2 py-0.5 rounded border border-zinc-300 transition-colors"
                                       >
-                                        ⚙️ Rol ({emp.rol_tipo || '14x7'})
+                                        ⚙️ Rol ({emp.rol_tipo || '20x10'})
                                       </button>
 
                                       <button
@@ -1291,20 +1463,20 @@ export default function CampamentosPage() {
                             onClick={() => {
                               setEditingRoleWorker(emp)
                               setRoleForm({
-                                rol_tipo: emp.rol_tipo || '14x7',
+                                rol_tipo: emp.rol_tipo || '20x10',
                                 fecha_inicio_rol: emp.fecha_inicio_rol || '2026-08-01'
                               })
                             }}
                             className="text-[10px] font-black bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-2 py-1 rounded border border-zinc-700"
                           >
-                            ⚙️ Editar Rol ({emp.rol_tipo || '14x7'})
+                            ⚙️ Editar Rol ({emp.rol_tipo || '20x10'})
                           </button>
                         </div>
 
                         {/* Shift Role Status Banner */}
                         <div className="bg-zinc-950 p-2.5 rounded-xl text-[11px] font-mono space-y-1 border border-zinc-800/80">
                           <div>Periodo Actual: <strong>{proj.periodName}</strong></div>
-                          <div className="text-amber-400 font-bold">✈️ {proj.nextChangeText}</div>
+                          {proj.nextChangeText && <div className="text-amber-400 font-bold">✈️ {proj.nextChangeText}</div>}
                         </div>
 
                         <div className="flex justify-between items-center text-[10px] font-mono pt-1">
@@ -1365,7 +1537,7 @@ export default function CampamentosPage() {
 
             <form onSubmit={handleSaveShiftRole} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Trabajador</label>
+                <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">Trabajador / Contratista</label>
                 <div className="text-sm font-black text-zinc-800 bg-zinc-50 p-2.5 rounded-xl border border-zinc-200">
                   {editingRoleWorker.nombre} {editingRoleWorker.apellido_paterno}
                 </div>
@@ -1378,17 +1550,16 @@ export default function CampamentosPage() {
                   onChange={e => setRoleForm({ ...roleForm, rol_tipo: e.target.value })}
                   className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
                 >
+                  <option value="20x10">20x10 (20 Días Trabajo / 10 Días Descanso)</option>
                   <option value="14x7">14x7 (14 Días Trabajo / 7 Días Descanso)</option>
-                  <option value="21x7">21x7 (21 Días Trabajo / 7 Días Descanso)</option>
-                  <option value="28x14">28x14 (28 Días Trabajo / 14 Días Descanso)</option>
                   <option value="10x5">10x5 (10 Días Trabajo / 5 Días Descanso)</option>
-                  <option value="5x2">5x2 (5 Días Trabajo / 2 Días Descanso)</option>
-                  <option value="7x7">7x7 (7 Días Trabajo / 7 Días Descanso)</option>
+                  <option value="6x1">6x1 (6 Días Trabajo / 1 Día Descanso)</option>
+                  <option value="Contratista">Contratista (Estadía Corta 3 Días)</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha de Inicio del Período / Referencia</label>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha del Primer Día de Trabajo / Inicio</label>
                 <input
                   type="date"
                   required
@@ -1436,7 +1607,7 @@ export default function CampamentosPage() {
                 <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
                 <input
                   type="text"
-                  placeholder="Buscar por nombre de trabajador..."
+                  placeholder="Buscar por nombre de trabajador o contratista..."
                   value={assignmentSearch}
                   onChange={e => setAssignmentSearch(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800"
@@ -1510,7 +1681,19 @@ export default function CampamentosPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Ubicación en Unidad Minera</label>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Zona Minera Destinada</label>
+                <select
+                  value={newCampZona}
+                  onChange={e => setNewCampZona(e.target.value as any)}
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                >
+                  <option value="Parajes">📍 Zona Parajes</option>
+                  <option value="Zona Norte">📍 Zona Norte</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Ubicación Específica</label>
                 <input
                   type="text"
                   value={newCampUbi}
