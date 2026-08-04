@@ -124,10 +124,10 @@ export default function CampamentosPage() {
 
   // Helper to detect zone from campamento data
   const detectZona = (camp: any): string => {
-    if (camp.zona && camp.zona !== '') return camp.zona
     const textToSearch = `${camp.nombre || ''} ${camp.ubicacion || ''}`.toLowerCase()
     if (textToSearch.includes('norte')) return 'Zona Norte'
     if (textToSearch.includes('paraje')) return 'Parajes'
+    if (camp.zona && (camp.zona === 'Zona Norte' || camp.zona === 'Parajes')) return camp.zona
     return 'Parajes' // default
   }
 
