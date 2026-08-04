@@ -139,7 +139,16 @@ export default function CampamentosPage() {
         .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre, undefined, { numeric: true, sensitivity: 'base' }))
         .map((q: any) => ({
           ...q,
-          campamento_camas: (q.campamento_camas || []).sort((a: any, b: any) => a.numero - b.numero)
+          campamento_camas: (q.campamento_camas || [])
+            .sort((a: any, b: any) => a.numero - b.numero)
+            .map((cama: any) => ({
+              ...cama,
+              empleados: cama.empleados ? {
+                ...cama.empleados,
+                rol_tipo: cama.empleados.rol_tipo || '20x10',
+                fecha_inicio_rol: cama.empleados.fecha_inicio_rol || '2026-08-01'
+              } : null
+            }))
         }))
     }))
   }
@@ -147,9 +156,9 @@ export default function CampamentosPage() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      // Try full query with zona column
       let rawData: any[] = []
       
+      // Query campamentos with base empleados columns (guaranteed not to throw 400 on missing optional columns)
       const fullQuery = await (supabase.from('campamentos') as any)
         .select(`
           id_campamento, nombre, ubicacion, zona, tipo,
@@ -157,7 +166,7 @@ export default function CampamentosPage() {
             id_cuarto, nombre, estatus_limpieza,
             campamento_camas (
               id_cama, numero, estatus_lavado, id_empleado,
-              empleados ( id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado, rol_tipo, fecha_inicio_rol )
+              empleados ( id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado )
             )
           )
         `)
@@ -165,7 +174,6 @@ export default function CampamentosPage() {
 
       if (fullQuery.error) {
         console.warn('Full query failed, fallback without zona:', fullQuery.error.message)
-        // Fallback: no zona column
         const fallback = await (supabase.from('campamentos') as any)
           .select(`
             id_campamento, nombre, ubicacion, tipo,
@@ -173,7 +181,7 @@ export default function CampamentosPage() {
               id_cuarto, nombre, estatus_limpieza,
               campamento_camas (
                 id_cama, numero, estatus_lavado, id_empleado,
-                empleados ( id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado, rol_tipo, fecha_inicio_rol )
+                empleados ( id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado )
               )
             )
           `)
@@ -188,7 +196,6 @@ export default function CampamentosPage() {
       const processed = processCampamentos(rawData)
       setCampamentos(processed)
       
-      // Preserve selection if it still exists, else pick first
       if (processed.length > 0) {
         setSelectedCampamento(prev => {
           const stillExists = processed.find((c: Campamento) => c.id_campamento === prev?.id_campamento)
@@ -203,17 +210,48 @@ export default function CampamentosPage() {
   }
 
   const fetchEmpleados = async () => {
-    const { data } = await supabase
-      .from('empleados')
-      .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado, rol_tipo, fecha_inicio_rol, es_contratista')
-      .eq('estado_empleado', 'Activo')
-      .order('nombre')
+    try {
+      // First try fetching with extended columns
+      const fullRes = await supabase
+        .from('empleados')
+        .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado, rol_tipo, fecha_inicio_rol, es_contratista')
+        .eq('estado_empleado', 'Activo')
+        .order('nombre')
 
-    const allEmps = data || []
-    setEmpleados(allEmps)
+      let allEmps: any[] = []
 
-    const contratistas = allEmps.filter(e => e.es_contratista || (e.departamento || '').toLowerCase().includes('contratista') || (e.puesto || '').toLowerCase().includes('contratista') || e.rol_tipo === 'Contratista')
-    setContratistasHistorial(contratistas)
+      if (fullRes.error) {
+        console.warn('Extended empleados select failed, fallback to base columns:', fullRes.error.message)
+        // Fallback to base columns guaranteed to exist
+        const baseRes = await supabase
+          .from('empleados')
+          .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado')
+          .eq('estado_empleado', 'Activo')
+          .order('nombre')
+
+        if (baseRes.error) throw baseRes.error
+        allEmps = (baseRes.data || []).map((e: any) => ({
+          ...e,
+          rol_tipo: '20x10',
+          fecha_inicio_rol: '2026-08-01',
+          es_contratista: Boolean((e.departamento || '').toLowerCase().includes('contratista') || (e.puesto || '').toLowerCase().includes('contratista'))
+        }))
+      } else {
+        allEmps = (fullRes.data || []).map((e: any) => ({
+          ...e,
+          rol_tipo: e.rol_tipo || '20x10',
+          fecha_inicio_rol: e.fecha_inicio_rol || '2026-08-01',
+          es_contratista: Boolean(e.es_contratista || (e.departamento || '').toLowerCase().includes('contratista') || (e.puesto || '').toLowerCase().includes('contratista') || e.rol_tipo === 'Contratista')
+        }))
+      }
+
+      setEmpleados(allEmps)
+
+      const contratistas = allEmps.filter(e => e.es_contratista || (e.departamento || '').toLowerCase().includes('contratista') || (e.puesto || '').toLowerCase().includes('contratista') || e.rol_tipo === 'Contratista')
+      setContratistasHistorial(contratistas)
+    } catch (err: any) {
+      console.error('Error fetching empleados:', err)
+    }
   }
 
   // Filtered Campamentos by Zone — checks both camp.zona and the embedded zone in name e.g. "Cabaña 1 (Parajes)"
