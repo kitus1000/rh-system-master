@@ -1171,12 +1171,27 @@ export default function CampamentosPage() {
 
                                 <div className="flex items-center gap-2">
                                   {emp ? (
-                                    <button
-                                      onClick={() => handleRemovePerson(cama.id_cama)}
-                                      className="text-[9px] font-black text-rose-600 hover:underline"
-                                    >
-                                      Desocupar
-                                    </button>
+                                    <>
+                                      <button
+                                        onClick={() => {
+                                          setEditingRoleWorker(emp)
+                                          setRoleForm({
+                                            rol_tipo: emp.rol_tipo || '14x7',
+                                            fecha_inicio_rol: emp.fecha_inicio_rol || '2026-08-01'
+                                          })
+                                        }}
+                                        className="text-[9px] font-black bg-zinc-200 hover:bg-amber-200 text-zinc-900 px-2 py-0.5 rounded border border-zinc-300 transition-colors"
+                                      >
+                                        ⚙️ Rol ({emp.rol_tipo || '14x7'})
+                                      </button>
+
+                                      <button
+                                        onClick={() => handleRemovePerson(cama.id_cama)}
+                                        className="text-[9px] font-black text-rose-600 hover:underline"
+                                      >
+                                        Desocupar
+                                      </button>
+                                    </>
                                   ) : (
                                     <button
                                       onClick={() => setAssignmentTarget({ id_cama: cama.id_cama, numero: cama.numero })}
