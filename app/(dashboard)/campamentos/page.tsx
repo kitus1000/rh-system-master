@@ -66,6 +66,19 @@ export default function CampamentosPage() {
   // Gantt Timeline Selected Month & Year
   const [ganttDate, setGanttDate] = useState<Date>(new Date(2026, 7, 1)) // August 2026
 
+  // Incidencias (Incapacidad, Vacaciones, Permisos, Faltas)
+  const [incidencias, setIncidencias] = useState<any[]>([])
+  const [tiposIncidencia, setTiposIncidencia] = useState<any[]>([])
+  const [showIncidenciaModal, setShowIncidenciaModal] = useState(false)
+  const [incidenciaForm, setIncidenciaForm] = useState({
+    id_empleado: '',
+    id_tipo_incidencia: '',
+    fecha_inicio: new Date().toISOString().split('T')[0],
+    dias: 1,
+    comentarios: ''
+  })
+  const [savingIncidencia, setSavingIncidencia] = useState(false)
+
   // Ocupante / Cuarto Seleccionado para Modal Holográfico 3D
   const [selectedRoom3D, setSelectedRoom3D] = useState<Cuarto | null>(null)
   const [selectedBed3D, setSelectedBed3D] = useState<{ room: Cuarto, bed?: Cama } | null>(null)
@@ -130,6 +143,7 @@ export default function CampamentosPage() {
   useEffect(() => {
     fetchData()
     fetchEmpleados()
+    fetchIncidencias()
   }, [])
 
   // LocalStorage helpers for worker shift roles when DB columns are absent
@@ -283,6 +297,173 @@ export default function CampamentosPage() {
       setContratistasHistorial(contratistas)
     } catch (err: any) {
       console.error('Error fetching empleados:', err)
+    }
+  }
+
+  const fetchIncidencias = async () => {
+    try {
+      const { data: incData, error: incErr } = await supabase
+        .from('empleado_incidencias')
+        .select(`
+          *,
+          cat_tipos_incidencia ( id_tipo_incidencia, tipo_incidencia )
+        `)
+        .order('fecha_inicio', { ascending: false })
+
+      if (incData) {
+        setIncidencias(incData)
+      } else if (incErr) {
+        console.warn('empleado_incidencias query note:', incErr.message)
+      }
+
+      const { data: tiposData } = await supabase
+        .from('cat_tipos_incidencia')
+        .select('*')
+        .eq('activo', true)
+        .order('tipo_incidencia')
+
+      if (tiposData) {
+        setTiposIncidencia(tiposData)
+      }
+    } catch (err: any) {
+      console.error('Error fetching incidencias:', err)
+    }
+  }
+
+  const getIncidenciaForEmpAndDay = (idEmpleado?: string, day?: Date) => {
+    if (!idEmpleado || !day) return null
+    const y = day.getFullYear()
+    const m = String(day.getMonth() + 1).padStart(2, '0')
+    const d = String(day.getDate()).padStart(2, '0')
+    const dayStr = `${y}-${m}-${d}`
+
+    return incidencias.find(inc => {
+      if (inc.id_empleado !== idEmpleado) return false
+      const ini = inc.fecha_inicio ? inc.fecha_inicio.split('T')[0] : ''
+      const fin = inc.fecha_fin ? inc.fecha_fin.split('T')[0] : ini
+      return dayStr >= ini && dayStr <= fin
+    })
+  }
+
+  const getIncidenciaMeta = (inc: any) => {
+    if (!inc) return null
+    const tipoStr = (inc.cat_tipos_incidencia?.tipo_incidencia || inc.tipo || '').toLowerCase()
+
+    if (tipoStr.includes('incapacidad') || tipoStr.includes('salud') || tipoStr.includes('accidente') || tipoStr.includes('médic')) {
+      return {
+        code: 'INC',
+        label: 'Incapacidad Médica',
+        bgClass: 'bg-rose-500 text-white border border-rose-600 font-black',
+        icon: '🩹'
+      }
+    }
+    if (tipoStr.includes('vacacio') || tipoStr.includes('vacaciones')) {
+      return {
+        code: 'VAC',
+        label: 'Vacaciones',
+        bgClass: 'bg-sky-500 text-white border border-sky-600 font-black',
+        icon: '🏖️'
+      }
+    }
+    if (tipoStr.includes('permiso') || tipoStr.includes('salida') || tipoStr.includes('personal')) {
+      return {
+        code: 'PER',
+        label: 'Permiso / Salida',
+        bgClass: 'bg-purple-600 text-white border border-purple-700 font-black',
+        icon: '📄'
+      }
+    }
+    if (tipoStr.includes('descanso') || tipoStr.includes('franco especial') || tipoStr.includes('goce')) {
+      return {
+        code: 'DES',
+        label: 'Descanso Especial',
+        bgClass: 'bg-amber-500 text-black border border-amber-600 font-black',
+        icon: '🛌'
+      }
+    }
+    if (tipoStr.includes('falta') || tipoStr.includes('inasistencia') || tipoStr.includes('ausencia')) {
+      return {
+        code: 'FAL',
+        label: 'Falta / Ausencia',
+        bgClass: 'bg-red-800 text-white border border-red-900 font-black',
+        icon: '❌'
+      }
+    }
+
+    return {
+      code: 'INC',
+      label: inc.cat_tipos_incidencia?.tipo_incidencia || 'Incidencia',
+      bgClass: 'bg-indigo-600 text-white border border-indigo-700 font-black',
+      icon: '📌'
+    }
+  }
+
+  const handleSaveIncidencia = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!incidenciaForm.id_empleado) return alert('Seleccione un empleado')
+    if (!incidenciaForm.fecha_inicio) return alert('Seleccione la fecha de inicio')
+
+    setSavingIncidencia(true)
+    try {
+      const startDate = new Date(incidenciaForm.fecha_inicio + 'T00:00:00')
+      const endDate = new Date(startDate)
+      endDate.setDate(endDate.getDate() + (Math.max(1, incidenciaForm.dias) - 1))
+
+      const y = endDate.getFullYear()
+      const m = String(endDate.getMonth() + 1).padStart(2, '0')
+      const d = String(endDate.getDate()).padStart(2, '0')
+      const fechaFinStr = `${y}-${m}-${d}`
+
+      let tipoId = incidenciaForm.id_tipo_incidencia
+      if (!tipoId && tiposIncidencia.length > 0) {
+        tipoId = tiposIncidencia[0].id_tipo_incidencia
+      }
+
+      const payload: any = {
+        id_empleado: incidenciaForm.id_empleado,
+        fecha_inicio: incidenciaForm.fecha_inicio,
+        fecha_fin: fechaFinStr,
+        comentarios: incidenciaForm.comentarios || null
+      }
+
+      if (tipoId && tipoId.length > 20) {
+        payload.id_tipo_incidencia = tipoId
+      }
+
+      const { error } = await supabase.from('empleado_incidencias').insert([payload])
+
+      if (error) {
+        delete payload.id_tipo_incidencia
+        const { error: err2 } = await supabase.from('empleado_incidencias').insert([payload])
+        if (err2) throw err2
+      }
+
+      alert('Incidencia registrada exitosamente')
+      setShowIncidenciaModal(false)
+      setIncidenciaForm({
+        id_empleado: '',
+        id_tipo_incidencia: '',
+        fecha_inicio: new Date().toISOString().split('T')[0],
+        dias: 1,
+        comentarios: ''
+      })
+      fetchIncidencias()
+    } catch (err: any) {
+      console.error('Error guardando incidencia:', err)
+      alert('Error al guardar la incidencia: ' + (err.message || 'Intente nuevamente'))
+    } finally {
+      setSavingIncidencia(false)
+    }
+  }
+
+  const handleDeleteIncidencia = async (idIncidencia: string) => {
+    if (!confirm('¿Eliminar esta incidencia registrada?')) return
+    try {
+      const { error } = await supabase.from('empleado_incidencias').delete().eq('id_incidencia', idIncidencia)
+      if (error) throw error
+      fetchIncidencias()
+    } catch (err: any) {
+      alert('Error al eliminar incidencia: ' + err.message)
     }
   }
 
@@ -1446,48 +1627,83 @@ export default function CampamentosPage() {
               </h2>
             </div>
 
-            {/* Month Navigator */}
-            <div className="flex items-center gap-3 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800">
+            <div className="flex flex-wrap items-center gap-3">
               <button
-                onClick={() => setGanttDate(new Date(ganttDate.getFullYear(), ganttDate.getMonth() - 1, 1))}
-                className="p-2 hover:bg-zinc-800 rounded-xl text-zinc-300 hover:text-white"
+                onClick={() => {
+                  setIncidenciaForm(prev => ({
+                    ...prev,
+                    fecha_inicio: ganttDate.toISOString().split('T')[0]
+                  }))
+                  setShowIncidenciaModal(true)
+                }}
+                className="flex items-center gap-2 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-black text-xs px-4 py-2.5 rounded-xl shadow-md transition-all transform hover:scale-105"
               >
-                <ChevronLeft className="w-4 h-4" />
+                <AlertTriangle className="w-4 h-4 text-white" />
+                <span>+ Registrar Incidencia</span>
               </button>
 
-              <span className="text-xs font-black text-amber-400 font-mono px-3">
-                {ganttMonthName}
-              </span>
+              {/* Month Navigator */}
+              <div className="flex items-center gap-3 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800">
+                <button
+                  onClick={() => setGanttDate(new Date(ganttDate.getFullYear(), ganttDate.getMonth() - 1, 1))}
+                  className="p-2 hover:bg-zinc-800 rounded-xl text-zinc-300 hover:text-white"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
 
-              <button
-                onClick={() => setGanttDate(new Date(ganttDate.getFullYear(), ganttDate.getMonth() + 1, 1))}
-                className="p-2 hover:bg-zinc-800 rounded-xl text-zinc-300 hover:text-white"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+                <span className="text-xs font-black text-amber-400 font-mono px-3">
+                  {ganttMonthName}
+                </span>
+
+                <button
+                  onClick={() => setGanttDate(new Date(ganttDate.getFullYear(), ganttDate.getMonth() + 1, 1))}
+                  className="p-2 hover:bg-zinc-800 rounded-xl text-zinc-300 hover:text-white"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 
           {/* Gantt Legend */}
           <div className="bg-white p-3.5 rounded-2xl border border-zinc-200 flex flex-wrap items-center justify-between gap-4 text-xs font-bold shadow-xs">
-            <div className="flex items-center gap-4 font-mono text-[11px]">
+            <div className="flex flex-wrap items-center gap-3 font-mono text-[11px]">
               <div className="flex items-center gap-1.5">
                 <span className="w-3.5 h-3.5 rounded bg-emerald-500 inline-block shadow-xs" />
-                <span className="text-emerald-950">🟢 En Sitio (Campamento / Mina)</span>
+                <span className="text-emerald-950">🟢 M: Sitio</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-3.5 h-3.5 rounded bg-amber-400 inline-block shadow-xs" />
-                <span className="text-amber-950">🟡 En Franco (Descanso en Casa)</span>
+                <span className="text-amber-950">🟡 F: Franco</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="w-3.5 h-3.5 rounded bg-zinc-200 border border-zinc-300 inline-block" />
-                <span className="text-zinc-500">⚪ Cama Disponible / Libre</span>
+                <span className="w-3.5 h-3.5 rounded bg-rose-500 inline-block shadow-xs" />
+                <span className="text-rose-950">🔴 INC: Incapacidad</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3.5 h-3.5 rounded bg-sky-500 inline-block shadow-xs" />
+                <span className="text-sky-950">🔵 VAC: Vacaciones</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3.5 h-3.5 rounded bg-purple-600 inline-block shadow-xs" />
+                <span className="text-purple-950">🟣 PER: Permiso</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3.5 h-3.5 rounded bg-amber-500 border border-amber-600 inline-block shadow-xs" />
+                <span className="text-amber-950">🟠 DES: Descanso Esp.</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3.5 h-3.5 rounded bg-red-900 inline-block shadow-xs" />
+                <span className="text-red-950">❌ FAL: Inasistencia</span>
               </div>
             </div>
 
-            <div className="text-[10px] text-zinc-500 font-mono">
-              Roles soportados: 20x10, 14x7, 10x5, 6x1, Contratistas 3 Días
-            </div>
+            <button
+              onClick={() => setShowIncidenciaModal(true)}
+              className="text-[11px] font-black text-rose-700 hover:text-rose-800 bg-rose-50 px-3 py-1 rounded-lg border border-rose-200 transition-colors"
+            >
+              📋 Incidencias ({incidencias.length})
+            </button>
           </div>
 
           {/* GANTT TIMELINE TABLE CHART */}
@@ -1496,7 +1712,7 @@ export default function CampamentosPage() {
               <table className="w-full text-left border-collapse min-w-[1000px]">
                 <thead>
                   <tr className="bg-zinc-900 text-white text-[10px] font-mono font-black uppercase">
-                    <th className="px-4 py-3 border-r border-zinc-800 min-w-[220px] sticky left-0 bg-zinc-900 z-10">
+                    <th className="px-4 py-3 border-r border-zinc-800 min-w-[240px] sticky left-0 bg-zinc-900 z-10">
                       Habitación & Ocupante
                     </th>
                     <th className="px-3 py-3 border-r border-zinc-800 text-center min-w-[90px]">
@@ -1535,8 +1751,26 @@ export default function CampamentosPage() {
                                 <span className="truncate">{cuarto.nombre} — Cama #{cama.numero}</span>
                               </div>
                               {emp ? (
-                                <div className="text-[11px] font-extrabold text-emerald-800 truncate mt-0.5">
-                                  {emp.nombre} {emp.apellido_paterno}
+                                <div className="flex items-center justify-between gap-1 mt-0.5">
+                                  <div className="text-[11px] font-extrabold text-emerald-800 truncate">
+                                    {emp.nombre} {emp.apellido_paterno}
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      setIncidenciaForm({
+                                        id_empleado: emp.id_empleado,
+                                        id_tipo_incidencia: '',
+                                        fecha_inicio: ganttDate.toISOString().split('T')[0],
+                                        dias: 1,
+                                        comentarios: ''
+                                      })
+                                      setShowIncidenciaModal(true)
+                                    }}
+                                    className="text-[9px] font-black text-rose-700 bg-rose-50 hover:bg-rose-100 px-1.5 py-0.5 rounded border border-rose-200 shrink-0"
+                                    title="Registrar incidencia para este trabajador"
+                                  >
+                                    + Incidencia
+                                  </button>
                                 </div>
                               ) : (
                                 <div className="text-[10px] text-zinc-400 italic">Desocupada / Disponible</div>
@@ -1571,13 +1805,54 @@ export default function CampamentosPage() {
                                 )
                               }
 
+                              const inc = getIncidenciaForEmpAndDay(emp.id_empleado, day)
+                              const incMeta = getIncidenciaMeta(inc)
                               const proj = calculateShiftProjection(emp, day)
+
+                              if (incMeta && inc) {
+                                const incLabel = inc.cat_tipos_incidencia?.tipo_incidencia || incMeta.label
+                                const detailTooltip = `${emp.nombre} ${emp.apellido_paterno}: [${incMeta.code}] ${incLabel}\n` +
+                                  `Fechas: ${inc.fecha_inicio} al ${inc.fecha_fin}\n` +
+                                  `Comentarios: ${inc.comentarios || 'Sin detalles'}`
+
+                                return (
+                                  <td 
+                                    key={day.toISOString()} 
+                                    className="border-r border-zinc-200 p-0.5 text-center cursor-pointer hover:opacity-80 transition-opacity"
+                                    title={detailTooltip}
+                                    onClick={() => {
+                                      if (confirm(`Incidencia de ${emp.nombre}:\n${incLabel} (${inc.fecha_inicio} al ${inc.fecha_fin})\n${inc.comentarios || ''}\n\n¿Desea eliminar esta incidencia?`)) {
+                                        handleDeleteIncidencia(inc.id_incidencia)
+                                      }
+                                    }}
+                                  >
+                                    <div 
+                                      className={`w-full h-5 rounded flex items-center justify-center text-[7px] font-black font-mono shadow-2xs ${incMeta.bgClass}`}
+                                    >
+                                      {incMeta.code}
+                                    </div>
+                                  </td>
+                                )
+                              }
 
                               return (
                                 <td 
                                   key={day.toISOString()} 
-                                  className="border-r border-zinc-200 p-0.5 text-center"
-                                  title={`${emp.nombre}: ${proj.statusLabel} (${proj.periodName})`}
+                                  className="border-r border-zinc-200 p-0.5 text-center cursor-pointer hover:opacity-90 transition-opacity"
+                                  title={`${emp.nombre}: ${proj.statusLabel} (${proj.periodName})\n(Haz clic para registrar incidencia)`}
+                                  onClick={() => {
+                                    const y = day.getFullYear()
+                                    const m = String(day.getMonth() + 1).padStart(2, '0')
+                                    const d = String(day.getDate()).padStart(2, '0')
+                                    setIncidenciaForm({
+                                      id_empleado: emp.id_empleado,
+                                      id_tipo_incidencia: '',
+                                      fecha_inicio: `${y}-${m}-${d}`,
+                                      dias: 1,
+                                      comentarios: ''
+                                    })
+                                    setShowIncidenciaModal(true)
+                                  }}
                                 >
                                   <div 
                                     className={`w-full h-5 rounded flex items-center justify-center text-[7px] font-black text-black font-mono shadow-2xs ${
@@ -2562,6 +2837,157 @@ export default function CampamentosPage() {
                 </div>
               </div>
             </form>
+      {/* MODAL REGISTRAR INCIDENCIA DE PERSONAL */}
+      {showIncidenciaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 border border-zinc-200 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <div>
+                <span className="text-[10px] font-black uppercase text-rose-600 tracking-wider flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600" /> REGISTRO DE INCIDENCIAS
+                </span>
+                <h3 className="text-base font-black text-zinc-900 uppercase">
+                  Registrar Incidencia / Ausencia de Personal
+                </h3>
+              </div>
+              <button onClick={() => setShowIncidenciaModal(false)} className="text-zinc-400 hover:text-zinc-700 font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleSaveIncidencia} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Seleccionar Empleado / Personal</label>
+                <select
+                  required
+                  value={incidenciaForm.id_empleado}
+                  onChange={e => setIncidenciaForm({ ...incidenciaForm, id_empleado: e.target.value })}
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5 bg-zinc-50 focus:bg-white"
+                >
+                  <option value="">-- Seleccionar Trabajador --</option>
+                  {empleados.map(e => (
+                    <option key={e.id_empleado} value={e.id_empleado}>
+                      {e.nombre} {e.apellido_paterno} {e.apellido_materno || ''} ({e.puesto || e.departamento || 'Personal'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Tipo de Incidencia</label>
+                <select
+                  value={incidenciaForm.id_tipo_incidencia}
+                  onChange={e => setIncidenciaForm({ ...incidenciaForm, id_tipo_incidencia: e.target.value })}
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5 bg-zinc-50 focus:bg-white"
+                >
+                  <option value="">-- Seleccionar Tipo --</option>
+                  {tiposIncidencia.length > 0 ? (
+                    tiposIncidencia.map(t => (
+                      <option key={t.id_tipo_incidencia} value={t.id_tipo_incidencia}>
+                        {t.tipo_incidencia}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="incapacidad">🩹 Incapacidad Médica / IMSS</option>
+                      <option value="vacaciones">🏖️ Vacaciones Programadas</option>
+                      <option value="permiso">📄 Permiso Especial / Salida Anticipada</option>
+                      <option value="descanso">🛌 Descanso Especial</option>
+                      <option value="falta">❌ Falta / Inasistencia Sin Justificar</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Fecha de Inicio</label>
+                  <input
+                    type="date"
+                    required
+                    value={incidenciaForm.fecha_inicio}
+                    onChange={e => setIncidenciaForm({ ...incidenciaForm, fecha_inicio: e.target.value })}
+                    className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Duración (Días)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={90}
+                    required
+                    value={incidenciaForm.dias}
+                    onChange={e => setIncidenciaForm({ ...incidenciaForm, dias: Number(e.target.value) })}
+                    className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Motivo / Comentarios Específicos</label>
+                <textarea
+                  rows={2}
+                  value={incidenciaForm.comentarios}
+                  onChange={e => setIncidenciaForm({ ...incidenciaForm, comentarios: e.target.value })}
+                  placeholder="Ej. Incapacidad por consulta médica en clínica Bacis / Se retiró anticipadamente por asunto familiar"
+                  className="w-full text-xs font-bold border-zinc-300 rounded-xl p-2.5 resize-none"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowIncidenciaModal(false)}
+                  className="px-4 py-2 text-xs font-bold text-zinc-600 hover:bg-zinc-100 rounded-xl"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingIncidencia}
+                  className="px-5 py-2 text-xs font-black bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-md flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{savingIncidencia ? 'Guardando...' : 'Registrar Incidencia'}</span>
+                </button>
+              </div>
+            </form>
+
+            {/* HISTORIAL / LISTA DE INCIDENCIAS ACTIVAS */}
+            {incidencias.length > 0 && (
+              <div className="pt-4 border-t border-zinc-200">
+                <h4 className="text-xs font-black uppercase text-zinc-800 mb-2">Incidencias Recientes Registradas</h4>
+                <div className="max-h-40 overflow-y-auto space-y-2 pr-1">
+                  {incidencias.slice(0, 10).map(inc => {
+                    const empFound = empleados.find(e => e.id_empleado === inc.id_empleado)
+                    const incMeta = getIncidenciaMeta(inc)
+                    return (
+                      <div key={inc.id_incidencia} className="flex items-center justify-between bg-zinc-50 border border-zinc-200 p-2.5 rounded-xl text-xs">
+                        <div>
+                          <div className="font-black text-zinc-900 flex items-center gap-1.5">
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${incMeta?.bgClass}`}>
+                              {incMeta?.code}
+                            </span>
+                            <span>{empFound ? `${empFound.nombre} ${empFound.apellido_paterno}` : `ID: ${inc.id_empleado}`}</span>
+                          </div>
+                          <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                            {inc.fecha_inicio} al {inc.fecha_fin} {inc.comentarios ? `• ${inc.comentarios}` : ''}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteIncidencia(inc.id_incidencia)}
+                          className="text-rose-600 hover:bg-rose-50 p-1 rounded-lg text-xs font-bold"
+                          title="Eliminar Incidencia"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
