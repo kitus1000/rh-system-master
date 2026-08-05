@@ -223,6 +223,30 @@ export default function TransporteDashboard() {
         }
     }
 
+    // Single delete Viaje
+    const handleDeleteViaje = async (id_viaje: string) => {
+        if (!confirm('¿Estás seguro de que deseas ELIMINAR permanentemente este viaje? Esta acción no se puede deshacer.')) return
+
+        try {
+            await supabase.from('transporte_personal_asientos').delete().eq('id_viaje', id_viaje)
+            await supabase.from('transporte_personal_solicitudes').update({ id_viaje: null, estatus: 'Pendiente' }).eq('id_viaje', id_viaje)
+
+            const { error } = await supabase
+                .from('transporte_personal_viajes')
+                .delete()
+                .eq('id_viaje', id_viaje)
+
+            if (error) throw error
+
+            alert('Viaje eliminado con éxito.')
+            setSelectedViajeIds(prev => prev.filter(id => id !== id_viaje))
+            fetchViajes()
+        } catch (error: any) {
+            console.error(error)
+            alert('Error al eliminar el viaje: ' + error.message)
+        }
+    }
+
     // Bulk cancel Viajes
     const handleBulkCancelViajes = async () => {
         if (selectedViajeIds.length === 0) return
@@ -243,6 +267,50 @@ export default function TransporteDashboard() {
         }
     }
 
+    // Bulk delete Viajes
+    const handleBulkDeleteViajes = async () => {
+        if (selectedViajeIds.length === 0) return
+        if (!confirm(`¿Estás seguro de ELIMINAR PERMANENTEMENTE los ${selectedViajeIds.length} viaje(s) seleccionado(s)? Esta acción no se puede deshacer.`)) return
+
+        try {
+            await supabase.from('transporte_personal_asientos').delete().in('id_viaje', selectedViajeIds)
+            await supabase.from('transporte_personal_solicitudes').update({ id_viaje: null, estatus: 'Pendiente' }).in('id_viaje', selectedViajeIds)
+
+            const { error } = await supabase
+                .from('transporte_personal_viajes')
+                .delete()
+                .in('id_viaje', selectedViajeIds)
+
+            if (error) throw error
+
+            alert(`${selectedViajeIds.length} viaje(s) eliminado(s) permanentemente.`)
+            setSelectedViajeIds([])
+            fetchViajes()
+        } catch (error: any) {
+            console.error(error)
+            alert('Error al eliminar los viajes seleccionados: ' + error.message)
+        }
+    }
+
+    // Single delete Solicitud
+    const handleDeleteSolicitud = async (id_solicitud: string) => {
+        if (!confirm('¿Estás seguro de ELIMINAR permanentemente esta solicitud?')) return
+
+        const { error } = await supabase
+            .from('transporte_personal_solicitudes')
+            .delete()
+            .eq('id_solicitud', id_solicitud)
+
+        if (error) {
+            console.error(error)
+            alert('Error al eliminar la solicitud.')
+        } else {
+            alert('Solicitud eliminada.')
+            setSelectedSolicitudIds(prev => prev.filter(id => id !== id_solicitud))
+            fetchSolicitudes()
+        }
+    }
+
     // Bulk cancel Solicitudes
     const handleBulkCancelSolicitudes = async () => {
         if (selectedSolicitudIds.length === 0) return
@@ -258,6 +326,26 @@ export default function TransporteDashboard() {
             alert('Error al cancelar las solicitudes seleccionadas.')
         } else {
             alert(`${selectedSolicitudIds.length} solicitud(es) cancelada(s) con éxito.`)
+            setSelectedSolicitudIds([])
+            fetchSolicitudes()
+        }
+    }
+
+    // Bulk delete Solicitudes
+    const handleBulkDeleteSolicitudes = async () => {
+        if (selectedSolicitudIds.length === 0) return
+        if (!confirm(`¿Estás seguro de ELIMINAR PERMANENTEMENTE las ${selectedSolicitudIds.length} solicitud(es) seleccionada(s)? Esta acción no se puede deshacer.`)) return
+
+        const { error } = await supabase
+            .from('transporte_personal_solicitudes')
+            .delete()
+            .in('id_solicitud', selectedSolicitudIds)
+
+        if (error) {
+            console.error(error)
+            alert('Error al eliminar las solicitudes seleccionadas.')
+        } else {
+            alert(`${selectedSolicitudIds.length} solicitud(es) eliminada(s) con éxito.`)
             setSelectedSolicitudIds([])
             fetchSolicitudes()
         }
@@ -897,13 +985,24 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                                     </div>
 
                                     {selectedViajeIds.length > 0 && (
-                                        <button
-                                            onClick={handleBulkCancelViajes}
-                                            className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md transition-all transform hover:scale-105"
-                                        >
-                                            <XCircle className="w-4 h-4" />
-                                            <span>Cancelar Seleccionados ({selectedViajeIds.length})</span>
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={handleBulkCancelViajes}
+                                                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md transition-all transform hover:scale-105"
+                                                title="Marcar viajes seleccionados como Cancelados"
+                                            >
+                                                <XCircle className="w-4 h-4" />
+                                                <span>Cancelar ({selectedViajeIds.length})</span>
+                                            </button>
+                                            <button
+                                                onClick={handleBulkDeleteViajes}
+                                                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md transition-all transform hover:scale-105"
+                                                title="Eliminar viajes seleccionados permanentemente"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                                <span>Eliminar ({selectedViajeIds.length})</span>
+                                            </button>
+                                        </div>
                                     )}
                                 </div>
 
@@ -992,16 +1091,22 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                                                     >
                                                         <Printer className="w-3.5 h-3.5" /> PDF
                                                     </button>
-                                                    {v.estado !== 'Cancelado' ? (
+                                                    {v.estado !== 'Cancelado' && (
                                                         <button 
                                                             onClick={() => handleCancelViaje(v.id_viaje)}
-                                                            className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-2 rounded-xl text-xs transition-all"
+                                                            className="bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold px-3 py-2 rounded-xl text-xs transition-all"
+                                                            title="Marcar como Cancelado"
                                                         >
                                                             Cancelar
                                                         </button>
-                                                    ) : (
-                                                        <span className="text-[10px] text-zinc-400 font-bold py-2 px-1">Cancelado</span>
                                                     )}
+                                                    <button 
+                                                        onClick={() => handleDeleteViaje(v.id_viaje)}
+                                                        className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-2.5 py-2 rounded-xl text-xs transition-all flex items-center gap-1"
+                                                        title="Eliminar viaje definitivamente"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
                                                 </div>
                                             </div>
                                         )
@@ -1129,13 +1234,24 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                                             {selectedSolicitudIds.length} solicitud(es) seleccionada(s)
                                         </span>
 
-                                        <button
-                                            onClick={handleBulkCancelSolicitudes}
-                                            className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md transition-all transform hover:scale-105"
-                                        >
-                                            <XCircle className="w-4 h-4" />
-                                            <span>Cancelar Seleccionadas ({selectedSolicitudIds.length})</span>
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={handleBulkCancelSolicitudes}
+                                                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md transition-all transform hover:scale-105"
+                                                title="Marcar solicitudes seleccionadas como Canceladas"
+                                            >
+                                                <XCircle className="w-4 h-4" />
+                                                <span>Cancelar ({selectedSolicitudIds.length})</span>
+                                            </button>
+                                            <button
+                                                onClick={handleBulkDeleteSolicitudes}
+                                                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md transition-all transform hover:scale-105"
+                                                title="Eliminar solicitudes seleccionadas permanentemente"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                                <span>Eliminar ({selectedSolicitudIds.length})</span>
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
 
@@ -1235,37 +1351,46 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                                                                     </span>
                                                                 </td>
                                                                 <td className="p-4 text-right">
-                                                                    {sol.estatus === 'Por cuenta propia' ? (
-                                                                        <button
-                                                                            onClick={() => handleSendWhatsAppWarning(sol)}
-                                                                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center justify-center gap-2 text-xs w-full sm:w-auto"
-                                                                            title="Enviar aviso de prevención por WhatsApp"
-                                                                        >
-                                                                            <Send className="w-3.5 h-3.5" />
-                                                                            Aviso WhatsApp
-                                                                        </button>
-                                                                    ) : sol.estatus === 'Pendiente' ? (
-                                                                        <button
-                                                                            onClick={() => handleOpenAssignModal(sol)}
-                                                                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-1.5 rounded-lg text-xs transition-all shadow-sm"
-                                                                        >
-                                                                            Asignar Lugar
-                                                                        </button>
-                                                                    ) : (
-                                                                        <div className="flex justify-end gap-2 items-center text-xs">
-                                                                            <div className="text-left font-mono text-[9px] text-zinc-400">
-                                                                                <div>Asiento: <span className="font-bold text-zinc-700">{sol.numero_asiento}</span></div>
-                                                                                <div>Clave: <span className="font-bold text-amber-600">{sol.clave_confirmacion}</span></div>
-                                                                            </div>
+                                                                    <div className="flex items-center justify-end gap-2">
+                                                                        {sol.estatus === 'Por cuenta propia' ? (
                                                                             <button
-                                                                                onClick={() => handleSendWhatsApp(sol)}
-                                                                                className="bg-green-600 hover:bg-green-700 text-white font-bold p-2 rounded-lg flex items-center justify-center"
-                                                                                title="Enviar clave y datos por WhatsApp"
+                                                                                onClick={() => handleSendWhatsAppWarning(sol)}
+                                                                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center justify-center gap-2 text-xs w-full sm:w-auto"
+                                                                                title="Enviar aviso de prevención por WhatsApp"
                                                                             >
                                                                                 <Send className="w-3.5 h-3.5" />
+                                                                                Aviso WhatsApp
                                                                             </button>
-                                                                        </div>
-                                                                    )}
+                                                                        ) : sol.estatus === 'Pendiente' ? (
+                                                                            <button
+                                                                                onClick={() => handleOpenAssignModal(sol)}
+                                                                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-1.5 rounded-lg text-xs transition-all shadow-sm"
+                                                                            >
+                                                                                Asignar Lugar
+                                                                            </button>
+                                                                        ) : (
+                                                                            <div className="flex justify-end gap-2 items-center text-xs">
+                                                                                <div className="text-left font-mono text-[9px] text-zinc-400">
+                                                                                    <div>Asiento: <span className="font-bold text-zinc-700">{sol.numero_asiento}</span></div>
+                                                                                    <div>Clave: <span className="font-bold text-amber-600">{sol.clave_confirmacion}</span></div>
+                                                                                </div>
+                                                                                <button
+                                                                                    onClick={() => handleSendWhatsApp(sol)}
+                                                                                    className="bg-green-600 hover:bg-green-700 text-white font-bold p-2 rounded-lg flex items-center justify-center"
+                                                                                    title="Enviar clave y datos por WhatsApp"
+                                                                                >
+                                                                                    <Send className="w-3.5 h-3.5" />
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                        <button
+                                                                            onClick={() => handleDeleteSolicitud(sol.id_solicitud)}
+                                                                            className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                                                            title="Eliminar solicitud"
+                                                                        >
+                                                                            <Trash2 className="w-4 h-4" />
+                                                                        </button>
+                                                                    </div>
                                                                 </td>
                                                             </tr>
                                                         )
