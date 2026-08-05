@@ -650,9 +650,9 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
 
         if (vehicleType === 'Combi') {
             return (
-                <div className="bg-zinc-100 p-3.5 rounded-2xl border border-zinc-200 max-w-[240px] mx-auto shadow-inner space-y-2">
+                <div className="bg-zinc-100 p-3.5 rounded-2xl border border-zinc-200 max-w-[260px] mx-auto shadow-inner space-y-2">
                     <div className="text-[9px] font-black text-zinc-400 uppercase text-center border-b pb-1">Frente de la Combi</div>
-                    <div className="grid grid-cols-3 gap-2 mt-2">
+                    <div className="grid grid-cols-4 gap-2 mt-2">
                         {seats.map(num => {
                             const isOccupied = occupiedSeats.includes(num)
                             const isSelected = assignSeat === num
@@ -808,11 +808,11 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                                 if(e.target.value === 'Autobús') setCapacidad('37')
                                 if(e.target.value === 'Avioneta') setCapacidad('8')
                                 if(e.target.value === 'Camioneta') setCapacidad('4')
-                                if(e.target.value === 'Combi') setCapacidad('14')
+                                if(e.target.value === 'Combi') setCapacidad('20')
                                 if(e.target.value === 'Alterna') setCapacidad('8')
                             }} className="w-full mt-1 p-3 border border-zinc-200 rounded-lg text-sm bg-zinc-50 font-bold">
                                 <option value="Autobús">Autobús (37 lgs)</option>
-                                <option value="Combi">Combi (14 lgs)</option>
+                                <option value="Combi">Combi (20 lgs)</option>
                                 <option value="Avioneta">Avioneta (8 lgs)</option>
                                 <option value="Camioneta">Camioneta (4 lgs)</option>
                                 <option value="Alterna">Alterna (Contratistas / Particular)</option>
