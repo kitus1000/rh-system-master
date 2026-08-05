@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { 
     Bus, Plane, Car, Plus, Calendar, Clock, MapPin, Users, ArrowRight, 
-    ExternalLink, Copy, Check, FileText, Send, User, Armchair, HelpCircle, Printer
+    ExternalLink, Copy, Check, FileText, Send, User, Armchair, HelpCircle, Printer,
+    Filter, Search, CheckSquare, Square, Trash2, XCircle, CheckCircle2, RotateCcw, X
 } from 'lucide-react'
 import Link from 'next/link'
 import { jsPDF } from 'jspdf'
@@ -81,8 +82,24 @@ export default function TransporteDashboard() {
     const [savingEdit, setSavingEdit] = useState(false)
 
     // Filtros de Solicitudes
-    const [filterFechaStart, setFilterFechaStart] = useState('')
-    const [filterFechaEnd, setFilterFechaEnd] = useState('')
+    const filterFechaStart = viajesDateStart // re-use start date filter
+    const filterFechaEnd = viajesDateEnd // re-use end date filter
+
+    // Multi-selection states
+    const [selectedViajeIds, setSelectedViajeIds] = useState<string[]>([])
+    const [selectedSolicitudIds, setSelectedSolicitudIds] = useState<string[]>([])
+
+    // Filter states for Viajes Programados
+    const [viajesSearch, setViajesSearch] = useState('')
+    const [viajesTipoFilter, setViajesTipoFilter] = useState('TODOS')
+    const [viajesEstadoFilter, setViajesEstadoFilter] = useState('TODOS')
+    const [viajesDateStart, setViajesDateStart] = useState('')
+    const [viajesDateEnd, setViajesDateEnd] = useState('')
+
+    // Filter states for Solicitudes de Personal
+    const [solicitudesSearch, setSolicitudesSearch] = useState('')
+    const [solicitudesTipoFilter, setSolicitudesTipoFilter] = useState('TODOS')
+    const [solicitudesEstatusFilter, setSolicitudesEstatusFilter] = useState('TODOS')
 
     const fetchViajes = async () => {
         const { data, error } = await supabase
@@ -203,6 +220,46 @@ export default function TransporteDashboard() {
         } else {
             alert('Viaje marcado como Cancelado exitosamente.')
             fetchViajes()
+        }
+    }
+
+    // Bulk cancel Viajes
+    const handleBulkCancelViajes = async () => {
+        if (selectedViajeIds.length === 0) return
+        if (!confirm(`¿Estás seguro de marcar como CANCELADOS los ${selectedViajeIds.length} viaje(s) seleccionado(s)?`)) return
+
+        const { error } = await supabase
+            .from('transporte_personal_viajes')
+            .update({ estado: 'Cancelado' })
+            .in('id_viaje', selectedViajeIds)
+
+        if (error) {
+            console.error(error)
+            alert('Error al cancelar los viajes seleccionados.')
+        } else {
+            alert(`${selectedViajeIds.length} viaje(s) marcado(s) como Cancelado(s) con éxito.`)
+            setSelectedViajeIds([])
+            fetchViajes()
+        }
+    }
+
+    // Bulk cancel Solicitudes
+    const handleBulkCancelSolicitudes = async () => {
+        if (selectedSolicitudIds.length === 0) return
+        if (!confirm(`¿Estás seguro de cancelar las ${selectedSolicitudIds.length} solicitud(es) seleccionada(s)?`)) return
+
+        const { error } = await supabase
+            .from('transporte_personal_solicitudes')
+            .update({ estatus: 'Cancelado' })
+            .in('id_solicitud', selectedSolicitudIds)
+
+        if (error) {
+            console.error(error)
+            alert('Error al cancelar las solicitudes seleccionadas.')
+        } else {
+            alert(`${selectedSolicitudIds.length} solicitud(es) cancelada(s) con éxito.`)
+            setSelectedSolicitudIds([])
+            fetchSolicitudes()
         }
     }
 
@@ -713,218 +770,514 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
             ) : (
                 <>
                     {/* TAB VIAJES */}
-                    {adminTab === 'viajes' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {viajes.map(v => (
-                                <div key={v.id_viaje} className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col group hover:shadow-md transition-all">
-                                    <div className="p-5 flex-1">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div className="flex items-center gap-2">
-                                                <div className={`p-2 rounded-lg ${
-                                                    v.tipo_vehiculo === 'Autobús' ? 'bg-indigo-100 text-indigo-600' :
-                                                    v.tipo_vehiculo === 'Combi' ? 'bg-purple-100 text-purple-600' :
-                                                    v.tipo_vehiculo === 'Avioneta' ? 'bg-sky-100 text-sky-600' :
-                                                    v.tipo_vehiculo === 'Alterna' ? 'bg-teal-100 text-teal-600' :
-                                                    'bg-emerald-100 text-emerald-600'
-                                                }`}>
-                                                    {v.tipo_vehiculo === 'Autobús' && <Bus className="w-5 h-5" />}
-                                                    {v.tipo_vehiculo === 'Combi' && <Car className="w-5 h-5" />}
-                                                    {v.tipo_vehiculo === 'Avioneta' && <Plane className="w-5 h-5" />}
-                                                    {v.tipo_vehiculo === 'Camioneta' && <Car className="w-5 h-5" />}
-                                                    {v.tipo_vehiculo === 'Alterna' && <Users className="w-5 h-5" />}
-                                                </div>
-                                                <div>
-                                                    <div className="text-[10px] font-black text-zinc-400 uppercase tracking-wider">{v.tipo_vehiculo}</div>
-                                                    <div className="font-bold text-zinc-900 leading-tight">{v.capacidad_total} Pasajeros</div>
-                                                </div>
-                                            </div>
-                                            <span className="bg-zinc-100 text-zinc-600 text-xs font-black px-2 py-1 rounded-full">{v.estado}</span>
+                    {adminTab === 'viajes' && (() => {
+                        const filteredViajes = viajes.filter(v => {
+                            const searchMatch = !viajesSearch || v.nombre_ruta.toLowerCase().includes(viajesSearch.toLowerCase()) || v.tipo_vehiculo.toLowerCase().includes(viajesSearch.toLowerCase())
+                            const tipoMatch = viajesTipoFilter === 'TODOS' || v.tipo_vehiculo === viajesTipoFilter
+                            const estadoMatch = viajesEstadoFilter === 'TODOS' || v.estado === viajesEstadoFilter
+                            const startMatch = !viajesDateStart || v.fecha >= viajesDateStart
+                            const endMatch = !viajesDateEnd || v.fecha <= viajesDateEnd
+                            return searchMatch && tipoMatch && estadoMatch && startMatch && endMatch
+                        })
+
+                        const allSelected = filteredViajes.length > 0 && filteredViajes.every(v => selectedViajeIds.includes(v.id_viaje))
+
+                        return (
+                            <div className="space-y-4">
+                                {/* BARRA DE FILTROS VIAJES */}
+                                <div className="bg-white border border-zinc-200 rounded-2xl p-4 space-y-3 shadow-xs">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2 text-xs font-black text-zinc-800 uppercase tracking-wide">
+                                            <Filter className="w-4 h-4 text-indigo-500" />
+                                            <span>Filtros y Agrupación de Viajes</span>
                                         </div>
-                                        
-                                        <h3 className="text-xl font-black text-zinc-800 mb-4">{v.nombre_ruta}</h3>
-                                        
-                                        <div className="space-y-2 text-sm text-zinc-600">
-                                            <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-zinc-400" /> {new Date(v.fecha + 'T12:00:00').toLocaleDateString()}</div>
-                                            <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-zinc-400" /> {v.hora.substring(0,5)} Hrs</div>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="p-4 border-t border-zinc-100 bg-zinc-50 flex gap-2 flex-wrap">
-                                        <Link href={`/transporte/${v.id_viaje}`} className="flex-1 min-w-[100px] bg-white border border-zinc-200 hover:border-indigo-305 hover:text-indigo-700 text-zinc-800 font-bold py-2 rounded-xl flex items-center justify-center gap-1 transition-all shadow-sm text-xs">
-                                            Ver Asientos
-                                        </Link>
-                                        <button 
-                                            onClick={() => handleOpenEditModal(v)}
-                                            className="bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-700 font-bold px-3 py-2 rounded-xl text-xs transition-all"
-                                        >
-                                            Editar
-                                        </button>
-                                        <button 
-                                            onClick={() => exportPassengerList(v)}
-                                            className="bg-white border border-zinc-200 text-indigo-600 hover:bg-indigo-50 font-bold px-3 py-2 rounded-xl flex items-center justify-center gap-1 transition-all text-xs"
-                                            title="Descargar Lista (PDF)"
-                                        >
-                                            <Printer className="w-3.5 h-3.5" /> PDF
-                                        </button>
-                                        {v.estado !== 'Cancelado' ? (
+
+                                        {(viajesSearch || viajesTipoFilter !== 'TODOS' || viajesEstadoFilter !== 'TODOS' || viajesDateStart || viajesDateEnd) && (
                                             <button 
-                                                onClick={() => handleCancelViaje(v.id_viaje)}
-                                                className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-2 rounded-xl text-xs transition-all"
+                                                onClick={() => {
+                                                    setViajesSearch('')
+                                                    setViajesTipoFilter('TODOS')
+                                                    setViajesEstadoFilter('TODOS')
+                                                    setViajesDateStart('')
+                                                    setViajesDateEnd('')
+                                                }}
+                                                className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
                                             >
-                                                Cancelar
+                                                <X className="w-3.5 h-3.5" /> Limpiar Filtros
                                             </button>
-                                        ) : (
-                                            <span className="text-[10px] text-zinc-400 font-bold py-2 px-1">Cancelado</span>
                                         )}
                                     </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                                        {/* Búsqueda libre */}
+                                        <div className="relative">
+                                            <Search className="w-3.5 h-3.5 absolute left-3 top-3 text-zinc-400" />
+                                            <input
+                                                type="text"
+                                                placeholder="Buscar por ruta o destino..."
+                                                value={viajesSearch}
+                                                onChange={e => setViajesSearch(e.target.value)}
+                                                className="w-full pl-9 pr-3 py-2 border border-zinc-200 rounded-xl text-xs font-bold bg-zinc-50 focus:bg-white focus:ring-1 focus:ring-indigo-500"
+                                            />
+                                        </div>
+
+                                        {/* Filtro por Vehículo */}
+                                        <div>
+                                            <select
+                                                value={viajesTipoFilter}
+                                                onChange={e => setViajesTipoFilter(e.target.value)}
+                                                className="w-full py-2 px-3 border border-zinc-200 rounded-xl text-xs font-bold bg-zinc-50 focus:bg-white"
+                                            >
+                                                <option value="TODOS">🚌 Todos los Vehículos</option>
+                                                <option value="Autobús">Autobús</option>
+                                                <option value="Combi">Combi</option>
+                                                <option value="Avioneta">Avioneta</option>
+                                                <option value="Camioneta">Camioneta</option>
+                                                <option value="Alterna">Alterna</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Filtro por Estado */}
+                                        <div>
+                                            <select
+                                                value={viajesEstadoFilter}
+                                                onChange={e => setViajesEstadoFilter(e.target.value)}
+                                                className="w-full py-2 px-3 border border-zinc-200 rounded-xl text-xs font-bold bg-zinc-50 focus:bg-white"
+                                            >
+                                                <option value="TODOS">📌 Todos los Estados</option>
+                                                <option value="Programado">Programado</option>
+                                                <option value="Cancelado">Cancelado</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Rango de Fechas */}
+                                        <div>
+                                            <input
+                                                type="date"
+                                                value={viajesDateStart}
+                                                onChange={e => setViajesDateStart(e.target.value)}
+                                                className="w-full py-2 px-3 border border-zinc-200 rounded-xl text-xs font-bold bg-zinc-50"
+                                                title="Fecha Desde"
+                                            />
+                                        </div>
+                                        <div>
+                                            <input
+                                                type="date"
+                                                value={viajesDateEnd}
+                                                onChange={e => setViajesDateEnd(e.target.value)}
+                                                className="w-full py-2 px-3 border border-zinc-200 rounded-xl text-xs font-bold bg-zinc-50"
+                                                title="Fecha Hasta"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
-                            ))}
-                            {viajes.length === 0 && (
-                                <div className="col-span-full p-12 text-center text-zinc-400 font-bold border-2 border-dashed border-zinc-200 rounded-2xl">
-                                    No hay viajes programados. Haz clic en "Programar Viaje" o ve al sobrecalendario.
+
+                                {/* ACCIONES EN LOTE / SELECCIÓN MÚLTIPLE VIAJES */}
+                                <div className="bg-zinc-900 text-white p-3 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-md">
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => {
+                                                if (allSelected) {
+                                                    setSelectedViajeIds([])
+                                                } else {
+                                                    setSelectedViajeIds(filteredViajes.map(v => v.id_viaje))
+                                                }
+                                            }}
+                                            className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-xs font-black rounded-xl border border-zinc-700 transition-all"
+                                        >
+                                            {allSelected ? <CheckSquare className="w-4 h-4 text-emerald-400" /> : <Square className="w-4 h-4 text-zinc-400" />}
+                                            <span>{allSelected ? 'Desmarcar Todos' : 'Seleccionar Todos'} ({filteredViajes.length})</span>
+                                        </button>
+
+                                        {selectedViajeIds.length > 0 && (
+                                            <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
+                                                {selectedViajeIds.length} viaje(s) seleccionado(s)
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {selectedViajeIds.length > 0 && (
+                                        <button
+                                            onClick={handleBulkCancelViajes}
+                                            className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md transition-all transform hover:scale-105"
+                                        >
+                                            <XCircle className="w-4 h-4" />
+                                            <span>Cancelar Seleccionados ({selectedViajeIds.length})</span>
+                                        </button>
+                                    )}
                                 </div>
-                            )}
-                        </div>
-                    )}
+
+                                {/* LISTADO GRID DE VIAJES */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {filteredViajes.map(v => {
+                                        const isChecked = selectedViajeIds.includes(v.id_viaje)
+                                        return (
+                                            <div 
+                                                key={v.id_viaje} 
+                                                className={`bg-white rounded-2xl border transition-all overflow-hidden flex flex-col group relative ${
+                                                    isChecked ? 'border-amber-500 ring-2 ring-amber-500/30 shadow-md' : 'border-zinc-200 hover:shadow-md'
+                                                }`}
+                                            >
+                                                {/* Checkbox de selección */}
+                                                <div className="absolute top-3 left-3 z-10">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (isChecked) {
+                                                                setSelectedViajeIds(selectedViajeIds.filter(id => id !== v.id_viaje))
+                                                            } else {
+                                                                setSelectedViajeIds([...selectedViajeIds, v.id_viaje])
+                                                            }
+                                                        }}
+                                                        className="p-1 rounded-lg bg-white/90 shadow-sm border border-zinc-200 hover:bg-zinc-100 transition-all"
+                                                    >
+                                                        {isChecked ? (
+                                                            <CheckSquare className="w-5 h-5 text-amber-500" />
+                                                        ) : (
+                                                            <Square className="w-5 h-5 text-zinc-400" />
+                                                        )}
+                                                    </button>
+                                                </div>
+
+                                                <div className="p-5 pl-12 flex-1">
+                                                    <div className="flex justify-between items-start mb-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className={`p-2 rounded-lg ${
+                                                                v.tipo_vehiculo === 'Autobús' ? 'bg-indigo-100 text-indigo-600' :
+                                                                v.tipo_vehiculo === 'Combi' ? 'bg-purple-100 text-purple-600' :
+                                                                v.tipo_vehiculo === 'Avioneta' ? 'bg-sky-100 text-sky-600' :
+                                                                v.tipo_vehiculo === 'Alterna' ? 'bg-teal-100 text-teal-600' :
+                                                                'bg-emerald-100 text-emerald-600'
+                                                            }`}>
+                                                                {v.tipo_vehiculo === 'Autobús' && <Bus className="w-5 h-5" />}
+                                                                {v.tipo_vehiculo === 'Combi' && <Car className="w-5 h-5" />}
+                                                                {v.tipo_vehiculo === 'Avioneta' && <Plane className="w-5 h-5" />}
+                                                                {v.tipo_vehiculo === 'Camioneta' && <Car className="w-5 h-5" />}
+                                                                {v.tipo_vehiculo === 'Alterna' && <Users className="w-5 h-5" />}
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-[10px] font-black text-zinc-400 uppercase tracking-wider">{v.tipo_vehiculo}</div>
+                                                                <div className="font-bold text-zinc-900 leading-tight">{v.capacidad_total} Pasajeros</div>
+                                                            </div>
+                                                        </div>
+                                                        <span className={`text-xs font-black px-2.5 py-1 rounded-full ${
+                                                            v.estado === 'Cancelado' ? 'bg-rose-100 text-rose-700' : 'bg-zinc-100 text-zinc-700'
+                                                        }`}>
+                                                            {v.estado}
+                                                        </span>
+                                                    </div>
+                                                    
+                                                    <h3 className="text-xl font-black text-zinc-800 mb-4">{v.nombre_ruta}</h3>
+                                                    
+                                                    <div className="space-y-2 text-sm text-zinc-600">
+                                                        <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-zinc-400" /> {new Date(v.fecha + 'T12:00:00').toLocaleDateString()}</div>
+                                                        <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-zinc-400" /> {v.hora.substring(0,5)} Hrs</div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="p-4 border-t border-zinc-100 bg-zinc-50 flex gap-2 flex-wrap">
+                                                    <Link href={`/transporte/${v.id_viaje}`} className="flex-1 min-w-[100px] bg-white border border-zinc-200 hover:border-indigo-305 hover:text-indigo-700 text-zinc-800 font-bold py-2 rounded-xl flex items-center justify-center gap-1 transition-all shadow-sm text-xs">
+                                                        Ver Asientos
+                                                    </Link>
+                                                    <button 
+                                                        onClick={() => handleOpenEditModal(v)}
+                                                        className="bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-700 font-bold px-3 py-2 rounded-xl text-xs transition-all"
+                                                    >
+                                                        Editar
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => exportPassengerList(v)}
+                                                        className="bg-white border border-zinc-200 text-indigo-600 hover:bg-indigo-50 font-bold px-3 py-2 rounded-xl flex items-center justify-center gap-1 transition-all text-xs"
+                                                        title="Descargar Lista (PDF)"
+                                                    >
+                                                        <Printer className="w-3.5 h-3.5" /> PDF
+                                                    </button>
+                                                    {v.estado !== 'Cancelado' ? (
+                                                        <button 
+                                                            onClick={() => handleCancelViaje(v.id_viaje)}
+                                                            className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-2 rounded-xl text-xs transition-all"
+                                                        >
+                                                            Cancelar
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-[10px] text-zinc-400 font-bold py-2 px-1">Cancelado</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                    {filteredViajes.length === 0 && (
+                                        <div className="col-span-full p-12 text-center text-zinc-400 font-bold border-2 border-dashed border-zinc-200 rounded-2xl">
+                                            No hay viajes que coincidan con los filtros seleccionados.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )
+                    })()}
 
                     {/* TAB SOLICITUDES */}
-                    {adminTab === 'solicitudes' && (
-                        <div className="space-y-4">
-                            {/* Filtros Bar */}
-                            <div className="bg-white border border-zinc-200 rounded-2xl p-4 flex flex-wrap gap-4 items-center shadow-sm">
-                                <div className="text-xs font-black text-zinc-700 uppercase tracking-wide">Filtrar Solicitudes por Fecha de Viaje:</div>
-                                <div className="flex gap-2 items-center text-xs">
-                                    <span className="text-zinc-400 font-bold">Desde:</span>
-                                    <input 
-                                        type="date" 
-                                        value={filterFechaStart}
-                                        onChange={e => setFilterFechaStart(e.target.value)}
-                                        className="p-2 border rounded-xl text-xs bg-zinc-50 font-bold focus:ring-1 focus:ring-indigo-500"
-                                    />
-                                    <span className="text-zinc-400 font-bold ml-2">Hasta:</span>
-                                    <input 
-                                        type="date" 
-                                        value={filterFechaEnd}
-                                        onChange={e => setFilterFechaEnd(e.target.value)}
-                                        className="p-2 border rounded-xl text-xs bg-zinc-50 font-bold focus:ring-1 focus:ring-indigo-500"
-                                    />
+                    {adminTab === 'solicitudes' && (() => {
+                        const filteredSolicitudes = solicitudes.filter(sol => {
+                            const searchText = `${sol.nombre_completo || ''} ${sol.departamento || ''} ${sol.clave_confirmacion || ''} ${sol.celular_whatsapp || ''}`.toLowerCase()
+                            const searchMatch = !solicitudesSearch || searchText.includes(solicitudesSearch.toLowerCase())
+                            const tipoMatch = solicitudesTipoFilter === 'TODOS' || sol.tipo_vehiculo === solicitudesTipoFilter
+                            const estatusMatch = solicitudesEstatusFilter === 'TODOS' || sol.estatus === solicitudesEstatusFilter
+                            const startMatch = !viajesDateStart || sol.fecha_sugerida >= viajesDateStart
+                            const endMatch = !viajesDateEnd || sol.fecha_sugerida <= viajesDateEnd
+                            return searchMatch && tipoMatch && estatusMatch && startMatch && endMatch
+                        })
+
+                        const allSelectedSols = filteredSolicitudes.length > 0 && filteredSolicitudes.every(s => selectedSolicitudIds.includes(s.id_solicitud))
+
+                        return (
+                            <div className="space-y-4">
+                                {/* BARRA DE FILTROS SOLICITUDES */}
+                                <div className="bg-white border border-zinc-200 rounded-2xl p-4 space-y-3 shadow-xs">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2 text-xs font-black text-zinc-800 uppercase tracking-wide">
+                                            <Filter className="w-4 h-4 text-indigo-500" />
+                                            <span>Filtros y Agrupación de Solicitudes</span>
+                                        </div>
+
+                                        {(solicitudesSearch || solicitudesTipoFilter !== 'TODOS' || solicitudesEstatusFilter !== 'TODOS' || viajesDateStart || viajesDateEnd) && (
+                                            <button 
+                                                onClick={() => {
+                                                    setSolicitudesSearch('')
+                                                    setSolicitudesTipoFilter('TODOS')
+                                                    setSolicitudesEstatusFilter('TODOS')
+                                                    setViajesDateStart('')
+                                                    setViajesDateEnd('')
+                                                }}
+                                                className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                                            >
+                                                <X className="w-3.5 h-3.5" /> Limpiar Filtros
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                                        {/* Búsqueda por pasajero / depto */}
+                                        <div className="relative">
+                                            <Search className="w-3.5 h-3.5 absolute left-3 top-3 text-zinc-400" />
+                                            <input
+                                                type="text"
+                                                placeholder="Buscar por pasajero o departamento..."
+                                                value={solicitudesSearch}
+                                                onChange={e => setSolicitudesSearch(e.target.value)}
+                                                className="w-full pl-9 pr-3 py-2 border border-zinc-200 rounded-xl text-xs font-bold bg-zinc-50 focus:bg-white focus:ring-1 focus:ring-indigo-500"
+                                            />
+                                        </div>
+
+                                        {/* Filtro por Vehículo */}
+                                        <div>
+                                            <select
+                                                value={solicitudesTipoFilter}
+                                                onChange={e => setSolicitudesTipoFilter(e.target.value)}
+                                                className="w-full py-2 px-3 border border-zinc-200 rounded-xl text-xs font-bold bg-zinc-50 focus:bg-white"
+                                            >
+                                                <option value="TODOS">🚌 Todos los Vehículos</option>
+                                                <option value="Autobús">Autobús</option>
+                                                <option value="Combi">Combi</option>
+                                                <option value="Avioneta">Avioneta</option>
+                                                <option value="Camioneta">Camioneta</option>
+                                                <option value="Alterna">Alterna</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Filtro por Estatus */}
+                                        <div>
+                                            <select
+                                                value={solicitudesEstatusFilter}
+                                                onChange={e => setSolicitudesEstatusFilter(e.target.value)}
+                                                className="w-full py-2 px-3 border border-zinc-200 rounded-xl text-xs font-bold bg-zinc-50 focus:bg-white"
+                                            >
+                                                <option value="TODOS">📌 Todos los Estatus</option>
+                                                <option value="Pendiente">Pendiente</option>
+                                                <option value="Asignado">Asignado</option>
+                                                <option value="Por cuenta propia">Por cuenta propia</option>
+                                                <option value="Cancelado">Cancelado</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Rango de Fechas */}
+                                        <div>
+                                            <input
+                                                type="date"
+                                                value={viajesDateStart}
+                                                onChange={e => setViajesDateStart(e.target.value)}
+                                                className="w-full py-2 px-3 border border-zinc-200 rounded-xl text-xs font-bold bg-zinc-50"
+                                                title="Fecha Viaje Desde"
+                                            />
+                                        </div>
+                                        <div>
+                                            <input
+                                                type="date"
+                                                value={viajesDateEnd}
+                                                onChange={e => setViajesDateEnd(e.target.value)}
+                                                className="w-full py-2 px-3 border border-zinc-200 rounded-xl text-xs font-bold bg-zinc-50"
+                                                title="Fecha Viaje Hasta"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
-                                {(filterFechaStart || filterFechaEnd) && (
-                                    <button 
-                                        onClick={() => { setFilterFechaStart(''); setFilterFechaEnd(''); }}
-                                        className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ml-auto"
-                                    >
-                                        Limpiar Filtros
-                                    </button>
+
+                                {/* ACCIONES EN LOTE SOLICITUDES */}
+                                {selectedSolicitudIds.length > 0 && (
+                                    <div className="bg-zinc-900 text-white p-3 rounded-2xl flex items-center justify-between gap-3 shadow-md animate-in fade-in">
+                                        <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/20">
+                                            {selectedSolicitudIds.length} solicitud(es) seleccionada(s)
+                                        </span>
+
+                                        <button
+                                            onClick={handleBulkCancelSolicitudes}
+                                            className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md transition-all transform hover:scale-105"
+                                        >
+                                            <XCircle className="w-4 h-4" />
+                                            <span>Cancelar Seleccionadas ({selectedSolicitudIds.length})</span>
+                                        </button>
+                                    </div>
                                 )}
-                            </div>
 
-                            <div className="bg-white border border-zinc-200 rounded-3xl overflow-hidden shadow-sm">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-sm text-zinc-600">
-                                        <thead className="bg-zinc-55 bg-zinc-50 text-[10px] text-zinc-500 uppercase font-black border-b border-zinc-200">
-                                            <tr>
-                                                <th className="p-4">Fecha Solicitud</th>
-                                                <th className="p-4">Pasajero</th>
-                                                <th className="p-4">Departamento</th>
-                                                <th className="p-4">Celular (WhatsApp)</th>
-                                                <th className="p-4">Preferencia</th>
-                                                <th className="p-4">Fecha Sugerida</th>
-                                                <th className="p-4">Estatus</th>
-                                                <th className="p-4 text-right">Acciones</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-zinc-100">
-                                            {(() => {
-                                                const filtered = solicitudes.filter(sol => {
-                                                    if (filterFechaStart && sol.fecha_sugerida < filterFechaStart) return false
-                                                    if (filterFechaEnd && sol.fecha_sugerida > filterFechaEnd) return false
-                                                    return true
-                                                })
-                                                
-                                                if (filtered.length === 0) {
-                                                    return (
-                                                        <tr>
-                                                            <td colSpan={8} className="p-8 text-center text-zinc-400 font-bold">
-                                                                No se encontraron solicitudes para el rango de fechas seleccionado.
-                                                            </td>
-                                                        </tr>
-                                                    )
-                                                }
-
-                                                return filtered.map(sol => (
-                                                    <tr key={sol.id_solicitud} className="hover:bg-zinc-50/50 transition-colors">
-                                                        <td className="p-4 font-mono text-xs text-zinc-400">
-                                                            {new Date(sol.creado_el).toLocaleDateString()}
-                                                        </td>
-                                                        <td className="p-4 font-bold text-zinc-950">
-                                                            {sol.nombre_completo}
-                                                        </td>
-                                                        <td className="p-4 font-semibold text-zinc-600">
-                                                            {sol.departamento}
-                                                        </td>
-                                                        <td className="p-4 font-mono text-xs">
-                                                            {sol.celular_whatsapp}
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-0.5 rounded-full
-                                                                ${sol.tipo_vehiculo === 'Autobús' ? 'bg-sky-100 text-sky-700' : sol.tipo_vehiculo === 'Alterna' ? 'bg-teal-100 text-teal-800' : 'bg-amber-100 text-amber-800'}`}>
-                                                                {sol.tipo_vehiculo}
-                                                            </span>
-                                                        </td>
-                                                        <td className="p-4 font-bold text-zinc-800">
-                                                            {new Date(sol.fecha_sugerida + 'T12:00:00').toLocaleDateString()}
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase
-                                                                ${sol.estatus === 'Pendiente' ? 'bg-zinc-100 text-zinc-600 animate-pulse' :
-                                                                  sol.estatus === 'Asignado' ? 'bg-emerald-100 text-emerald-700 font-bold' :
-                                                                  'bg-red-100 text-red-700'}`}>
-                                                                {sol.estatus}
-                                                            </span>
-                                                        </td>
-                                                        <td className="p-4 text-right">
-                                                            {sol.estatus === 'Por cuenta propia' ? (
-                                                                <button
-                                                                    onClick={() => handleSendWhatsAppWarning(sol)}
-                                                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center justify-center gap-2 text-xs w-full sm:w-auto"
-                                                                    title="Enviar aviso de prevención por WhatsApp"
-                                                                >
-                                                                    <Send className="w-3.5 h-3.5" />
-                                                                    Aviso WhatsApp
-                                                                </button>
-                                                            ) : sol.estatus === 'Pendiente' ? (
-                                                                <button
-                                                                    onClick={() => handleOpenAssignModal(sol)}
-                                                                    className="bg-indigo-650 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-1.5 rounded-lg text-xs transition-all shadow-sm"
-                                                                >
-                                                                    Asignar Lugar
-                                                                </button>
+                                <div className="bg-white border border-zinc-200 rounded-3xl overflow-hidden shadow-sm">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-sm text-zinc-600">
+                                            <thead className="bg-zinc-50 text-[10px] text-zinc-500 uppercase font-black border-b border-zinc-200">
+                                                <tr>
+                                                    <th className="p-4 w-10">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (allSelectedSols) {
+                                                                    setSelectedSolicitudIds([])
+                                                                } else {
+                                                                    setSelectedSolicitudIds(filteredSolicitudes.map(s => s.id_solicitud))
+                                                                }
+                                                            }}
+                                                            className="p-1 rounded bg-white border border-zinc-300 hover:bg-zinc-100"
+                                                        >
+                                                            {allSelectedSols ? (
+                                                                <CheckSquare className="w-4 h-4 text-amber-500" />
                                                             ) : (
-                                                                <div className="flex justify-end gap-2 items-center text-xs">
-                                                                    <div className="text-left font-mono text-[9px] text-zinc-400">
-                                                                        <div>Asiento: <span className="font-bold text-zinc-700">{sol.numero_asiento}</span></div>
-                                                                        <div>Clave: <span className="font-bold text-amber-600">{sol.clave_confirmacion}</span></div>
-                                                                    </div>
-                                                                    <button
-                                                                        onClick={() => handleSendWhatsApp(sol)}
-                                                                        className="bg-green-600 hover:bg-green-700 text-white font-bold p-2 rounded-lg flex items-center justify-center"
-                                                                        title="Enviar clave y datos por WhatsApp"
-                                                                    >
-                                                                        <Send className="w-3.5 h-3.5" />
-                                                                    </button>
-                                                                </div>
+                                                                <Square className="w-4 h-4 text-zinc-400" />
                                                             )}
+                                                        </button>
+                                                    </th>
+                                                    <th className="p-4">Fecha Solicitud</th>
+                                                    <th className="p-4">Pasajero</th>
+                                                    <th className="p-4">Departamento</th>
+                                                    <th className="p-4">Celular (WhatsApp)</th>
+                                                    <th className="p-4">Preferencia</th>
+                                                    <th className="p-4">Fecha Sugerida</th>
+                                                    <th className="p-4">Estatus</th>
+                                                    <th className="p-4 text-right">Acciones</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-zinc-100">
+                                                {filteredSolicitudes.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={9} className="p-8 text-center text-zinc-400 font-bold">
+                                                            No se encontraron solicitudes para los filtros seleccionados.
                                                         </td>
                                                     </tr>
-                                                ))
-                                            })()}
-                                        </tbody>
-                                    </table>
+                                                ) : (
+                                                    filteredSolicitudes.map(sol => {
+                                                        const isChecked = selectedSolicitudIds.includes(sol.id_solicitud)
+                                                        return (
+                                                            <tr key={sol.id_solicitud} className={`hover:bg-zinc-50/50 transition-colors ${isChecked ? 'bg-amber-50/40' : ''}`}>
+                                                                <td className="p-4">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            if (isChecked) {
+                                                                                setSelectedSolicitudIds(selectedSolicitudIds.filter(id => id !== sol.id_solicitud))
+                                                                            } else {
+                                                                                setSelectedSolicitudIds([...selectedSolicitudIds, sol.id_solicitud])
+                                                                            }
+                                                                        }}
+                                                                        className="p-1 rounded hover:bg-zinc-100"
+                                                                    >
+                                                                        {isChecked ? (
+                                                                            <CheckSquare className="w-4 h-4 text-amber-500" />
+                                                                        ) : (
+                                                                            <Square className="w-4 h-4 text-zinc-400" />
+                                                                        )}
+                                                                    </button>
+                                                                </td>
+                                                                <td className="p-4 font-mono text-xs text-zinc-400">
+                                                                    {new Date(sol.creado_el).toLocaleDateString()}
+                                                                </td>
+                                                                <td className="p-4 font-bold text-zinc-950">
+                                                                    {sol.nombre_completo}
+                                                                </td>
+                                                                <td className="p-4 font-semibold text-zinc-600">
+                                                                    {sol.departamento}
+                                                                </td>
+                                                                <td className="p-4 font-mono text-xs">
+                                                                    {sol.celular_whatsapp}
+                                                                </td>
+                                                                <td className="p-4">
+                                                                    <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-0.5 rounded-full
+                                                                        ${sol.tipo_vehiculo === 'Autobús' ? 'bg-sky-100 text-sky-700' : sol.tipo_vehiculo === 'Alterna' ? 'bg-teal-100 text-teal-800' : 'bg-amber-100 text-amber-800'}`}>
+                                                                        {sol.tipo_vehiculo}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="p-4 font-bold text-zinc-800">
+                                                                    {new Date(sol.fecha_sugerida + 'T12:00:00').toLocaleDateString()}
+                                                                </td>
+                                                                <td className="p-4">
+                                                                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase
+                                                                        ${sol.estatus === 'Pendiente' ? 'bg-zinc-100 text-zinc-600 animate-pulse' :
+                                                                          sol.estatus === 'Asignado' ? 'bg-emerald-100 text-emerald-700 font-bold' :
+                                                                          sol.estatus === 'Cancelado' ? 'bg-rose-100 text-rose-700 font-bold' :
+                                                                          'bg-red-100 text-red-700'}`}>
+                                                                        {sol.estatus}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="p-4 text-right">
+                                                                    {sol.estatus === 'Por cuenta propia' ? (
+                                                                        <button
+                                                                            onClick={() => handleSendWhatsAppWarning(sol)}
+                                                                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center justify-center gap-2 text-xs w-full sm:w-auto"
+                                                                            title="Enviar aviso de prevención por WhatsApp"
+                                                                        >
+                                                                            <Send className="w-3.5 h-3.5" />
+                                                                            Aviso WhatsApp
+                                                                        </button>
+                                                                    ) : sol.estatus === 'Pendiente' ? (
+                                                                        <button
+                                                                            onClick={() => handleOpenAssignModal(sol)}
+                                                                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-1.5 rounded-lg text-xs transition-all shadow-sm"
+                                                                        >
+                                                                            Asignar Lugar
+                                                                        </button>
+                                                                    ) : (
+                                                                        <div className="flex justify-end gap-2 items-center text-xs">
+                                                                            <div className="text-left font-mono text-[9px] text-zinc-400">
+                                                                                <div>Asiento: <span className="font-bold text-zinc-700">{sol.numero_asiento}</span></div>
+                                                                                <div>Clave: <span className="font-bold text-amber-600">{sol.clave_confirmacion}</span></div>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => handleSendWhatsApp(sol)}
+                                                                                className="bg-green-600 hover:bg-green-700 text-white font-bold p-2 rounded-lg flex items-center justify-center"
+                                                                                title="Enviar clave y datos por WhatsApp"
+                                                                            >
+                                                                                <Send className="w-3.5 h-3.5" />
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        )
+                                                    })
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )
+                    })()}
                 </>
             )}
 
