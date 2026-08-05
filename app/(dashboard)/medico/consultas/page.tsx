@@ -151,7 +151,7 @@ export default function ConsultasPage() {
             .eq('id_consulta', consulta.id_consulta)
 
         // Fetch prescribing doctor profile details
-        let doctorProfile = null
+        let doctorProfile: any = null
         if (consulta.medico_id) {
             const { data } = await supabase
                 .from('perfiles')
@@ -161,11 +161,19 @@ export default function ConsultasPage() {
             if (data) doctorProfile = data
         }
 
-        const printWindow = window.open('', '_blank', 'width=900,height=1150')
+        // Fallback to current logged-in profile if no medico_id saved
+        if (!doctorProfile && profile) {
+            doctorProfile = profile
+        }
+
+        const printWindow = window.open('', '_blank', 'width=900,height=1200')
         if (!printWindow) return
 
-        const formattedFecha = new Date(consulta.fecha || Date.now()).toLocaleDateString('es-ES', {
+        const formattedFecha = new Date(consulta.fecha || Date.now()).toLocaleDateString('es-MX', {
             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        })
+        const fechaCorta = new Date(consulta.fecha || Date.now()).toLocaleDateString('es-MX', {
+            day: '2-digit', month: '2-digit', year: 'numeric'
         })
 
         const diagTexto = (consulta.diagnostico || '').split('[INDICACIONES RECETA]')[0].trim() || 'Valoración médica general'
@@ -174,358 +182,735 @@ export default function ConsultasPage() {
         const companionName = (consulta.pacientes?.acompanante || '').toUpperCase()
         const folioReceta = `REC-${(consulta.id_consulta || '').toString().slice(0, 8).toUpperCase()}`
 
+        // Doctor data
+        const doctorNombre = (doctorProfile?.nombre_completo || 'MÉDICO GENERAL TRATANTE').toUpperCase()
+        const doctorEspecialidad = (doctorProfile?.especialidad || 'MEDICINA GENERAL Y SALUD OCUPACIONAL').toUpperCase()
+        const doctorCedula = doctorProfile?.cedula_profesional || 'S/N'
+        const doctorUniversidad = (doctorProfile?.universidad || '').toUpperCase()
+        const doctorDomicilio = (doctorProfile?.domicilio_consultorio || 'UNIDAD MÉDICA EL HERRERO, DGO.').toUpperCase()
+        const doctorTelefono = doctorProfile?.telefono_consultorio || ''
+        const doctorFirma = doctorProfile?.firma || ''
+
+        const logoTag = logoBase64
+            ? `<img src="${logoBase64}" class="logo-img" alt="Logo Empresa" />`
+            : `<div class="logo-placeholder">MINERA<br/>BACIS</div>`
+
         const medsRows = (dispensacion && dispensacion.length > 0) ? dispensacion.map((item: any, idx: number) => {
             const m = item.cat_medicamentos || {}
-            const dosisTexto = (item.dosis || item.descripcion || 'Tomar según prescripción médica.').toUpperCase()
+            const dosisTexto = (item.dosis || m.descripcion || 'Tomar según prescripción médica.').toUpperCase()
+            const isEven = idx % 2 === 0
             return `
-                <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
-                    <td style="padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 800; font-size: 13px; width: 65px; color: #0f172a;">
-                        ${item.cantidad || 1}
+                <tr class="${isEven ? 'row-even' : 'row-odd'}">
+                    <td class="td-num">
+                        <div class="qty-badge">${item.cantidad || 1}</div>
                     </td>
-                    <td style="padding: 12px; border-bottom: 1px solid #e2e8f0;">
-                        <div style="font-weight: 800; color: #0f172a; font-size: 13px; text-transform: uppercase;">${m.nombre || 'MEDICAMENTO PRESTABLECIDO'}</div>
-                        ${m.sustancia_activa ? `<div style="font-size: 10px; font-weight: 700; color: #b45309; margin-top: 1px;">Sustancia Activa: ${m.sustancia_activa.toUpperCase()}</div>` : ''}
-                        <div style="font-size: 10px; font-weight: 600; color: #64748b; margin-top: 2px;">Presentación: ${m.presentacion || 'Estándar'}</div>
+                    <td class="td-med">
+                        <div class="med-name">${m.nombre || 'MEDICAMENTO'}</div>
+                        ${m.sustancia_activa ? `<div class="med-sustancia">Sustancia activa: ${m.sustancia_activa.toUpperCase()}</div>` : ''}
+                        <div class="med-pres">${m.presentacion || 'Presentación estándar'}</div>
                     </td>
-                    <td style="padding: 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; color: #334155; line-height: 1.4;">
-                        <strong style="color: #0f172a; font-size: 10px; text-transform: uppercase;">Posología e indicaciones:</strong><br/>
-                        ${dosisTexto}
+                    <td class="td-dosis">
+                        <div class="dosis-label">POSOLOGÍA E INDICACIONES:</div>
+                        <div class="dosis-text">${dosisTexto}</div>
                     </td>
                 </tr>
             `
         }).join('') : `
             <tr>
-                <td colspan="3" style="padding: 28px; text-align: center; color: #64748b; font-style: italic; font-size: 13px;">
-                    Consulta de valoración y seguimiento clínico sin prescripción de fármacos en almacén para este episodio.
+                <td colspan="3" class="td-empty">
+                    Consulta de valoración y seguimiento clínico.<br/>
+                    <span style="font-style:italic; font-weight:500;">Sin prescripción de fármacos en almacén para este episodio.</span>
                 </td>
             </tr>
         `
 
         printWindow.document.write(`
             <!DOCTYPE html>
-            <html>
+            <html lang="es">
             <head>
-                <title>Receta Médica - ${pacienteNombre}</title>
+                <meta charset="UTF-8">
+                <title>Receta Médica Oficial — ${pacienteNombre}</title>
                 <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+                    * { box-sizing: border-box; margin: 0; padding: 0; }
+
                     body {
-                        font-family: 'Plus Jakarta Sans', sans-serif;
-                        margin: 0;
-                        padding: 40px 50px;
+                        font-family: 'Inter', 'Arial', sans-serif;
+                        background: #f1f5f9;
                         color: #1e293b;
-                        background: #ffffff;
+                        padding: 30px;
                         line-height: 1.5;
+                        font-size: 13px;
                     }
-                    .receta-container {
-                        max-width: 800px;
+
+                    .card {
+                        max-width: 820px;
                         margin: 0 auto;
-                        border: 2px solid #0f172a;
-                        padding: 40px;
+                        background: #ffffff;
+                        border-radius: 16px;
+                        overflow: hidden;
+                        box-shadow: 0 4px 24px rgba(0,0,0,0.12);
                         position: relative;
-                        box-sizing: border-box;
-                        border-radius: 12px;
                     }
-                    .header-table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        border-bottom: 2px solid #0f172a;
-                        padding-bottom: 15px;
-                        margin-bottom: 20px;
+
+                    .top-bar {
+                        height: 6px;
+                        background: linear-gradient(90deg, #92400e 0%, #d97706 40%, #f59e0b 70%, #fbbf24 100%);
                     }
-                    .logo-img {
-                        height: 60px;
-                        object-fit: contain;
-                    }
-                    .doctor-meta-block {
-                        vertical-align: top;
-                        padding-left: 20px;
-                        line-height: 1.4;
-                    }
-                    .doctor-name-lbl {
-                        font-size: 14px;
-                        font-weight: 800;
-                        color: #0f172a;
-                        text-transform: uppercase;
-                    }
-                    .doctor-spec-lbl {
-                        font-size: 9px;
-                        font-weight: 700;
-                        color: #b45309;
-                        text-transform: uppercase;
-                    }
-                    .doctor-details-text {
-                        font-size: 9px;
-                        color: #64748b;
-                        font-weight: 600;
-                        text-transform: uppercase;
-                        margin-top: 4px;
-                    }
-                    .header-right {
-                        vertical-align: top;
-                        text-align: right;
-                        width: 200px;
-                    }
-                    .receta-badge {
-                        background: #f59e0b;
-                        color: #000;
-                        padding: 4px 10px;
-                        font-weight: 800;
-                        font-size: 10px;
-                        text-transform: uppercase;
-                        border-radius: 4px;
-                        display: inline-block;
-                        margin-bottom: 4px;
-                        letter-spacing: 0.5px;
-                    }
-                    .folio-text {
-                        font-size: 15px;
-                        font-weight: 850;
-                        font-family: monospace;
-                        color: #0f172a;
-                    }
-                    .fecha-text {
-                        font-size: 9px;
-                        font-weight: 600;
-                        color: #64748b;
-                        margin-top: 4px;
-                        text-transform: capitalize;
-                    }
-                    .patient-box {
-                        background: #f8fafc;
-                        border: 1px solid #cbd5e1;
-                        border-left: 6px solid #0f172a;
-                        padding: 15px 20px;
-                        border-radius: 8px;
-                        margin-bottom: 20px;
-                        display: grid;
-                        grid-template-columns: 2fr 1fr;
-                        gap: 20px;
-                    }
-                    .patient-name {
-                        font-size: 15px;
-                        font-weight: 900;
-                        color: #0f172a;
-                        margin: 0 0 4px 0;
-                    }
-                    .patient-meta {
-                        font-size: 9px;
-                        font-weight: 800;
-                        color: #ffffff;
-                        background: #0f172a;
-                        padding: 2px 8px;
-                        border-radius: 4px;
-                        display: inline-block;
-                        text-transform: uppercase;
-                    }
-                    .diag-box {
-                        border-left: 1px solid #cbd5e1;
-                        padding-left: 20px;
-                    }
-                    .diag-label {
-                        font-size: 9px;
-                        font-weight: 800;
-                        color: #64748b;
-                        text-transform: uppercase;
-                        margin: 0 0 2px 0;
-                    }
-                    .diag-text {
-                        font-size: 11px;
-                        font-weight: 700;
-                        color: #1e293b;
-                        line-height: 1.3;
-                    }
-                    .section-header {
-                        font-size: 12px;
-                        font-weight: 900;
-                        color: #0f172a;
-                        text-transform: uppercase;
-                        border-bottom: 2px solid #0f172a;
-                        padding-bottom: 6px;
-                        margin: 20px 0 12px 0;
-                    }
-                    .med-table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        margin-bottom: 20px;
-                        border: 1px solid #cbd5e1;
-                        border-radius: 8px;
+
+                    .header {
+                        background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #1a2744 100%);
+                        padding: 28px 36px;
+                        display: flex;
+                        align-items: stretch;
+                        gap: 0;
+                        position: relative;
                         overflow: hidden;
                     }
-                    .med-table th {
-                        background: #0f172a;
-                        color: #ffffff;
-                        font-size: 10px;
-                        font-weight: 800;
-                        text-transform: uppercase;
-                        padding: 10px;
-                        text-align: left;
+
+                    .header::before {
+                        content: '';
+                        position: absolute;
+                        top: 0; right: 0; bottom: 0;
+                        width: 220px;
+                        background: repeating-linear-gradient(
+                            60deg, transparent, transparent 18px,
+                            rgba(245,158,11,0.04) 18px, rgba(245,158,11,0.04) 19px
+                        ), repeating-linear-gradient(
+                            -60deg, transparent, transparent 18px,
+                            rgba(245,158,11,0.04) 18px, rgba(245,158,11,0.04) 19px
+                        );
+                        pointer-events: none;
                     }
-                    .recommendations-box {
-                        background: #fffbeb;
-                        border: 1px solid #fde68a;
-                        padding: 15px;
-                        border-radius: 8px;
+
+                    .header-logo-col {
+                        width: 130px;
+                        min-width: 130px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        border-right: 1px solid rgba(255,255,255,0.1);
+                        padding-right: 24px;
+                    }
+
+                    .logo-img {
+                        max-width: 120px;
+                        max-height: 80px;
+                        object-fit: contain;
+                        filter: brightness(1) drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+                    }
+
+                    .logo-placeholder {
                         font-size: 11px;
-                        color: #92400e;
-                        margin-bottom: 30px;
-                    }
-                    .recommendations-title {
-                        font-weight: 800;
+                        font-weight: 900;
+                        color: #f59e0b;
+                        letter-spacing: 2px;
                         text-transform: uppercase;
-                        margin-bottom: 6px;
-                        color: #b45309;
-                        font-size: 10px;
+                        text-align: center;
+                        line-height: 1.3;
                     }
-                    .footer-grid {
+
+                    .header-doctor-col {
+                        flex: 1;
+                        padding: 0 24px;
+                        border-right: 1px solid rgba(255,255,255,0.1);
+                    }
+
+                    .doctor-badge {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 5px;
+                        background: rgba(245,158,11,0.15);
+                        border: 1px solid rgba(245,158,11,0.3);
+                        color: #fbbf24;
+                        font-size: 8px;
+                        font-weight: 800;
+                        letter-spacing: 1.5px;
+                        text-transform: uppercase;
+                        padding: 3px 10px;
+                        border-radius: 4px;
+                        margin-bottom: 8px;
+                    }
+
+                    .doctor-name-h {
+                        font-size: 17px;
+                        font-weight: 900;
+                        color: #ffffff;
+                        letter-spacing: 0.5px;
+                        line-height: 1.2;
+                        margin-bottom: 3px;
+                    }
+
+                    .doctor-spec-h {
+                        font-size: 10px;
+                        font-weight: 700;
+                        color: #f59e0b;
+                        text-transform: uppercase;
+                        letter-spacing: 0.8px;
+                        margin-bottom: 10px;
+                    }
+
+                    .doctor-data-grid {
                         display: grid;
                         grid-template-columns: 1fr 1fr;
-                        gap: 30px;
-                        margin-top: 35px;
-                        padding-top: 20px;
-                        border-top: 1px dashed #cbd5e1;
+                        gap: 3px 16px;
                     }
-                    .signature-box {
-                        text-align: center;
+
+                    .doctor-data-item {
+                        font-size: 9px;
+                        font-weight: 600;
+                        color: #94a3b8;
+                        line-height: 1.5;
+                    }
+
+                    .doctor-data-item strong {
+                        color: #cbd5e1;
+                        font-weight: 800;
+                        text-transform: uppercase;
+                        font-size: 8px;
+                        letter-spacing: 0.5px;
+                        display: block;
+                    }
+
+                    .header-folio-col {
+                        min-width: 155px;
                         display: flex;
                         flex-direction: column;
-                        align-items: center;
-                        justify-content: flex-end;
+                        align-items: flex-end;
+                        justify-content: space-between;
+                        padding-left: 24px;
+                        text-align: right;
                     }
-                    .signature-line {
-                        width: 80%;
-                        margin: 0 auto;
-                        border-bottom: 1.5px solid #0f172a;
-                        height: 10px;
-                    }
-                    .doctor-name {
-                        font-size: 12px;
+
+                    .receta-badge-h {
+                        background: #f59e0b;
+                        color: #000000;
+                        font-size: 8px;
                         font-weight: 900;
-                        color: #0f172a;
-                        margin-top: 8px;
+                        letter-spacing: 1.5px;
+                        text-transform: uppercase;
+                        padding: 4px 12px;
+                        border-radius: 4px;
+                        display: inline-block;
                     }
-                    .doctor-cedula {
-                        font-size: 10px;
+
+                    .folio-h {
+                        font-size: 20px;
+                        font-weight: 900;
+                        color: #ffffff;
+                        font-family: 'Courier New', monospace;
+                        letter-spacing: 1px;
+                        margin: 6px 0;
+                    }
+
+                    .fecha-h {
+                        font-size: 9px;
                         font-weight: 600;
                         color: #64748b;
-                        margin-top: 2px;
+                        text-transform: capitalize;
+                        line-height: 1.4;
                     }
-                    .seal-box {
-                        text-align: center;
-                        font-size: 9px;
+
+                    .accent-bar {
+                        height: 3px;
+                        background: linear-gradient(90deg, #f59e0b, #fcd34d, #f59e0b);
+                    }
+
+                    .body {
+                        padding: 28px 36px;
+                    }
+
+                    .patient-section {
+                        display: grid;
+                        grid-template-columns: 1.5fr 1fr;
+                        gap: 20px;
+                        margin-bottom: 24px;
+                        padding: 18px 22px;
+                        background: #f8fafc;
+                        border: 1px solid #e2e8f0;
+                        border-left: 5px solid #0f172a;
+                        border-radius: 10px;
+                    }
+
+                    .patient-label {
+                        font-size: 8.5px;
+                        font-weight: 800;
                         color: #64748b;
+                        text-transform: uppercase;
+                        letter-spacing: 1px;
+                        margin-bottom: 5px;
+                    }
+
+                    .patient-name-h {
+                        font-size: 16px;
+                        font-weight: 900;
+                        color: #0f172a;
+                        margin-bottom: 6px;
+                        line-height: 1.2;
+                    }
+
+                    .patient-tag {
+                        display: inline-block;
+                        background: #0f172a;
+                        color: #f59e0b;
+                        font-size: 8px;
+                        font-weight: 800;
+                        text-transform: uppercase;
+                        letter-spacing: 0.8px;
+                        padding: 3px 10px;
+                        border-radius: 4px;
+                    }
+
+                    .companion-text {
+                        font-size: 9.5px;
+                        font-weight: 700;
+                        color: #475569;
+                        margin-top: 7px;
+                    }
+
+                    .diag-col {
+                        border-left: 1px solid #e2e8f0;
+                        padding-left: 20px;
                         display: flex;
                         flex-direction: column;
                         justify-content: center;
-                        align-items: center;
-                        border: 1.5px dashed #cbd5e1;
-                        padding: 12px;
-                        border-radius: 8px;
-                        background: #f8fafc;
                     }
-                    .watermark {
-                        position: absolute;
-                        top: 50%;
-                        left: 50%;
-                        transform: translate(-50%, -50%) rotate(-30deg);
-                        font-size: 80px;
+
+                    .diag-label-h {
+                        font-size: 8.5px;
+                        font-weight: 800;
+                        color: #64748b;
+                        text-transform: uppercase;
+                        letter-spacing: 1px;
+                        margin-bottom: 5px;
+                    }
+
+                    .diag-text-h {
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: #1e293b;
+                        line-height: 1.4;
+                    }
+
+                    .section-title {
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                        margin-bottom: 14px;
+                    }
+
+                    .section-title-icon {
+                        width: 26px;
+                        height: 26px;
+                        background: #0f172a;
+                        border-radius: 6px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 13px;
+                    }
+
+                    .section-title-text {
+                        font-size: 11px;
                         font-weight: 900;
-                        color: rgba(15, 23, 42, 0.025);
-                        pointer-events: none;
+                        color: #0f172a;
+                        text-transform: uppercase;
+                        letter-spacing: 1.5px;
                         white-space: nowrap;
                     }
+
+                    .section-title-line {
+                        flex: 1;
+                        height: 1px;
+                        background: linear-gradient(90deg, #0f172a, transparent);
+                    }
+
+                    .med-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        border-radius: 10px;
+                        overflow: hidden;
+                        border: 1px solid #e2e8f0;
+                        margin-bottom: 22px;
+                        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+                    }
+
+                    .med-table thead tr { background: #0f172a; }
+
+                    .med-table thead th {
+                        color: #f59e0b;
+                        font-size: 9px;
+                        font-weight: 800;
+                        text-transform: uppercase;
+                        letter-spacing: 1px;
+                        padding: 11px 14px;
+                        text-align: left;
+                    }
+
+                    .med-table thead th:first-child {
+                        text-align: center;
+                        width: 70px;
+                    }
+
+                    .row-even { background: #ffffff; }
+                    .row-odd  { background: #f8fafc; }
+
+                    .td-num {
+                        padding: 13px 10px;
+                        text-align: center;
+                        border-bottom: 1px solid #f1f5f9;
+                        width: 70px;
+                    }
+
+                    .qty-badge {
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 32px;
+                        height: 32px;
+                        background: #0f172a;
+                        color: #f59e0b;
+                        font-size: 14px;
+                        font-weight: 900;
+                        border-radius: 8px;
+                    }
+
+                    .td-med {
+                        padding: 13px 14px;
+                        border-bottom: 1px solid #f1f5f9;
+                        border-left: 1px solid #f1f5f9;
+                    }
+
+                    .med-name {
+                        font-size: 13px;
+                        font-weight: 800;
+                        color: #0f172a;
+                        text-transform: uppercase;
+                        margin-bottom: 2px;
+                    }
+
+                    .med-sustancia {
+                        font-size: 9.5px;
+                        font-weight: 700;
+                        color: #b45309;
+                        margin-top: 2px;
+                    }
+
+                    .med-pres {
+                        font-size: 9px;
+                        font-weight: 600;
+                        color: #64748b;
+                        margin-top: 1px;
+                    }
+
+                    .td-dosis {
+                        padding: 13px 14px;
+                        border-bottom: 1px solid #f1f5f9;
+                        border-left: 1px solid #f1f5f9;
+                    }
+
+                    .dosis-label {
+                        font-size: 8px;
+                        font-weight: 800;
+                        color: #94a3b8;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        margin-bottom: 3px;
+                    }
+
+                    .dosis-text {
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: #1e293b;
+                        line-height: 1.45;
+                    }
+
+                    .td-empty {
+                        padding: 28px;
+                        text-align: center;
+                        color: #94a3b8;
+                        font-size: 12px;
+                        font-weight: 600;
+                        border-bottom: 1px solid #f1f5f9;
+                    }
+
+                    .indicaciones-box {
+                        background: linear-gradient(135deg, #fffbeb, #fef3c7);
+                        border: 1px solid #fde68a;
+                        border-left: 4px solid #f59e0b;
+                        padding: 16px 20px;
+                        border-radius: 10px;
+                        margin-bottom: 0;
+                    }
+
+                    .indicaciones-title {
+                        font-size: 9px;
+                        font-weight: 900;
+                        color: #b45309;
+                        text-transform: uppercase;
+                        letter-spacing: 1px;
+                        margin-bottom: 8px;
+                    }
+
+                    .indicaciones-list {
+                        margin: 0;
+                        padding-left: 16px;
+                        color: #78350f;
+                        font-size: 10.5px;
+                        font-weight: 600;
+                        line-height: 1.7;
+                    }
+
+                    .footer-strip {
+                        background: #f8fafc;
+                        border-top: 1px solid #e2e8f0;
+                        padding: 22px 36px;
+                        display: grid;
+                        grid-template-columns: 1fr auto 1fr;
+                        align-items: end;
+                        gap: 20px;
+                    }
+
+                    .firma-col {
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                    }
+
+                    .firma-img-wrap {
+                        height: 60px;
+                        display: flex;
+                        align-items: flex-end;
+                        justify-content: center;
+                        margin-bottom: 4px;
+                    }
+
+                    .firma-img-wrap img {
+                        max-height: 55px;
+                        max-width: 160px;
+                        object-fit: contain;
+                    }
+
+                    .firma-line {
+                        width: 180px;
+                        height: 0;
+                        border-bottom: 2px solid #0f172a;
+                        margin-bottom: 6px;
+                    }
+
+                    .firma-name {
+                        font-size: 11px;
+                        font-weight: 900;
+                        color: #0f172a;
+                        text-align: center;
+                        margin-bottom: 2px;
+                    }
+
+                    .firma-sub {
+                        font-size: 8px;
+                        font-weight: 600;
+                        color: #64748b;
+                        text-align: center;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }
+
+                    .sello-col {
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                    }
+
+                    .sello-circle {
+                        width: 88px;
+                        height: 88px;
+                        border: 2.5px dashed #cbd5e1;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        text-align: center;
+                        flex-direction: column;
+                        padding: 10px;
+                        color: #94a3b8;
+                        background: #ffffff;
+                    }
+
+                    .sello-text {
+                        font-size: 7px;
+                        font-weight: 800;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        line-height: 1.4;
+                    }
+
+                    .legal-col { text-align: right; }
+
+                    .legal-badge {
+                        display: inline-block;
+                        background: #0f172a;
+                        color: #f59e0b;
+                        font-size: 7.5px;
+                        font-weight: 800;
+                        text-transform: uppercase;
+                        letter-spacing: 1px;
+                        padding: 4px 10px;
+                        border-radius: 4px;
+                        margin-bottom: 6px;
+                    }
+
+                    .legal-text {
+                        font-size: 8px;
+                        color: #94a3b8;
+                        font-weight: 500;
+                        line-height: 1.6;
+                    }
+
+                    .bottom-bar {
+                        height: 4px;
+                        background: linear-gradient(90deg, #f59e0b 0%, #d97706 50%, #92400e 100%);
+                    }
+
+                    .watermark {
+                        position: fixed;
+                        top: 50%; left: 50%;
+                        transform: translate(-50%, -50%) rotate(-30deg);
+                        font-size: 90px;
+                        font-weight: 900;
+                        color: rgba(15,23,42,0.022);
+                        pointer-events: none;
+                        white-space: nowrap;
+                        z-index: 0;
+                        letter-spacing: 10px;
+                    }
+
                     @media print {
-                        body { padding: 0; }
-                        .receta-container { border: none; max-width: 100%; padding: 15px; border-radius: 0; }
+                        body { background: #fff; padding: 0; }
+                        .card { box-shadow: none; border-radius: 0; max-width: 100%; }
+                        .watermark { position: absolute; }
                     }
                 </style>
             </head>
             <body>
-                <div class="receta-container">
-                    <div class="watermark">MINERA BACIS</div>
-                    
-                    <table class="header-table">
-                        <tr>
-                            <td class="header-logo">
-                                <img src="${logoBase64 || '/logo-bacis.png'}" class="logo-img" alt="Logo Institucional" />
-                            </td>
-                            <td class="doctor-meta-block">
-                                <div class="doctor-name-lbl">${doctorProfile?.nombre_completo || 'MÉDICO GENERAL TRATANTE'}</div>
-                                <div class="doctor-spec-lbl">${doctorProfile?.especialidad || 'SERVICIOS MÉDICOS Y SALUD OCUPACIONAL'}</div>
-                                <div class="doctor-details-text">
-                                    CÉDULA PROFESIONAL: ${doctorProfile?.cedula_profesional || 'REGISTRO PENDIENTE'}<br/>
-                                    EMITIDA POR: ${doctorProfile?.universidad || 'UNIV EMISORA'}<br/>
-                                    DOMICILIO: ${doctorProfile?.domicilio_consultorio || 'CONSTITUCION 145, UNIDAD EL HERRERO, DGO'}<br/>
-                                    TELÉFONO: ${doctorProfile?.telefono_consultorio || 'S/T'}
+                <div class="watermark">BACIS</div>
+                <div class="card">
+                    <div class="top-bar"></div>
+
+                    <div class="header">
+                        <div class="header-logo-col">
+                            ${logoTag}
+                        </div>
+
+                        <div class="header-doctor-col">
+                            <div class="doctor-badge">⚕ Médico Prescriptor</div>
+                            <div class="doctor-name-h">${doctorNombre}</div>
+                            <div class="doctor-spec-h">${doctorEspecialidad}</div>
+                            <div class="doctor-data-grid">
+                                <div class="doctor-data-item">
+                                    <strong>Cédula Profesional:</strong>${doctorCedula}
                                 </div>
-                            </td>
-                            <td class="header-right">
-                                <div class="receta-badge">Receta Médica Oficial</div>
-                                <div class="folio-text">${folioReceta}</div>
-                                <div class="fecha-text">${formattedFecha}</div>
-                            </td>
-                        </tr>
-                    </table>
-
-                    <div class="patient-box">
-                        <div>
-                            <div style="font-size:9px; font-weight:800; color:#64748b; text-transform:uppercase;">Nombre del Paciente</div>
-                            <h2 class="patient-name">${pacienteNombre}</h2>
-                            <span class="patient-meta">${categoriaPaciente}</span>
-                            ${companionName ? `<div style="font-size:9px; color:#475569; font-weight:bold; margin-top:5px;">Acompañante: ${companionName}</div>` : ''}
+                                ${doctorUniversidad ? `<div class="doctor-data-item"><strong>Institución Emisora:</strong>${doctorUniversidad}</div>` : `<div></div>`}
+                                <div class="doctor-data-item">
+                                    <strong>Domicilio Consultorio:</strong>${doctorDomicilio}
+                                </div>
+                                ${doctorTelefono ? `<div class="doctor-data-item"><strong>Teléfono:</strong>${doctorTelefono}</div>` : `<div></div>`}
+                            </div>
                         </div>
-                        <div class="diag-box">
-                            <div class="diag-label">Diagnóstico / Sintomatología</div>
-                            <div class="diag-text">${diagTexto.replace(/\n/g, '<br/>')}</div>
+
+                        <div class="header-folio-col">
+                            <div class="receta-badge-h">Receta Médica Oficial</div>
+                            <div class="folio-h">${folioReceta}</div>
+                            <div class="fecha-h">${formattedFecha}</div>
                         </div>
                     </div>
 
-                    <div class="section-header">
-                        <span>💊 Prescripción Médica de Fármacos</span>
-                    </div>
+                    <div class="accent-bar"></div>
 
-                    <table class="med-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 65px; text-align: center;">Cant.</th>
-                                <th>Medicamento, Sustancia Activa y Forma</th>
-                                <th>Dosis, Vía de Administración y Duración</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${medsRows}
-                        </tbody>
-                    </table>
-
-                    <div class="recommendations-box">
-                        <div class="recommendations-title">📋 Indicaciones Médicas de Salud y Cuidados</div>
-                        <ul style="margin: 0; padding-left: 15px; line-height: 1.5; font-weight: 600;">
-                            <li>Completar el tratamiento durante los días y horarios indicados puntualmente por el médico tratante.</li>
-                            <li>Evitar la automedicación e ingerir abundante agua pura durante la jornada laboral o en domicilio.</li>
-                            <li>En caso de presentar reacciones adversas, acudir al servicio de urgencias de la unidad de inmediato.</li>
-                        </ul>
-                    </div>
-
-                    <div class="footer-grid">
-                        <div class="signature-box">
-                            ${doctorProfile?.firma ? `<img src="${doctorProfile.firma}" style="max-height: 55px; margin-bottom: 2px;" />` : '<div style="height:55px;"></div>'}
-                            <div class="signature-line"></div>
-                            <div class="doctor-name">${(doctorProfile?.nombre_completo || 'MÉDICO AUTORIZADO').toUpperCase()}</div>
-                            <div class="doctor-cedula">Cédula: ${doctorProfile?.cedula_profesional || 'CP S/N'}</div>
-                            <div class="doctor-cedula" style="font-size: 8.5px; font-weight: 700; color: #64748b; margin-top: 1px;">FIRMA DEL MÉDICO PRESCRIPTOR</div>
+                    <div class="body">
+                        <!-- PACIENTE -->
+                        <div class="patient-section">
+                            <div>
+                                <div class="patient-label">Nombre del Paciente</div>
+                                <div class="patient-name-h">${pacienteNombre}</div>
+                                <span class="patient-tag">${categoriaPaciente}</span>
+                                ${companionName ? `<div class="companion-text">Acompañante: ${companionName}</div>` : ''}
+                            </div>
+                            <div class="diag-col">
+                                <div class="diag-label-h">Diagnóstico / Motivo de Consulta</div>
+                                <div class="diag-text-h">${diagTexto.replace(/\n/g, '<br/>')}</div>
+                            </div>
                         </div>
-                        <div class="seal-box">
-                            <strong style="color: #0f172a; font-size: 10px; margin-bottom: 4px; text-transform: uppercase;">SELLO DE FARMACIA / SERVICIOS MÉDICOS</strong>
-                            <span style="font-weight: 600; font-size: 9px;">Documento clínico oficial para la dispensación en farmacia y justificación de tratamiento.</span>
-                            <span style="margin-top:5px; font-weight:800; color: #f59e0b; background: #0f172a; padding: 2px 8px; border-radius: 4px; font-size: 8px;">VALIDEZ VIGENTE DURANTE EL TRATAMIENTO</span>
+
+                        <!-- PRESCRIPCIÓN -->
+                        <div class="section-title">
+                            <div class="section-title-icon">💊</div>
+                            <div class="section-title-text">Prescripción Médica</div>
+                            <div class="section-title-line"></div>
+                        </div>
+
+                        <table class="med-table">
+                            <thead>
+                                <tr>
+                                    <th style="text-align:center;">Cant.</th>
+                                    <th>Medicamento / Sustancia Activa / Forma Farmacéutica</th>
+                                    <th>Dosis, Vía de Administración y Duración</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${medsRows}
+                            </tbody>
+                        </table>
+
+                        <!-- INDICACIONES -->
+                        <div class="indicaciones-box">
+                            <div class="indicaciones-title">⚠ Indicaciones Médicas de Seguridad y Cuidados</div>
+                            <ul class="indicaciones-list">
+                                <li>Completar el tratamiento en los días y horarios indicados puntualmente por el médico tratante.</li>
+                                <li>Evitar la automedicación. Ingerir abundante agua durante la jornada laboral o en domicilio.</li>
+                                <li>En caso de presentar reacciones adversas, acudir al servicio de urgencias de la unidad médica de inmediato.</li>
+                                <li>En área minera: conservar el medicamento en lugar fresco, seco y alejado de sustancias químicas del proceso.</li>
+                            </ul>
                         </div>
                     </div>
+
+                    <!-- FOOTER FIRMA Y SELLO -->
+                    <div class="footer-strip">
+                        <div class="firma-col">
+                            <div class="firma-img-wrap">
+                                ${doctorFirma ? `<img src="${doctorFirma}" alt="Firma del médico" />` : '<div style="height:55px;"></div>'}
+                            </div>
+                            <div class="firma-line"></div>
+                            <div class="firma-name">${doctorNombre}</div>
+                            <div class="firma-sub">Cédula: ${doctorCedula} · Firma del Médico Prescriptor</div>
+                        </div>
+
+                        <div class="sello-col">
+                            <div class="sello-circle">
+                                <div class="sello-text">SELLO<br/>FARMACIA<br/>/ MÉDICO</div>
+                            </div>
+                        </div>
+
+                        <div class="legal-col">
+                            <div class="legal-badge">Validez Vigente Durante el Tratamiento</div>
+                            <div class="legal-text">
+                                Documento clínico oficial para dispensación<br/>
+                                en farmacia y justificación de tratamiento.<br/>
+                                Folio: <strong>${folioReceta}</strong> · Fecha: <strong>${fechaCorta}</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bottom-bar"></div>
                 </div>
+
                 <script>
                     window.onload = () => {
                         setTimeout(() => {
                             window.print();
                             window.close();
-                        }, 500);
+                        }, 600);
                     };
                 </script>
             </body>
@@ -653,7 +1038,7 @@ export default function ConsultasPage() {
                                 <div className="text-center py-8 border-2 border-dashed border-zinc-200 rounded-xl bg-white/50">
                                     <Pill className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
                                     <p className="text-xs font-bold text-zinc-500">No ha prescripto medicamentos en esta consulta</p>
-                                    <p className="text-[11px] text-zinc-400 mt-1">Presione "+ Agregar Medicamento" para iniciar la receta</p>
+                                    <p className="text-[11px] text-zinc-400 mt-1">Presione &quot;+ Agregar Medicamento&quot; para iniciar la receta</p>
                                 </div>
                             ) : (
                                 <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
@@ -785,7 +1170,7 @@ export default function ConsultasPage() {
                                         </td>
                                     </tr>
                                 ))
-                            )}
+            )}
                         </tbody>
                     </table>
                 </div>
