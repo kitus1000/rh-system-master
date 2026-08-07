@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { useAuth } from '@/components/AuthProvider'
-import { Camera, Car, CheckCircle, Droplet, FileSignature, FileText, Fuel, Upload, User, Save, Download, Truck, Calendar, History, Clock, MapPin, AlertTriangle, ShieldCheck, ShieldAlert, Ambulance, Cross, Sparkles, Wrench, Radio, Stethoscope } from 'lucide-react'
+import { Bus, Camera, Car, CheckCircle, Droplet, FileSignature, FileText, Fuel, Upload, User, Save, Download, Truck, Calendar, History, Clock, MapPin, AlertTriangle, ShieldCheck, ShieldAlert, Ambulance, Cross, Sparkles, Wrench, Radio, Stethoscope } from 'lucide-react'
 import SignatureCanvas from 'react-signature-canvas'
 import { jsPDF } from 'jspdf'
 
@@ -150,8 +150,9 @@ export default function ChoferesClient() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    // Auto-ensure choferes exist in empleados table
+    // Auto-ensure choferes exist in empleados table and have correct role
     fetch('/api/seed-choferes-empleados', { method: 'POST' }).catch(() => {})
+    fetch('/api/fix-choferes-roles').catch(() => {})
     fetchChoferesYFlota()
   }, [profile])
 
