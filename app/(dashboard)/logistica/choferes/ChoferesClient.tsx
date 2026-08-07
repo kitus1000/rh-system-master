@@ -33,7 +33,7 @@ interface VehiculoFlota {
 
 export default function ChoferesClient() {
   const { profile } = useAuth()
-  const [activeTab, setActiveTab] = useState<'reporte' | 'programar' | 'historial'>('reporte')
+  const [activeTab, setActiveTab] = useState<'bitacora_ruta' | 'reporte' | 'programar' | 'historial'>('bitacora_ruta')
   
   const [choferes, setChoferes] = useState<Chofer[]>([])
   const [vehiculosFlota, setVehiculosFlota] = useState<VehiculoFlota[]>([])
@@ -43,6 +43,21 @@ export default function ChoferesClient() {
   const [tipoVehiculo, setTipoVehiculo] = useState<'Camioneta' | 'Camión' | 'Ambulancia'>('Camioneta')
   const [motivoViaje, setMotivoViaje] = useState('Viaje Foráneo (Durango / Ciudad)')
   const [tipoAmbulancia, setTipoAmbulancia] = useState<'Avanzada / Soporte Vital' | 'Básica / Traslado'>('Avanzada / Soporte Vital')
+
+  // Bitácora de Ruta (Punto A -> Punto B) State
+  const [puntoA, setPuntoA] = useState('Mina Bacis')
+  const [puntoB, setPuntoB] = useState('Parajes')
+  const [pasajerosA, setPasajerosA] = useState<number>(1)
+  const [pasajerosB, setPasajerosB] = useState<number>(1)
+  const [comentariosRuta, setComentariosRuta] = useState('')
+
+  const [viajeRutaActivo, setViajeRutaActivo] = useState<any | null>(null)
+  const [bitacoraRutasList, setBitacoraRutasList] = useState<any[]>([])
+
+  // Seed Choferes state
+  const [seedingLoading, setSeedingLoading] = useState(false)
+  const [seedingMsg, setSeedingMsg] = useState('')
+  const [showChoferesCredentials, setShowChoferesCredentials] = useState(false)
   
   // Programar Viaje State
   const [nuevoDestino, setNuevoDestino] = useState('')
@@ -207,6 +222,171 @@ export default function ChoferesClient() {
     if (cData) {
         setVehiculosFlota(cData)
     }
+  }
+
+  // Load Bitácora de Ruta from LocalStorage & Supabase when chofer changes
+  useEffect(() => {
+    if (!selectedChofer) return
+
+    try {
+      const storedActive = localStorage.getItem(`active_route_${selectedChofer}`)
+      if (storedActive) {
+        const parsed = JSON.parse(storedActive)
+        setViajeRutaActivo(parsed)
+        setPasajerosB(parsed.pasajeros_subieron_a || 1)
+      } else {
+        setViajeRutaActivo(null)
+      }
+    } catch (e) {
+      console.warn('LocalStorage read error:', e)
+    }
+
+    try {
+      const storedHistory = localStorage.getItem(`history_routes_${selectedChofer}`)
+      if (storedHistory) {
+        setBitacoraRutasList(JSON.parse(storedHistory))
+      }
+    } catch (e) {
+      console.warn('LocalStorage read error:', e)
+    }
+
+    fetchSupabaseBitacora()
+  }, [selectedChofer])
+
+  const fetchSupabaseBitacora = async () => {
+    if (!selectedChofer) return
+    try {
+      const { data } = await supabase
+        .from('chofer_bitacora_rutas')
+        .select('*')
+        .eq('id_chofer', selectedChofer)
+        .order('creado_el', { ascending: false })
+
+      if (data && data.length > 0) {
+        const active = data.find(r => r.estatus === 'EN_CURSO')
+        if (active) {
+          setViajeRutaActivo(active)
+          setPasajerosB(active.pasajeros_subieron_a || 1)
+        }
+        setBitacoraRutasList(data)
+      }
+    } catch (e) {
+      console.warn('Supabase bitacora fetch note:', e)
+    }
+  }
+
+  const handleSeedAccountsBtn = async () => {
+    setSeedingLoading(true)
+    setSeedingMsg('')
+    try {
+      const res = await fetch('/api/seed-choferes', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error al crear choferes')
+      setSeedingMsg('¡Las 6 cuentas de choferes han sido verificadas y activadas con éxito!')
+      fetchChoferesYFlota()
+    } catch (err: any) {
+      setSeedingMsg('Nota: ' + (err.message || 'Error de conexión'))
+    } finally {
+      setSeedingLoading(false)
+    }
+  }
+
+  const handleIniciarRuta = async () => {
+    if (!selectedChofer) return alert('Seleccione un chofer para iniciar')
+    if (!puntoA.trim() || !puntoB.trim()) return alert('Defina el Punto A (Origen) y Punto B (Destino)')
+    if (pasajerosA < 0) return alert('Ingrese la cantidad de pasajeros que abordaron en Punto A')
+
+    const choferObj = choferes.find(c => c.id_empleado === selectedChofer)
+    const choferNombre = choferObj ? `${choferObj.nombre} ${choferObj.apellido_paterno || ''}`.trim() : 'Chofer'
+
+    const now = new Date()
+    const horaActual = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
+    const fechaActual = now.toISOString().split('T')[0]
+
+    const newTrip = {
+      id_bitacora: 'RUT-' + Date.now(),
+      id_chofer: selectedChofer,
+      chofer_nombre: choferNombre,
+      punto_a: puntoA.toUpperCase().trim(),
+      punto_b: puntoB.toUpperCase().trim(),
+      hora_salida_a: horaActual,
+      pasajeros_subieron_a: pasajerosA,
+      pasajeros_bajaron_b: pasajerosA,
+      estatus: 'EN_CURSO',
+      fecha: fechaActual,
+      comentarios: comentariosRuta,
+      creado_el: now.toISOString()
+    }
+
+    setViajeRutaActivo(newTrip)
+    setPasajerosB(pasajerosA)
+
+    localStorage.setItem(`active_route_${selectedChofer}`, JSON.stringify(newTrip))
+
+    try {
+      await supabase.from('chofer_bitacora_rutas').insert([{
+        id_chofer: selectedChofer,
+        chofer_nombre: choferNombre,
+        punto_a: puntoA.toUpperCase().trim(),
+        punto_b: puntoB.toUpperCase().trim(),
+        hora_salida_a: horaActual,
+        pasajeros_subieron_a: pasajerosA,
+        estatus: 'EN_CURSO',
+        fecha: fechaActual,
+        comentarios: comentariosRuta
+      }])
+    } catch (e) {
+      console.warn('Supabase active trip insert note:', e)
+    }
+  }
+
+  const handleFinalizarRuta = async () => {
+    if (!viajeRutaActivo) return
+
+    const now = new Date()
+    const horaActual = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
+
+    const completedTrip = {
+      ...viajeRutaActivo,
+      hora_llegada_b: horaActual,
+      pasajeros_bajaron_b: pasajerosB,
+      estatus: 'CONCLUIDO'
+    }
+
+    setViajeRutaActivo(null)
+    localStorage.removeItem(`active_route_${selectedChofer}`)
+
+    const updatedHistory = [completedTrip, ...bitacoraRutasList]
+    setBitacoraRutasList(updatedHistory)
+    localStorage.setItem(`history_routes_${selectedChofer}`, JSON.stringify(updatedHistory))
+
+    try {
+      if (viajeRutaActivo.id_bitacora && !viajeRutaActivo.id_bitacora.startsWith('RUT-')) {
+        await supabase.from('chofer_bitacora_rutas').update({
+          hora_llegada_b: horaActual,
+          pasajeros_bajaron_b: pasajerosB,
+          estatus: 'CONCLUIDO'
+        }).eq('id_bitacora', viajeRutaActivo.id_bitacora)
+      } else {
+        await supabase.from('chofer_bitacora_rutas').insert([{
+          id_chofer: selectedChofer,
+          chofer_nombre: viajeRutaActivo.chofer_nombre,
+          punto_a: viajeRutaActivo.punto_a,
+          punto_b: viajeRutaActivo.punto_b,
+          hora_salida_a: viajeRutaActivo.hora_salida_a,
+          hora_llegada_b: horaActual,
+          pasajeros_subieron_a: viajeRutaActivo.pasajeros_subieron_a,
+          pasajeros_bajaron_b: pasajerosB,
+          estatus: 'CONCLUIDO',
+          fecha: viajeRutaActivo.fecha,
+          comentarios: viajeRutaActivo.comentarios
+        }])
+      }
+    } catch (e) {
+      console.warn('Supabase trip completion note:', e)
+    }
+
+    alert(`🏁 ¡Ruta Concluida con Éxito en ${completedTrip.punto_b}!\n\n👥 Pasajeros que abordaron en A: ${completedTrip.pasajeros_subieron_a}\n👥 Pasajeros que descendieron en B: ${pasajerosB}`)
   }
 
   // Handle Fleet Vehicle Selection with Automatic Category Switch
@@ -460,15 +640,64 @@ export default function ChoferesClient() {
             <div className="absolute top-0 right-0 p-8 opacity-10">
                 <Truck className="w-36 h-36" />
             </div>
-            <div className="flex items-center gap-3">
-                <div className="bg-emerald-500 p-2.5 rounded-2xl text-black">
-                    <Truck className="w-7 h-7" />
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative z-10">
+                <div className="flex items-center gap-3">
+                    <div className="bg-emerald-500 p-2.5 rounded-2xl text-black">
+                        <Bus className="w-7 h-7" />
+                    </div>
+                    <div>
+                        <h1 className="text-2xl font-black tracking-tight">Portal Oficial de Choferes y Rutas</h1>
+                        <p className="text-zinc-400 text-xs mt-0.5">Captura rápida de pasajeros y tiempo en ruta (Punto A ➔ Punto B)</p>
+                    </div>
                 </div>
-                <div>
-                    <h1 className="text-2xl font-black tracking-tight">Portal Oficial de Choferes y Operadores Mineros</h1>
-                    <p className="text-zinc-400 text-xs mt-0.5">Control de salidas a Durango, Bacis, ambulancias de mina y rutas de personal</p>
-                </div>
+
+                <button
+                    onClick={() => setShowChoferesCredentials(!showChoferesCredentials)}
+                    className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-xs font-black rounded-xl border border-zinc-700 flex items-center gap-1.5 transition-all shrink-0"
+                >
+                    <User className="w-4 h-4 text-amber-400" />
+                    <span>{showChoferesCredentials ? 'Ocultar Accesos' : '🔑 Ver Cuentas Choferes'}</span>
+                </button>
             </div>
+
+            {/* CHOFERES ACCOUNTS DRAWER */}
+            {showChoferesCredentials && (
+                <div className="mt-4 pt-4 border-t border-zinc-800 space-y-3 animate-in fade-in">
+                    <div className="flex justify-between items-center">
+                        <div className="text-xs font-black text-amber-400 uppercase tracking-wider">Cuentas y Contraseñas Registradas de Choferes</div>
+                        <button
+                            onClick={handleSeedAccountsBtn}
+                            disabled={seedingLoading}
+                            className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg shadow-sm transition-all"
+                        >
+                            {seedingLoading ? 'Verificando...' : '⚡ Sincronizar / Crear Cuentas'}
+                        </button>
+                    </div>
+
+                    {seedingMsg && (
+                        <div className="p-2.5 bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-xs rounded-xl font-mono">
+                            {seedingMsg}
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
+                        {[
+                            { nombre: 'Adalberto Pinales', email: 'adalberto.pinales@bacis.com', pass: 'Bacis2026!' },
+                            { nombre: 'Ramon Yañez', email: 'ramon.yanez@bacis.com', pass: 'Bacis2026!' },
+                            { nombre: 'Oscar Vazquez', email: 'oscar.vazquez@bacis.com', pass: 'Bacis2026!' },
+                            { nombre: 'Enrique Linares', email: 'enrique.linares@bacis.com', pass: 'Bacis2026!' },
+                            { nombre: 'Samuel Madriles', email: 'samuel.madriles@bacis.com', pass: 'Bacis2026!' },
+                            { nombre: 'Jesus Saucedo', email: 'jesus.saucedo@bacis.com', pass: 'Bacis2026!' },
+                        ].map((c, i) => (
+                            <div key={i} className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800 space-y-0.5">
+                                <div className="font-sans font-bold text-white text-xs">{c.nombre}</div>
+                                <div className="text-[10px] text-zinc-400">Usuario: <span className="text-amber-300">{c.email}</span></div>
+                                <div className="text-[10px] text-zinc-400">Contraseña: <span className="text-emerald-400 font-bold">{c.pass}</span></div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
 
         {/* 1. Selector de Operador / Chofer */}
@@ -493,16 +722,279 @@ export default function ChoferesClient() {
 
         {/* Pestañas de Navegación */}
         {selectedChofer && (
-            <div className="flex gap-2 p-1.5 bg-zinc-200/80 rounded-2xl">
-                <button onClick={() => setActiveTab('reporte')} className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all ${activeTab === 'reporte' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-600 hover:text-black'}`}>
-                    <FileSignature className="w-4 h-4 text-emerald-600" /> Inspección y Salida
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1.5 bg-zinc-200/80 rounded-2xl">
+                <button onClick={() => setActiveTab('bitacora_ruta')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'bitacora_ruta' ? 'bg-emerald-600 text-white shadow-md' : 'text-zinc-700 hover:text-black'}`}>
+                    <Bus className="w-4 h-4" /> Bitácora Ruta A➔B
                 </button>
-                <button onClick={() => setActiveTab('programar')} className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all ${activeTab === 'programar' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-600 hover:text-black'}`}>
-                    <Calendar className="w-4 h-4 text-indigo-600" /> Programar Viaje
+                <button onClick={() => setActiveTab('reporte')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'reporte' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
+                    <FileSignature className="w-4 h-4 text-emerald-600" /> Inspección
                 </button>
-                <button onClick={() => setActiveTab('historial')} className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all ${activeTab === 'historial' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-600 hover:text-black'}`}>
-                    <History className="w-4 h-4 text-amber-600" /> Historial
+                <button onClick={() => setActiveTab('programar')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'programar' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
+                    <Calendar className="w-4 h-4 text-indigo-600" /> Programar
                 </button>
+                <button onClick={() => setActiveTab('historial')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'historial' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
+                    <History className="w-4 h-4 text-amber-600" /> Historial Inspección
+                </button>
+            </div>
+        )}
+
+        {/* TAB 0: BITÁCORA DE RUTA EN TIEMPO REAL (PUNTO A -> PUNTO B) - MOBILE FIRST */}
+        {selectedChofer && activeTab === 'bitacora_ruta' && (
+            <div className="space-y-6 animate-in fade-in">
+                {/* SI HAY UN VIAJE EN CURSO */}
+                {viajeRutaActivo ? (
+                    <div className="bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700 text-white p-6 rounded-3xl shadow-xl space-y-5 border border-amber-400">
+                        <div className="flex justify-between items-center border-b border-amber-400/50 pb-3">
+                            <span className="text-xs font-black uppercase tracking-widest bg-black/30 px-3 py-1 rounded-full flex items-center gap-1.5 animate-pulse">
+                                🟡 VIAJE EN CURSO (PUNTO A ➔ PUNTO B)
+                            </span>
+                            <span className="text-xs font-mono font-bold bg-white/20 px-2.5 py-0.5 rounded-lg">
+                                🕒 Salida: {viajeRutaActivo.hora_salida_a}
+                            </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 text-center bg-black/20 p-4 rounded-2xl backdrop-blur-xs">
+                            <div>
+                                <div className="text-[10px] uppercase tracking-wider text-amber-200 font-extrabold">PUNTO A (ORIGEN)</div>
+                                <div className="text-lg font-black mt-0.5 truncate">{viajeRutaActivo.punto_a}</div>
+                                <div className="text-xs font-bold text-amber-200 mt-1">👥 {viajeRutaActivo.pasajeros_subieron_a} Subieron en A</div>
+                            </div>
+
+                            <div className="border-l border-amber-400/40 pl-2">
+                                <div className="text-[10px] uppercase tracking-wider text-amber-200 font-extrabold">PUNTO B (DESTINO)</div>
+                                <div className="text-lg font-black mt-0.5 truncate">{viajeRutaActivo.punto_b}</div>
+                                <div className="text-xs font-bold text-emerald-200 mt-1">🏁 Rumbo a Punto B</div>
+                            </div>
+                        </div>
+
+                        {/* REGISTRO DE PASAJEROS QUE BAJAN EN PUNTO B */}
+                        <div className="bg-white text-zinc-900 p-5 rounded-2xl shadow-lg space-y-3">
+                            <label className="block text-xs font-black uppercase tracking-wider text-zinc-800 text-center">
+                                🏁 Personas que descenderán al llegar al Punto B:
+                            </label>
+                            
+                            <div className="flex items-center justify-center gap-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setPasajerosB(Math.max(0, pasajerosB - 1))}
+                                    className="w-14 h-14 bg-zinc-200 hover:bg-zinc-300 text-zinc-900 rounded-2xl text-2xl font-black flex items-center justify-center shadow-xs active:scale-95 transition-transform"
+                                >
+                                    -
+                                </button>
+                                
+                                <div className="w-24 text-center">
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        value={pasajerosB}
+                                        onChange={e => setPasajerosB(Math.max(0, parseInt(e.target.value) || 0))}
+                                        className="w-full text-center text-3xl font-black border-2 border-emerald-500 rounded-2xl py-2 bg-emerald-50 text-emerald-950 focus:outline-none"
+                                    />
+                                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Pasajeros</span>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setPasajerosB(pasajerosB + 1)}
+                                    className="w-14 h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-2xl font-black flex items-center justify-center shadow-md active:scale-95 transition-transform"
+                                >
+                                    +
+                                </button>
+                            </div>
+
+                            {/* Preset Buttons for Quick Touch */}
+                            <div className="flex justify-center gap-2 pt-1">
+                                {[1, 5, 10, 15, 20, 25].map(num => (
+                                    <button
+                                        key={num}
+                                        type="button"
+                                        onClick={() => setPasajerosB(num)}
+                                        className="px-2.5 py-1 bg-zinc-100 hover:bg-emerald-100 text-zinc-800 hover:text-emerald-900 text-xs font-bold rounded-lg border border-zinc-300"
+                                    >
+                                        {num}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={handleFinalizarRuta}
+                            className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-base rounded-2xl shadow-2xl flex items-center justify-center gap-2 transform active:scale-95 transition-all uppercase tracking-wide"
+                        >
+                            <CheckCircle className="w-6 h-6" />
+                            <span>🏁 Finalizar Viaje en Punto B ({viajeRutaActivo.punto_b})</span>
+                        </button>
+                    </div>
+                ) : (
+                    /* FORMULARIO DE INICIO DE RUTA PUNTO A -> PUNTO B */
+                    <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-5">
+                        <div className="border-b border-zinc-100 pb-3">
+                            <span className="text-[10px] font-black uppercase text-emerald-600 tracking-wider flex items-center gap-1">
+                                <Bus className="w-4 h-4" /> REGISTRO DE RUTA DE PERSONAL (MÓVIL)
+                            </span>
+                            <h2 className="text-lg font-black text-zinc-900 uppercase">
+                                Iniciar Nueva Ruta (Punto A ➔ Punto B)
+                            </h2>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Punto A (Origen de Salida)</label>
+                                <select
+                                    value={puntoA}
+                                    onChange={e => setPuntoA(e.target.value)}
+                                    className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50 mb-1"
+                                >
+                                    <option value="Mina Bacis">📍 Mina Bacis</option>
+                                    <option value="San Miguel">📍 San Miguel</option>
+                                    <option value="Parajes">📍 Campamento Parajes</option>
+                                    <option value="Zona Norte">📍 Campamento Zona Norte</option>
+                                    <option value="Planta">📍 Planta de Beneficio</option>
+                                    <option value="Durango">📍 Durango / Ciudad</option>
+                                    <option value="Otro">📍 Otro Punto (Especificar a continuación)</option>
+                                </select>
+                                <input
+                                    type="text"
+                                    value={puntoA}
+                                    onChange={e => setPuntoA(e.target.value)}
+                                    placeholder="Escribe Origen exacto..."
+                                    className="w-full p-2.5 border border-zinc-200 rounded-xl text-xs font-bold"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Punto B (Destino de Llegada)</label>
+                                <select
+                                    value={puntoB}
+                                    onChange={e => setPuntoB(e.target.value)}
+                                    className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50 mb-1"
+                                >
+                                    <option value="Parajes">📍 Campamento Parajes</option>
+                                    <option value="San Miguel">📍 San Miguel</option>
+                                    <option value="Mina Bacis">📍 Mina Bacis</option>
+                                    <option value="Zona Norte">📍 Campamento Zona Norte</option>
+                                    <option value="Planta">📍 Planta de Beneficio</option>
+                                    <option value="Durango">📍 Durango / Ciudad</option>
+                                    <option value="Otro">📍 Otro Punto (Especificar a continuación)</option>
+                                </select>
+                                <input
+                                    type="text"
+                                    value={puntoB}
+                                    onChange={e => setPuntoB(e.target.value)}
+                                    placeholder="Escribe Destino exacto..."
+                                    className="w-full p-2.5 border border-zinc-200 rounded-xl text-xs font-bold"
+                                />
+                            </div>
+                        </div>
+
+                        {/* CONTADOR DE PERSONAS QUE ABORDAN EN PUNTO A */}
+                        <div className="bg-zinc-50 border border-zinc-200 p-5 rounded-2xl space-y-3">
+                            <label className="block text-xs font-black uppercase tracking-wider text-zinc-800 text-center">
+                                👥 Cantidad de Personas que abordaron en Punto A ({puntoA}):
+                            </label>
+
+                            <div className="flex items-center justify-center gap-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setPasajerosA(Math.max(0, pasajerosA - 1))}
+                                    className="w-14 h-14 bg-zinc-200 hover:bg-zinc-300 text-zinc-900 rounded-2xl text-2xl font-black flex items-center justify-center shadow-xs active:scale-95 transition-transform"
+                                >
+                                    -
+                                </button>
+                                
+                                <div className="w-24 text-center">
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        value={pasajerosA}
+                                        onChange={e => setPasajerosA(Math.max(0, parseInt(e.target.value) || 0))}
+                                        className="w-full text-center text-3xl font-black border-2 border-indigo-500 rounded-2xl py-2 bg-white text-indigo-950 focus:outline-none"
+                                    />
+                                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Subieron</span>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setPasajerosA(pasajerosA + 1)}
+                                    className="w-14 h-14 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-2xl font-black flex items-center justify-center shadow-md active:scale-95 transition-transform"
+                                >
+                                    +
+                                </button>
+                            </div>
+
+                            {/* Preset Buttons for Quick Touch */}
+                            <div className="flex justify-center gap-2 pt-1">
+                                {[1, 5, 10, 15, 20, 25].map(num => (
+                                    <button
+                                        key={num}
+                                        type="button"
+                                        onClick={() => setPasajerosA(num)}
+                                        className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-zinc-800 hover:text-indigo-900 text-xs font-bold rounded-lg border border-zinc-300"
+                                    >
+                                        {num}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Observaciones / Comentarios Específicos (Opcional)</label>
+                            <input
+                                type="text"
+                                value={comentariosRuta}
+                                onChange={e => setComentariosRuta(e.target.value)}
+                                placeholder="Ej. Ruta regular de cambio de turno..."
+                                className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50"
+                            />
+                        </div>
+
+                        <button
+                            onClick={handleIniciarRuta}
+                            className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-base rounded-2xl shadow-xl flex items-center justify-center gap-2 transform active:scale-95 transition-all uppercase tracking-wide"
+                        >
+                            <Bus className="w-6 h-6" />
+                            <span>🟢 Iniciar Ruta (Salida desde Punto A)</span>
+                        </button>
+                    </div>
+                )}
+
+                {/* TABLA DE HISTORIAL DE RUTAS DEL CHOFER */}
+                <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-4">
+                    <h3 className="text-sm font-black text-zinc-900 uppercase flex items-center gap-2 border-b pb-3 border-zinc-100">
+                        <History className="w-4 h-4 text-emerald-600" />
+                        Historial de Rutas Concluidas A➔B ({bitacoraRutasList.length})
+                    </h3>
+
+                    {bitacoraRutasList.length === 0 ? (
+                        <div className="text-center p-8 text-zinc-400 font-bold text-xs">
+                            No hay rutas concluidas aún para este chofer.
+                        </div>
+                    ) : (
+                        <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                            {bitacoraRutasList.map((r, idx) => (
+                                <div key={idx} className="border border-zinc-200 rounded-2xl p-4 bg-zinc-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs">
+                                    <div className="space-y-1">
+                                        <div className="font-black text-zinc-900 text-sm flex items-center gap-2">
+                                            <span>📍 {r.punto_a} ➔ {r.punto_b}</span>
+                                            <span className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-bold uppercase ${r.estatus === 'CONCLUIDO' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                                                {r.estatus || 'CONCLUIDO'}
+                                            </span>
+                                        </div>
+                                        <div className="text-[11px] text-zinc-500 font-mono">
+                                            ⏱️ Salida A: {r.hora_salida_a || '-'} | Llegada B: {r.hora_llegada_b || '-'}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-3 bg-white px-3 py-2 rounded-xl border border-zinc-200 font-mono font-bold text-xs">
+                                        <div className="text-indigo-700">Subieron A: <strong>{r.pasajeros_subieron_a || 0}</strong></div>
+                                        <div className="text-zinc-300">|</div>
+                                        <div className="text-emerald-700">Bajaron B: <strong>{r.pasajeros_bajaron_b || 0}</strong></div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
         )}
 
