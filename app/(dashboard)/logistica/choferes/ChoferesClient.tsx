@@ -150,15 +150,20 @@ export default function ChoferesClient() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
+    // Auto-ensure choferes exist in empleados table
+    fetch('/api/seed-choferes-empleados', { method: 'POST' }).catch(() => {})
     fetchChoferesYFlota()
   }, [profile])
 
   const fetchChoferesYFlota = async () => {
-    // 1. Fetch system users registered in /usuarios (perfiles table)
-    const { data: pData } = await supabase
-        .from('perfiles')
-        .select('id, nombre_completo, rol')
-        .order('nombre_completo')
+    // 1. Fetch system users registered in perfiles AND empleados tables
+    const [pRes, eRes] = await Promise.all([
+      supabase.from('perfiles').select('id, nombre_completo, rol').order('nombre_completo'),
+      supabase.from('empleados').select('id_empleado, nombre, apellido_paterno, puesto, departamento').order('apellido_paterno')
+    ])
+
+    const pData = pRes.data || []
+    const eData = eRes.data || []
 
     let combinedChoferes: Chofer[] = []
 
@@ -171,27 +176,45 @@ export default function ChoferesClient() {
       'Jesus Saucedo'
     ]
 
-    if (pData && pData.length > 0) {
-        const choferesOnly = pData.filter(p => {
-            const r = (p.rol || '').toLowerCase()
-            const n = (p.nombre_completo || '').toLowerCase()
-            return r.includes('chofer') || r.includes('operador') || r.includes('conductor') || n.includes('chofer') ||
-                   DRIVERS_ROSTER.some(d => n.includes(d.toLowerCase()))
-        })
+    // Process empleados table first
+    eData.forEach(e => {
+      const full = `${e.nombre || ''} ${e.apellido_paterno || ''}`.trim()
+      const p = (e.puesto || '').toLowerCase()
+      const d = (e.departamento || '').toLowerCase()
+      const isDrv = p.includes('chofer') || d.includes('movilidad') || DRIVERS_ROSTER.some(r => full.toLowerCase().includes(r.toLowerCase()))
+      if (isDrv && full) {
+        if (!combinedChoferes.some(c => c.nombre.toLowerCase() === full.toLowerCase())) {
+          combinedChoferes.push({
+            id_empleado: e.id_empleado,
+            nombre: full,
+            apellido_paterno: '',
+            departamento: e.departamento || 'Movilidad',
+            puesto: 'Chofer'
+          })
+        }
+      }
+    })
 
-        choferesOnly.forEach(p => {
-            const cleanName = p.nombre_completo.replace(/\s*\(Chofer\)/gi, '').trim()
-            combinedChoferes.push({
-                id_empleado: p.id,
-                nombre: cleanName,
-                apellido_paterno: '',
-                departamento: 'Chofer Registrado',
-                puesto: 'Chofer'
-            })
-        })
-    }
+    // Process perfiles table
+    pData.forEach(p => {
+      const cleanName = (p.nombre_completo || '').replace(/\s*\(Chofer\)/gi, '').trim()
+      const r = (p.rol || '').toLowerCase()
+      const n = cleanName.toLowerCase()
+      const isDrv = r.includes('chofer') || n.includes('chofer') || DRIVERS_ROSTER.some(d => n.includes(d.toLowerCase()))
+      if (isDrv && cleanName) {
+        if (!combinedChoferes.some(c => c.nombre.toLowerCase() === cleanName.toLowerCase())) {
+          combinedChoferes.push({
+            id_empleado: p.id,
+            nombre: cleanName,
+            apellido_paterno: '',
+            departamento: 'Chofer Registrado',
+            puesto: 'Chofer'
+          })
+        }
+      }
+    })
 
-    // Ensure all 6 drivers exist in the selectable dropdown list
+    // Fallback: Ensure all 6 roster drivers exist in array
     DRIVERS_ROSTER.forEach(dName => {
       const exists = combinedChoferes.some(c => c.nombre.toLowerCase().includes(dName.toLowerCase()))
       if (!exists) {
@@ -205,7 +228,7 @@ export default function ChoferesClient() {
       }
     })
 
-    // Always include logged-in user
+    // Always include logged-in user if missing
     if (profile?.id && !combinedChoferes.some(c => c.id_empleado === profile.id)) {
         const cleanProfileName = (profile.nombre_completo || '').replace(/\s*\(Chofer\)/gi, '').trim()
         combinedChoferes.unshift({
@@ -215,6 +238,14 @@ export default function ChoferesClient() {
             departamento: 'Chofer Registrado',
             puesto: profile.rol || 'Chofer'
         })
+    }
+
+    setChoferes(combinedChoferes)
+
+    // Auto-select Adalberto Pinales or first chofer if nothing selected
+    if (!selectedChofer && combinedChoferes.length > 0) {
+      const adalberto = combinedChoferes.find(c => c.nombre.toLowerCase().includes('pinales'))
+      setSelectedChofer(adalberto ? adalberto.id_empleado : combinedChoferes[0].id_empleado)
     }
 
     setChoferes(combinedChoferes)
