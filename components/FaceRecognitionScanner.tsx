@@ -81,7 +81,8 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
         const faceapi = await loadFaceApi()
 
         // 2. Cargar modelos desde CDN de jsdelivr
-        const MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights'
+        // 2. Cargar modelos — pesos disponibles en GitHub raw
+        const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'
         setMensaje('Cargando modelos de IA facial (primera vez puede tardar ~30 seg)...')
         
         await Promise.all([
