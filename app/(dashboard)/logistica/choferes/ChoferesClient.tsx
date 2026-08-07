@@ -6,6 +6,9 @@ import { useAuth } from '@/components/AuthProvider'
 import { Bus, Camera, Car, CheckCircle, Droplet, FileSignature, FileText, Fuel, Upload, User, Save, Download, Truck, Calendar, History, Clock, MapPin, AlertTriangle, ShieldCheck, ShieldAlert, Ambulance, Cross, Sparkles, Wrench, Radio, Stethoscope } from 'lucide-react'
 import SignatureCanvas from 'react-signature-canvas'
 import { jsPDF } from 'jspdf'
+import dynamic from 'next/dynamic'
+
+const FaceRecognitionScanner = dynamic(() => import('@/components/FaceRecognitionScanner'), { ssr: false })
 
 interface Chofer {
   id_empleado: string
@@ -1611,58 +1614,27 @@ export default function ChoferesClient() {
         </div>
         )}
 
-        {/* MODAL DE ESCÁNER DE ROSTRO EN VIVO CON CÁMARA */}
+        {/* RECONOCIMIENTO FACIAL REAL — identifica empleados por foto vs BD */}
         {showFaceCameraModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-                <div className="bg-zinc-900 text-white rounded-3xl p-6 max-w-sm w-full space-y-4 border border-zinc-800 relative shadow-2xl">
-                    <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-                        <div className="flex items-center gap-2">
-                            <Camera className="w-5 h-5 text-amber-400" />
-                            <span className="text-xs font-black uppercase tracking-wider text-amber-400">Escáner Facial de Pasajero</span>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={stopFaceCamera}
-                            className="text-zinc-400 hover:text-white text-xs font-black p-1"
-                        >
-                            ✕ Cerrar
-                        </button>
-                    </div>
-
-                    {/* LIVE CAMERA VIEW WITH FACE TARGET OVERLAY */}
-                    <div className="relative rounded-2xl overflow-hidden bg-black aspect-4/3 border-2 border-indigo-500 shadow-inner flex items-center justify-center">
-                        <video ref={videoRef} playsInline autoPlay muted className="w-full h-full object-cover" />
-                        <canvas ref={canvasRef} className="hidden" />
-
-                        {/* FACE OVAL ALIGNMENT OVERLAY */}
-                        <div className="absolute inset-0 border-4 border-dashed border-emerald-400/60 rounded-full scale-75 pointer-events-none flex items-center justify-center">
-                            <span className="text-[10px] font-black uppercase text-emerald-300 bg-black/50 px-2 py-0.5 rounded-full tracking-widest animate-pulse">
-                                📸 ENCUADRE ROSTRO AQUÍ
-                            </span>
-                        </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                        <button
-                            type="button"
-                            onClick={toggleFacingMode}
-                            className="px-3 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-2xl text-xs font-bold border border-zinc-700 flex items-center justify-center gap-1 shrink-0"
-                            title="Cambiar Cámara Frontal / Trasera"
-                        >
-                            🔄 Cámara
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={captureFaceScan}
-                            className="flex-1 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs rounded-2xl shadow-xl flex items-center justify-center gap-2 uppercase tracking-wider transform active:scale-95"
-                        >
-                            <Camera className="w-4 h-4" />
-                            <span>Capturar Rostro (+1 Pasajero)</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <FaceRecognitionScanner
+                onPasajeroIdentificado={(emp) => {
+                    const yaExiste = capturedPasajeros.some(p => p.id === emp.id_empleado)
+                    if (!yaExiste) {
+                        setCapturedPasajeros(prev => [...prev, {
+                            id: emp.id_empleado,
+                            nombre: `${emp.nombre} ${emp.apellido_paterno}`,
+                            puesto: emp.puesto || 'Sin puesto',
+                            foto: emp.foto_url || '',
+                            hora: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
+                            confianza: emp.confianza
+                        }])
+                        setPasajerosSubieronA(prev => prev + 1)
+                    } else {
+                        alert(`⚠️ ${emp.nombre} ${emp.apellido_paterno} ya está registrado en este viaje.`)
+                    }
+                }}
+                onCerrar={() => setShowFaceCameraModal(false)}
+            />
         )}
     </div>
   )
