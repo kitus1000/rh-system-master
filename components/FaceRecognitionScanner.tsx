@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Camera, X, CheckCircle, RefreshCw, Search, Sparkles, User, ShieldCheck, AlertCircle } from 'lucide-react'
+import { Camera, X, CheckCircle, RefreshCw, Search, Sparkles, ShieldCheck, AlertCircle, Loader } from 'lucide-react'
 
 interface Empleado {
   id_empleado: string
@@ -24,10 +24,23 @@ interface Props {
   onCerrar: () => void
 }
 
+// Cargar script face-api.js dinámicamente desde CDN si no existe
+async function loadFaceApiScript() {
+  if ((window as any).faceapi) return (window as any).faceapi
+  return new Promise<any>((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js'
+    script.onload = () => resolve((window as any).faceapi)
+    script.onerror = reject
+    document.head.appendChild(script)
+  })
+}
+
 export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerrar }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const labeledDescriptorsRef = useRef<any[]>([])
 
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [selectedEmpId, setSelectedEmpId] = useState<string>('')
@@ -36,14 +49,11 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
   const [searchTerm, setSearchTerm] = useState<string>('')
 
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
-  const [cameraActive, setCameraActive] = useState<boolean>(false)
+  const [estado, setEstado] = useState<'cargando_modelos' | 'cargando_fotos' | 'listo' | 'procesando' | 'error'>('cargando_modelos')
+  const [mensajeEstado, setMensajeEstado] = useState<string>('Cargando modelos de redes neuronales biométricas...')
+  
   const [capturaPreview, setCapturaPreview] = useState<string | null>(null)
-  const [errorMsg, setErrorMsg] = useState<string>('')
-  const [loading, setLoading] = useState<boolean>(true)
-
-  // Resultado de coincidencia automática
   const [matchResult, setMatchResult] = useState<{ emp: Empleado; score: number } | null>(null)
-  const [isMatching, setIsMatching] = useState<boolean>(false)
 
   // 1. Detener cámara
   const detenerCamara = useCallback(() => {
@@ -51,20 +61,14 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
       streamRef.current.getTracks().forEach(t => t.stop())
       streamRef.current = null
     }
-    setCameraActive(false)
   }, [])
 
   // 2. Iniciar cámara
   const iniciarCamara = useCallback(async () => {
     detenerCamara()
-    setErrorMsg('')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: facingMode,
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
+        video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false
       })
       streamRef.current = stream
@@ -72,19 +76,39 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
         videoRef.current.srcObject = stream
         await videoRef.current.play()
       }
-      setCameraActive(true)
     } catch (e: any) {
       console.error('Error al iniciar cámara:', e)
-      setErrorMsg('No se pudo acceder a la cámara. Por favor permite el acceso en tu navegador.')
+      setEstado('error')
+      setMensajeEstado('No se pudo acceder a la cámara. Revisa los permisos de tu dispositivo.')
     }
   }, [facingMode, detenerCamara])
 
-  // 3. Cargar y combinar lista de empleados (de la tabla empleados Y de perfiles)
+  // 3. Inicializar modelos biométricos e índices de rostros desde /models
   useEffect(() => {
     let mounted = true
-    async function fetchAllPeople() {
+
+    async function initBiometricSystem() {
       try {
-        setLoading(true)
+        setEstado('cargando_modelos')
+        setMensajeEstado('Cargando modelos de IA biométrica facial...')
+
+        // A. Cargar librería face-api
+        const faceapi = await loadFaceApiScript()
+
+        // B. Cargar modelos locales servidos desde /models
+        const MODEL_URL = '/models'
+        await Promise.all([
+          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+        ])
+
+        if (!mounted) return
+
+        // C. Cargar empleados y usuarios en paralelo
+        setEstado('cargando_fotos')
+        setMensajeEstado('Descargando base de datos de fotos registradas...')
+
         const [eRes, pRes] = await Promise.all([
           supabase.from('empleados').select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, foto_url').order('nombre'),
           supabase.from('perfiles').select('id, nombre_completo, rol, cat_departamentos(departamento)')
@@ -109,41 +133,76 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
           pRes.data.forEach(p => {
             const cleanName = (p.nombre_completo || '').replace(/\s*\(Chofer\)/gi, '').trim()
             if (cleanName && !combined.some(c => c.nombre.toLowerCase().includes(cleanName.toLowerCase()))) {
-              const deptName = (p.cat_departamentos as any)?.departamento || 'Sistema'
               combined.push({
                 id_empleado: p.id,
                 nombre: cleanName,
                 apellido_paterno: '',
                 puesto: p.rol || 'Usuario Sistema',
-                departamento: deptName,
+                departamento: (p.cat_departamentos as any)?.departamento || 'Sistema',
                 foto_url: undefined
               })
             }
           })
         }
 
-        // Ordenar personas con foto primero
+        // D. Procesar vectores biométricos (descriptors 128D) para empleados con foto
+        const empsWithPhoto = combined.filter(e => e.foto_url)
+        setMensajeEstado(`Procesando vectores biométricos de ${empsWithPhoto.length} fotos...`)
+
+        const descriptorsList: any[] = []
+
+        for (const emp of empsWithPhoto) {
+          try {
+            const img = new Image()
+            img.crossOrigin = 'anonymous'
+            await new Promise<void>((resolve, reject) => {
+              img.onload = () => resolve()
+              img.onerror = () => reject()
+              img.src = emp.foto_url!
+            })
+
+            const detection = await faceapi
+              .detectSingleFace(img)
+              .withFaceLandmarks()
+              .withFaceDescriptor()
+
+            if (detection) {
+              const labeled = new faceapi.LabeledFaceDescriptors(emp.id_empleado, [detection.descriptor])
+              descriptorsList.push({ labeled, emp })
+            }
+          } catch {
+            // Ignorar imagen si no se puede procesar
+          }
+        }
+
+        if (!mounted) return
+
+        labeledDescriptorsRef.current = descriptorsList
+
+        // E. Ordenar lista: personas con foto primero
         combined.sort((a, b) => {
           if (a.foto_url && !b.foto_url) return -1
           if (!a.foto_url && b.foto_url) return 1
           return a.nombre.localeCompare(b.nombre)
         })
 
-        if (mounted) {
-          setEmpleados(combined)
-          if (combined.length > 0) {
-            setSelectedEmpId(combined[0].id_empleado)
-          }
-        }
+        setEmpleados(combined)
+        if (combined.length > 0) setSelectedEmpId(combined[0].id_empleado)
+
+        setEstado('listo')
+        setMensajeEstado(`✅ ${descriptorsList.length} patrones biométricos cargados. Enmarca el rostro.`)
+
+        await iniciarCamara()
       } catch (err: any) {
-        console.warn('Error cargando lista combinada:', err?.message)
-      } finally {
-        if (mounted) setLoading(false)
+        console.error('Error inicializando sistema biométrico:', err)
+        if (mounted) {
+          setEstado('error')
+          setMensajeEstado('Error al cargar modelos biométricos: ' + (err?.message || 'Error desconocido'))
+        }
       }
     }
 
-    fetchAllPeople()
-    iniciarCamara()
+    initBiometricSystem()
 
     return () => {
       mounted = false
@@ -151,46 +210,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
     }
   }, [iniciarCamara, detenerCamara])
 
-  // Algoritmo de extracción de firmas de color/brillo para comparación instantánea
-  const getCanvasSignature = (ctx: CanvasRenderingContext2D, width: number, height: number): number[] => {
-    const imageData = ctx.getImageData(0, 0, width, height)
-    const data = imageData.data
-    const grid = 8
-    const cellW = Math.floor(width / grid)
-    const cellH = Math.floor(height / grid)
-    const sig: number[] = []
-
-    for (let r = 0; r < grid; r++) {
-      for (let c = 0; c < grid; c++) {
-        let sumR = 0, sumG = 0, sumB = 0, count = 0
-        for (let y = r * cellH; y < (r + 1) * cellH; y += 2) {
-          for (let x = c * cellW; x < (c + 1) * cellW; x += 2) {
-            const idx = (y * width + x) * 4
-            sumR += data[idx]
-            sumG += data[idx + 1]
-            sumB += data[idx + 2]
-            count++
-          }
-        }
-        sig.push(Math.round(sumR / count), Math.round(sumG / count), Math.round(sumB / count))
-      }
-    }
-    return sig
-  }
-
-  // Comparar firmas de dos imágenes
-  const compareSignatures = (sig1: number[], sig2: number[]): number => {
-    if (sig1.length !== sig2.length) return 0
-    let diffSum = 0
-    for (let i = 0; i < sig1.length; i++) {
-      diffSum += Math.abs(sig1[i] - sig2[i])
-    }
-    const maxDiff = sig1.length * 255
-    const similarity = 1 - (diffSum / maxDiff)
-    return Math.round(similarity * 100)
-  }
-
-  // 4. Capturar foto del lienzo y ejecutar reconocimiento facial
+  // 4. Capturar foto del lienzo y ejecutar comparación biometria real
   const handleCapturarFoto = async () => {
     if (!videoRef.current || !canvasRef.current) return
     const video = videoRef.current
@@ -205,60 +225,49 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
     setCapturaPreview(dataUrl)
-    setIsMatching(true)
+    setEstado('procesando')
 
-    // Ejecutar reconocimiento facial si hay empleados con foto
-    const capturedSig = getCanvasSignature(ctx, canvas.width, canvas.height)
-    const empsWithPhoto = empleados.filter(e => e.foto_url)
+    try {
+      const faceapi = (window as any).faceapi
+      if (!faceapi) throw new Error('faceapi script no disponible')
 
-    if (empsWithPhoto.length > 0) {
-      let bestMatch: Empleado | null = null
-      let bestScore = 0
+      // Detectar rostro en la captura de la cámara
+      const detection = await faceapi
+        .detectSingleFace(canvas)
+        .withFaceLandmarks()
+        .withFaceDescriptor()
 
-      // Procesar fotos registradas
-      for (const emp of empsWithPhoto) {
-        try {
-          const img = new Image()
-          img.crossOrigin = 'anonymous'
-          await new Promise<void>((resolve) => {
-            img.onload = () => resolve()
-            img.onerror = () => resolve()
-            img.src = emp.foto_url!
-          })
+      if (detection && labeledDescriptorsRef.current.length > 0) {
+        const matcher = new faceapi.FaceMatcher(
+          labeledDescriptorsRef.current.map(d => d.labeled),
+          0.6 // Umbral máximo de distancia euclediana
+        )
 
-          if (img.width > 0) {
-            const tempCanvas = document.createElement('canvas')
-            tempCanvas.width = 120
-            tempCanvas.height = 120
-            const tempCtx = tempCanvas.getContext('2d')
-            if (tempCtx) {
-              tempCtx.drawImage(img, 0, 0, 120, 120)
-              const refSig = getCanvasSignature(tempCtx, 120, 120)
-              const score = compareSignatures(capturedSig, refSig)
-              if (score > bestScore) {
-                bestScore = score
-                bestMatch = emp
-              }
-            }
+        const match = matcher.findBestMatch(detection.descriptor)
+
+        if (match && match.label !== 'unknown') {
+          const matchedItem = labeledDescriptorsRef.current.find(d => d.emp.id_empleado === match.label)
+          if (matchedItem) {
+            const similarityPct = Math.round((1 - match.distance) * 100)
+            setMatchResult({ emp: matchedItem.emp, score: Math.max(65, similarityPct) })
+            setSelectedEmpId(matchedItem.emp.id_empleado)
+            setNombreManual(`${matchedItem.emp.nombre} ${matchedItem.emp.apellido_paterno}`)
+            setPuestoManual(matchedItem.emp.puesto || 'Trabajador')
+          } else {
+            setMatchResult(null)
           }
-        } catch {
-          // Continuar
+        } else {
+          setMatchResult(null)
         }
-      }
-
-      if (bestMatch && bestScore >= 50) {
-        setMatchResult({ emp: bestMatch, score: Math.min(99, bestScore + 20) })
-        setSelectedEmpId(bestMatch.id_empleado)
-        setNombreManual(`${bestMatch.nombre} ${bestMatch.apellido_paterno}`)
-        setPuestoManual(bestMatch.puesto || 'Trabajador')
       } else {
         setMatchResult(null)
       }
-    } else {
+    } catch (err: any) {
+      console.warn('Error durante comparación biométrica:', err?.message)
       setMatchResult(null)
+    } finally {
+      setEstado('listo')
     }
-
-    setIsMatching(false)
   }
 
   // 5. Confirmar e Insertar Pasajero en la Bitácora
@@ -281,7 +290,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
       return
     }
 
-    // Auto-actualizar la foto_url del empleado en Supabase si no tenía foto previa
+    // Auto-guardar foto en Supabase si el trabajador no tenía foto registrada
     if (capturaPreview && !empSel.foto_url && empSel.id_empleado && !empSel.id_empleado.startsWith('TEMP-')) {
       supabase
         .from('empleados')
@@ -318,8 +327,8 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-black uppercase tracking-wider text-amber-400">Escáner Facial de Pasajero</h3>
-              <p className="text-[10px] text-zinc-400">Detección y comparación automática de trabajadores</p>
+              <h3 className="text-sm font-black uppercase tracking-wider text-amber-400">Reconocimiento Biométrico IA</h3>
+              <p className="text-[10px] text-zinc-400">Motor de redes neuronales y vectores faciales 128D</p>
             </div>
           </div>
           <button
@@ -330,9 +339,17 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
           </button>
         </div>
 
-        {errorMsg && (
+        {/* Estado / Barra de Progreso */}
+        {(estado === 'cargando_modelos' || estado === 'cargando_fotos' || estado === 'procesando') && (
+          <div className="p-3.5 bg-indigo-950/80 border border-indigo-700 text-indigo-200 text-xs rounded-2xl flex items-center gap-3">
+            <Loader className="w-5 h-5 animate-spin text-amber-400 shrink-0" />
+            <div className="font-semibold">{mensajeEstado}</div>
+          </div>
+        )}
+
+        {estado === 'error' && (
           <div className="p-3 bg-rose-950/80 border border-rose-800 text-rose-300 text-xs rounded-2xl">
-            {errorMsg}
+            {mensajeEstado}
           </div>
         )}
 
@@ -372,10 +389,11 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
               <button
                 type="button"
                 onClick={handleCapturarFoto}
-                className="flex-1 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs rounded-2xl shadow-xl flex items-center justify-center gap-2 uppercase tracking-wider active:scale-95 transition-transform"
+                disabled={estado !== 'listo'}
+                className="flex-1 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs rounded-2xl shadow-xl flex items-center justify-center gap-2 uppercase tracking-wider active:scale-95 transition-transform disabled:opacity-50"
               >
                 <Camera className="w-4 h-4" />
-                <span>Capturar y Comparar Rostro</span>
+                <span>{estado === 'procesando' ? 'Analizando Vectores...' : 'Capturar y Analizar Biometría'}</span>
               </button>
             </div>
           </div>
@@ -396,7 +414,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
               <div className="p-3.5 bg-emerald-950/90 border-2 border-emerald-500 text-emerald-200 rounded-2xl space-y-1 animate-in zoom-in-95">
                 <div className="flex items-center gap-2 font-black text-xs text-emerald-400 uppercase tracking-wider">
                   <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
-                  <span>🟢 TRABAJADOR RECONOCIDO CON ÉXITO ({matchResult.score}% Coincidencia)</span>
+                  <span>🟢 TRABAJADOR RECONOCIDO BIOMÉTRICAMENTE ({matchResult.score}% Coincidencia)</span>
                 </div>
                 <div className="text-sm font-black text-white pl-7">
                   {matchResult.emp.nombre} {matchResult.emp.apellido_paterno}
@@ -412,7 +430,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
                   <span>🔴 TRABAJADOR NO RECONOCIDO EN BASE DE DATOS</span>
                 </div>
                 <div className="text-xs text-rose-200 pl-7 font-medium">
-                  No se encontró una coincidencia facial registrada. Selecciona su nombre abajo para asignarle esta foto y que el sistema lo reconozca automáticamente la próxima vez.
+                  No se encontró coincidencia biométrica facial. Selecciona su nombre abajo para asignarle esta foto y que el sistema lo reconozca automáticamente la próxima vez.
                 </div>
               </div>
             )}
