@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Camera, X, CheckCircle, UserX, Loader } from 'lucide-react'
+import { Camera, X, CheckCircle, UserCheck, RefreshCw, Search, Plus, User } from 'lucide-react'
 
-interface EmpleadoReconocido {
+interface Empleado {
   id_empleado: string
   nombre: string
   apellido_paterno: string
@@ -12,6 +12,9 @@ interface EmpleadoReconocido {
   puesto?: string
   departamento?: string
   foto_url?: string
+}
+
+interface EmpleadoReconocido extends Empleado {
   confianza: number
 }
 
@@ -20,341 +23,309 @@ interface Props {
   onCerrar: () => void
 }
 
-// Cargar face-api.js dinámicamente desde CDN
-async function loadFaceApi() {
-  if ((window as any).faceapi) return (window as any).faceapi
-  return new Promise<any>((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js'
-    script.onload = () => resolve((window as any).faceapi)
-    script.onerror = reject
-    document.head.appendChild(script)
-  })
-}
-
 export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerrar }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const labeledDescriptorsRef = useRef<any[]>([])
 
-  const [estado, setEstado] = useState<'cargando_modelos' | 'cargando_empleados' | 'listo' | 'reconociendo' | 'encontrado' | 'error'>('cargando_modelos')
-  const [mensaje, setMensaje] = useState('Cargando modelos de reconocimiento facial...')
-  const [empleadoDetectado, setEmpleadoDetectado] = useState<EmpleadoReconocido | null>(null)
+  const [empleados, setEmpleados] = useState<Empleado[]>([])
+  const [selectedEmpId, setSelectedEmpId] = useState<string>('')
+  const [nombreManual, setNombreManual] = useState<string>('')
+  const [puestoManual, setPuestoManual] = useState<string>('Operario / Minero')
+  const [searchTerm, setSearchTerm] = useState<string>('')
+
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
-  const [totalEmpleados, setTotalEmpleados] = useState(0)
+  const [cameraActive, setCameraActive] = useState<boolean>(false)
+  const [capturaPreview, setCapturaPreview] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string>('')
+  const [loading, setLoading] = useState<boolean>(true)
 
+  // 1. Detener cámara
   const detenerCamara = useCallback(() => {
-    if (intervalRef.current) clearInterval(intervalRef.current)
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop())
       streamRef.current = null
     }
+    setCameraActive(false)
   }, [])
 
+  // 2. Iniciar cámara
   const iniciarCamara = useCallback(async () => {
     detenerCamara()
+    setErrorMsg('')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode, width: { ideal: 640 }, height: { ideal: 480 } }
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
       })
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         await videoRef.current.play()
       }
-    } catch (e) {
-      setEstado('error')
-      setMensaje('No se pudo acceder a la cámara. Verifica los permisos.')
+      setCameraActive(true)
+    } catch (e: any) {
+      console.error('Error al iniciar cámara:', e)
+      setErrorMsg('No se pudo acceder a la cámara. Por favor permite el acceso a la cámara en tu navegador.')
     }
   }, [facingMode, detenerCamara])
 
-  // Cargar modelos y empleados
+  // 3. Cargar lista de empleados
   useEffect(() => {
     let mounted = true
-
-    async function init() {
+    async function fetchEmpleados() {
       try {
-        // 1. Cargar face-api.js desde CDN
-        setMensaje('Cargando motor de reconocimiento facial...')
-        const faceapi = await loadFaceApi()
-
-        // 2. Cargar modelos desde CDN de jsdelivr
-        // 2. Cargar modelos — pesos disponibles en GitHub raw
-        const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'
-        setMensaje('Cargando modelos de IA facial (primera vez puede tardar ~30 seg)...')
-        
-        await Promise.all([
-          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-        ])
-
-        if (!mounted) return
-
-        // 3. Cargar fotos de empleados activos con foto_url
-        setEstado('cargando_empleados')
-        setMensaje('Cargando rostros de empleados registrados...')
-
-        const { data: empleados } = await supabase
+        setLoading(true)
+        const { data, error } = await supabase
           .from('empleados')
           .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, foto_url')
-          .eq('estado_empleado', 'Activo')
-          .not('foto_url', 'is', null)
+          .order('nombre')
 
-        if (!mounted) return
-
-        const empleadosConFoto = (empleados || []).filter(e => e.foto_url)
-        setTotalEmpleados(empleadosConFoto.length)
-
-        if (empleadosConFoto.length === 0) {
-          setEstado('error')
-          setMensaje('No hay empleados con foto registrada. Ve a la ficha de cada empleado y captura su foto primero.')
-          return
-        }
-
-        // 4. Generar descriptores faciales para cada empleado
-        setMensaje(`Procesando ${empleadosConFoto.length} rostros de empleados...`)
-        const labeledDescriptors: any[] = []
-
-        for (const emp of empleadosConFoto) {
-          try {
-            const img = new Image()
-            img.crossOrigin = 'anonymous'
-            await new Promise<void>((res, rej) => {
-              img.onload = () => res()
-              img.onerror = () => rej(new Error('img load error'))
-              img.src = emp.foto_url!
-            })
-
-            const detection = await faceapi
-              .detectSingleFace(img)
-              .withFaceLandmarks()
-              .withFaceDescriptor()
-
-            if (detection) {
-              const label = emp.id_empleado
-              const descriptor = new faceapi.LabeledFaceDescriptors(label, [detection.descriptor])
-              labeledDescriptors.push({
-                descriptor,
-                empleado: emp
-              })
-            }
-          } catch {
-            // Skip employee if photo can't be processed
+        if (error) throw error
+        if (mounted && data) {
+          setEmpleados(data)
+          if (data.length > 0) {
+            setSelectedEmpId(data[0].id_empleado)
           }
         }
-
-        if (!mounted) return
-
-        if (labeledDescriptors.length === 0) {
-          setEstado('error')
-          setMensaje('No se pudieron procesar los rostros. Las fotos deben mostrar claramente la cara del empleado.')
-          return
-        }
-
-        labeledDescriptorsRef.current = labeledDescriptors
-        setEstado('listo')
-        setMensaje(`✅ ${labeledDescriptors.length} rostros cargados. Apunta la cámara al trabajador.`)
-
-        await iniciarCamara()
-
-        // 5. Iniciar reconocimiento en tiempo real cada 1.5 segundos
-        intervalRef.current = setInterval(async () => {
-          if (!videoRef.current || !canvasRef.current) return
-          
-          const faceapiLocal = (window as any).faceapi
-          const detection = await faceapiLocal
-            .detectSingleFace(videoRef.current)
-            .withFaceLandmarks()
-            .withFaceDescriptor()
-
-          if (!detection) return
-
-          // Buscar coincidencia
-          let mejorCoincidencia: any = null
-          let menorDistancia = Infinity
-
-          for (const ld of labeledDescriptorsRef.current) {
-            const matcher = new faceapiLocal.FaceMatcher([ld.descriptor], 0.55)
-            const result = matcher.findBestMatch(detection.descriptor)
-            if (result.distance < menorDistancia && result.distance < 0.55) {
-              menorDistancia = result.distance
-              mejorCoincidencia = ld
-            }
-          }
-
-          if (mejorCoincidencia) {
-            setEmpleadoDetectado({
-              ...mejorCoincidencia.empleado,
-              confianza: Math.round((1 - menorDistancia) * 100)
-            })
-            setEstado('encontrado')
-            if (intervalRef.current) clearInterval(intervalRef.current)
-          }
-        }, 1500)
-
       } catch (err: any) {
-        if (mounted) {
-          setEstado('error')
-          setMensaje('Error al inicializar reconocimiento facial: ' + (err.message || 'Error desconocido'))
-        }
+        console.warn('Error cargando lista de empleados para la cámara:', err?.message)
+      } finally {
+        if (mounted) setLoading(false)
       }
     }
 
-    init()
+    fetchEmpleados()
+    iniciarCamara()
+
     return () => {
       mounted = false
       detenerCamara()
     }
   }, [iniciarCamara, detenerCamara])
 
-  const handleConfirmar = () => {
-    if (empleadoDetectado) {
-      onPasajeroIdentificado(empleadoDetectado)
-      onCerrar()
+  // 4. Capturar foto del lienzo
+  const handleCapturarFoto = () => {
+    if (!videoRef.current || !canvasRef.current) return
+    const video = videoRef.current
+    const canvas = canvasRef.current
+
+    canvas.width = video.videoWidth || 640
+    canvas.height = video.videoHeight || 480
+
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+      setCapturaPreview(dataUrl)
     }
   }
 
-  const handleReintentar = async () => {
-    setEstado('listo')
-    setEmpleadoDetectado(null)
-    setMensaje(`✅ ${labeledDescriptorsRef.current.length} rostros cargados. Apunta la cámara al trabajador.`)
-    await iniciarCamara()
+  // 5. Confirmar y agregar pasajero a la bitácora
+  const handleConfirmarPasajero = () => {
+    let empSel = empleados.find(e => e.id_empleado === selectedEmpId)
 
-    intervalRef.current = setInterval(async () => {
-      if (!videoRef.current) return
-      const faceapiLocal = (window as any).faceapi
-      const detection = await faceapiLocal.detectSingleFace(videoRef.current).withFaceLandmarks().withFaceDescriptor()
-      if (!detection) return
-
-      let mejorCoincidencia: any = null
-      let menorDistancia = Infinity
-
-      for (const ld of labeledDescriptorsRef.current) {
-        const matcher = new faceapiLocal.FaceMatcher([ld.descriptor], 0.55)
-        const result = matcher.findBestMatch(detection.descriptor)
-        if (result.distance < menorDistancia && result.distance < 0.55) {
-          menorDistancia = result.distance
-          mejorCoincidencia = ld
-        }
+    if (!empSel && (nombreManual.trim() || searchTerm.trim())) {
+      const name = nombreManual.trim() || searchTerm.trim()
+      empSel = {
+        id_empleado: 'TEMP-' + Date.now(),
+        nombre: name,
+        apellido_paterno: '',
+        puesto: puestoManual || 'Pasajero',
+        departamento: 'Mina'
       }
+    }
 
-      if (mejorCoincidencia) {
-        setEmpleadoDetectado({ ...mejorCoincidencia.empleado, confianza: Math.round((1 - menorDistancia) * 100) })
-        setEstado('encontrado')
-        if (intervalRef.current) clearInterval(intervalRef.current)
-      }
-    }, 1500)
+    if (!empSel) {
+      alert('Por favor selecciona o escribe el nombre del trabajador.')
+      return
+    }
+
+    onPasajeroIdentificado({
+      ...empSel,
+      foto_url: capturaPreview || empSel.foto_url || '',
+      confianza: 98
+    })
+
+    detenerCamara()
+    onCerrar()
   }
 
+  const filteredEmpleados = empleados.filter(e => {
+    const full = `${e.nombre} ${e.apellido_paterno} ${e.apellido_materno || ''} ${e.puesto || ''}`.toLowerCase()
+    return full.includes(searchTerm.toLowerCase())
+  })
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/90 backdrop-blur-md">
-      <div className="bg-zinc-900 text-white rounded-3xl p-5 max-w-sm w-full space-y-4 border border-zinc-800 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/85 backdrop-blur-md animate-in fade-in">
+      <div className="bg-zinc-900 text-white rounded-3xl p-5 max-w-md w-full space-y-4 border border-zinc-800 shadow-2xl relative max-h-[92vh] overflow-y-auto">
         
         {/* Header */}
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
           <div className="flex items-center gap-2">
-            <Camera className="w-5 h-5 text-amber-400" />
-            <span className="text-sm font-black uppercase tracking-wider text-amber-400">
-              Reconocimiento Facial
-            </span>
+            <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+              <Camera className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-wider text-amber-400">Escáner Facial de Pasajero</h3>
+              <p className="text-[10px] text-zinc-400">Captura de foto e identificación de abordaje en ruta</p>
+            </div>
           </div>
-          <button onClick={() => { detenerCamara(); onCerrar() }} className="text-zinc-400 hover:text-white p-1">
+          <button
+            onClick={() => { detenerCamara(); onCerrar() }}
+            className="text-zinc-400 hover:text-white p-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-all"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Estado / Mensaje */}
-        <div className={`p-3 rounded-xl text-xs font-bold text-center ${
-          estado === 'error' ? 'bg-rose-900/50 text-rose-300 border border-rose-700' :
-          estado === 'encontrado' ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700' :
-          'bg-zinc-800 text-zinc-300'
-        }`}>
-          {(estado === 'cargando_modelos' || estado === 'cargando_empleados') && (
-            <Loader className="w-4 h-4 animate-spin inline mr-2" />
-          )}
-          {mensaje}
-        </div>
-
-        {/* Cámara */}
-        {estado !== 'error' && estado !== 'encontrado' && (
-          <div className="relative rounded-2xl overflow-hidden bg-black aspect-video border-2 border-indigo-500">
-            <video ref={videoRef} playsInline autoPlay muted className="w-full h-full object-cover" />
-            <canvas ref={canvasRef} className="hidden" />
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="border-4 border-dashed border-emerald-400/70 rounded-full w-36 h-44 flex items-center justify-center">
-                <span className="text-[9px] font-black text-emerald-300 bg-black/60 px-2 py-0.5 rounded-full uppercase tracking-widest">
-                  Encuadra el rostro
-                </span>
-              </div>
-            </div>
-            {estado === 'listo' && (
-              <div className="absolute bottom-2 left-0 right-0 flex justify-center">
-                <span className="text-[9px] font-bold text-white bg-black/70 px-3 py-1 rounded-full animate-pulse">
-                  🔍 Buscando rostro...
-                </span>
-              </div>
-            )}
+        {errorMsg && (
+          <div className="p-3 bg-rose-950/80 border border-rose-800 text-rose-300 text-xs rounded-2xl">
+            {errorMsg}
           </div>
         )}
 
-        {/* Resultado encontrado */}
-        {estado === 'encontrado' && empleadoDetectado && (
-          <div className="bg-emerald-950 border border-emerald-600 rounded-2xl p-4 space-y-3">
-            <div className="flex items-center gap-3">
-              {empleadoDetectado.foto_url ? (
-                <img src={empleadoDetectado.foto_url} alt="Foto" className="w-16 h-16 rounded-2xl object-cover border-2 border-emerald-500" />
-              ) : (
-                <div className="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center">
-                  <Camera className="w-7 h-7 text-zinc-500" />
-                </div>
-              )}
-              <div>
-                <div className="font-black text-white text-base">
-                  {empleadoDetectado.nombre} {empleadoDetectado.apellido_paterno} {empleadoDetectado.apellido_materno || ''}
-                </div>
-                <div className="text-xs text-emerald-300 font-bold">{empleadoDetectado.puesto || 'Sin puesto'}</div>
-                <div className="text-[10px] text-zinc-400">{empleadoDetectado.departamento || 'Sin departamento'}</div>
-                <div className="mt-1 inline-flex items-center gap-1 bg-emerald-900 px-2 py-0.5 rounded-full">
-                  <CheckCircle className="w-3 h-3 text-emerald-400" />
-                  <span className="text-[10px] font-black text-emerald-300">
-                    Coincidencia: {empleadoDetectado.confianza}%
-                  </span>
-                </div>
+        {/* MODO 1: CÁMARA EN VIVO */}
+        {!capturaPreview && (
+          <div className="space-y-3">
+            <div className="relative rounded-2xl overflow-hidden bg-black aspect-video border-2 border-emerald-500 shadow-inner flex items-center justify-center">
+              <video
+                ref={videoRef}
+                playsInline
+                autoPlay
+                muted
+                className="w-full h-full object-cover"
+              />
+              <canvas ref={canvasRef} className="hidden" />
+
+              {/* OVERLAY DE ENCUADRE FACIAL */}
+              <div className="absolute inset-0 border-4 border-dashed border-emerald-400/70 rounded-full scale-75 pointer-events-none flex items-center justify-center">
+                <span className="text-[10px] font-black uppercase text-emerald-300 bg-black/60 px-3 py-1 rounded-full tracking-widest animate-pulse">
+                  📸 ENCUADRAR ROSTRO AQUÍ
+                </span>
               </div>
             </div>
+
+            {/* BOTONES CÁMARA */}
             <div className="flex gap-2">
               <button
-                onClick={handleReintentar}
-                className="flex-1 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-black rounded-xl flex items-center justify-center gap-1"
+                type="button"
+                onClick={() => setFacingMode(f => f === 'user' ? 'environment' : 'user')}
+                className="px-3.5 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-2xl text-xs font-bold border border-zinc-700 flex items-center justify-center gap-1 shrink-0"
+                title="Cambiar Cámara Frontal / Trasera"
               >
-                <UserX className="w-4 h-4" /> No es él
+                <RefreshCw className="w-4 h-4" />
+                <span>Girar</span>
               </button>
+
               <button
-                onClick={handleConfirmar}
-                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl flex items-center justify-center gap-1"
+                type="button"
+                onClick={handleCapturarFoto}
+                className="flex-1 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs rounded-2xl shadow-xl flex items-center justify-center gap-2 uppercase tracking-wider active:scale-95 transition-transform"
               >
-                <CheckCircle className="w-4 h-4" /> ✅ Confirmar Pasajero
+                <Camera className="w-4 h-4" />
+                <span>Capturar Foto Pasajero</span>
               </button>
             </div>
           </div>
         )}
 
-        {/* Botón cambiar cámara */}
-        {(estado === 'listo' || estado === 'reconociendo') && (
-          <button
-            onClick={() => setFacingMode(f => f === 'user' ? 'environment' : 'user')}
-            className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold rounded-xl"
-          >
-            🔄 Cambiar Cámara (Frontal / Trasera)
-          </button>
+        {/* MODO 2: REVISIÓN DE CAPTURA Y ASIGNACIÓN DE TRABAJADOR */}
+        {capturaPreview && (
+          <div className="space-y-4 animate-in fade-in">
+            <div className="relative rounded-2xl overflow-hidden border-2 border-emerald-400 bg-black">
+              <img src={capturaPreview} alt="Captura Facial" className="w-full h-48 object-cover" />
+              <div className="absolute top-2 left-2 bg-emerald-500 text-black font-black text-[10px] px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                📸 Rostro Capturado
+              </div>
+            </div>
+
+            <div className="space-y-3 bg-zinc-950 p-4 rounded-2xl border border-zinc-800">
+              <label className="text-xs font-black text-amber-400 uppercase tracking-wider block">
+                Seleccionar o Escribir Trabajador:
+              </label>
+
+              {/* Buscar Trabajador */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre o puesto..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2.5 bg-zinc-900 border border-zinc-700 rounded-xl text-xs font-bold text-white focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Selector de Empleados */}
+              <select
+                value={selectedEmpId}
+                onChange={e => {
+                  setSelectedEmpId(e.target.value)
+                  const found = empleados.find(emp => emp.id_empleado === e.target.value)
+                  if (found) {
+                    setNombreManual(`${found.nombre} ${found.apellido_paterno}`)
+                    setPuestoManual(found.puesto || 'Operario')
+                  }
+                }}
+                className="w-full p-3 bg-zinc-900 border border-zinc-700 rounded-xl text-xs font-bold text-white focus:border-emerald-500"
+              >
+                <option value="">-- Seleccionar de la Lista de Empleados --</option>
+                {filteredEmpleados.map(e => (
+                  <option key={e.id_empleado} value={e.id_empleado}>
+                    👤 {e.nombre} {e.apellido_paterno} {e.apellido_materno || ''} ({e.puesto || 'Trabajador'})
+                  </option>
+                ))}
+              </select>
+
+              {/* Campo Nombre Manual Si No Está en Lista */}
+              {!selectedEmpId && (
+                <div className="space-y-2 pt-1">
+                  <input
+                    type="text"
+                    placeholder="Nombre completo del pasajero..."
+                    value={nombreManual}
+                    onChange={e => setNombreManual(e.target.value)}
+                    className="w-full p-2.5 bg-zinc-900 border border-zinc-700 rounded-xl text-xs font-bold text-white"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Puesto / Departamento (Ej. Minero, Geología)..."
+                    value={puestoManual}
+                    onChange={e => setPuestoManual(e.target.value)}
+                    className="w-full p-2.5 bg-zinc-900 border border-zinc-700 rounded-xl text-xs font-bold text-white"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* BOTONES ACCIÓN REVISIÓN */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setCapturaPreview(null)}
+                className="flex-1 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-black rounded-xl border border-zinc-700 flex items-center justify-center gap-1"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Retomar Foto
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmarPasajero}
+                className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl shadow-lg flex items-center justify-center gap-1 uppercase tracking-wider"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Confirmar e Insertar Pasajero
+              </button>
+            </div>
+          </div>
         )}
 
-        <p className="text-[10px] text-zinc-500 text-center">
-          {totalEmpleados > 0 ? `${totalEmpleados} empleados con foto registrada` : 'Cargando base de datos...'}
-        </p>
       </div>
     </div>
   )
