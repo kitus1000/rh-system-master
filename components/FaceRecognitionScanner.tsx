@@ -74,32 +74,72 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
     }
   }, [facingMode, detenerCamara])
 
-  // 3. Cargar lista de empleados
+  // 3. Cargar y combinar lista de empleados (de la tabla empleados Y de perfiles)
   useEffect(() => {
     let mounted = true
-    async function fetchEmpleados() {
+    async function fetchAllPeople() {
       try {
         setLoading(true)
-        const { data, error } = await supabase
-          .from('empleados')
-          .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, foto_url')
-          .order('nombre')
+        const [eRes, pRes] = await Promise.all([
+          supabase.from('empleados').select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, foto_url').order('nombre'),
+          supabase.from('perfiles').select('id, nombre_completo, rol, cat_departamentos(departamento)')
+        ])
 
-        if (error) throw error
-        if (mounted && data) {
-          setEmpleados(data)
-          if (data.length > 0) {
-            setSelectedEmpId(data[0].id_empleado)
+        let combined: Empleado[] = []
+
+        // A. Agregar registros de tabla empleados
+        if (eRes.data) {
+          eRes.data.forEach(e => {
+            combined.push({
+              id_empleado: e.id_empleado,
+              nombre: `${e.nombre || ''} ${e.apellido_paterno || ''}`.trim(),
+              apellido_paterno: e.apellido_materno || '',
+              puesto: e.puesto || 'Trabajador',
+              departamento: e.departamento || 'Mina',
+              foto_url: e.foto_url || undefined
+            })
+          })
+        }
+
+        // B. Agregar registros de tabla perfiles (si no existen ya en empleados)
+        if (pRes.data) {
+          pRes.data.forEach(p => {
+            const cleanName = (p.nombre_completo || '').replace(/\s*\(Chofer\)/gi, '').trim()
+            if (cleanName && !combined.some(c => c.nombre.toLowerCase().includes(cleanName.toLowerCase()))) {
+              const deptName = (p.cat_departamentos as any)?.departamento || 'Sistema'
+              combined.push({
+                id_empleado: p.id,
+                nombre: cleanName,
+                apellido_paterno: '',
+                puesto: p.rol || 'Usuario Sistema',
+                departamento: deptName,
+                foto_url: undefined
+              })
+            }
+          })
+        }
+
+        // C. Ordenar personas con foto primero
+        combined.sort((a, b) => {
+          if (a.foto_url && !b.foto_url) return -1
+          if (!a.foto_url && b.foto_url) return 1
+          return a.nombre.localeCompare(b.nombre)
+        })
+
+        if (mounted) {
+          setEmpleados(combined)
+          if (combined.length > 0) {
+            setSelectedEmpId(combined[0].id_empleado)
           }
         }
       } catch (err: any) {
-        console.warn('Error cargando lista de empleados para la cámara:', err?.message)
+        console.warn('Error cargando y combinando empleados/usuarios:', err?.message)
       } finally {
         if (mounted) setLoading(false)
       }
     }
 
-    fetchEmpleados()
+    fetchAllPeople()
     iniciarCamara()
 
     return () => {
@@ -274,10 +314,10 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
                 }}
                 className="w-full p-3 bg-zinc-900 border border-zinc-700 rounded-xl text-xs font-bold text-white focus:border-emerald-500"
               >
-                <option value="">-- Seleccionar de la Lista de Empleados --</option>
+                <option value="">-- Lista Combinada ({empleados.length} Empleados y Usuarios) --</option>
                 {filteredEmpleados.map(e => (
                   <option key={e.id_empleado} value={e.id_empleado}>
-                    👤 {e.nombre} {e.apellido_paterno} {e.apellido_materno || ''} ({e.puesto || 'Trabajador'})
+                    {e.foto_url ? '🟢 📸' : '👤'} {e.nombre} {e.apellido_paterno} {e.apellido_materno || ''} ({e.puesto || 'Trabajador'} - {e.departamento || 'Mina'})
                   </option>
                 ))}
               </select>
