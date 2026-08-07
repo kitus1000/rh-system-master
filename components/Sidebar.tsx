@@ -47,6 +47,7 @@ const navigationGroups = [
         isCollapsible: false,
         items: [
             { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Jefe Médico', 'Recursos Humanos', 'Sistemas', 'Chofer', 'Encargado de Campamento y Comedor'] },
+            { name: '🚌 Bitácora de Rutas Choferes', href: '/logistica/choferes', icon: Bus, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas', 'Encargado de Campamento y Comedor'] },
             { name: 'Chat y Muro', href: '/chat', icon: MessageCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Sistemas'] },
         ]
     },

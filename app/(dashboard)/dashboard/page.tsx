@@ -189,6 +189,27 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* BANNER ACCESO RÁPIDO BITÁCORA DE RUTAS CHOFERES */}
+      <div className="bg-gradient-to-r from-emerald-900 via-zinc-900 to-zinc-950 p-6 rounded-2xl text-white shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-emerald-500/30">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-emerald-500 text-black rounded-2xl">
+            <Activity className="w-8 h-8" />
+          </div>
+          <div>
+            <div className="text-xs font-black uppercase text-emerald-400 tracking-wider">Acceso Directo Principal</div>
+            <h2 className="text-xl font-black tracking-tight">🚌 Bitácora de Rutas y Conteo de Pasajeros (Choferes)</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">Captura de viajes de Punto A a Punto B y control de abordaje</p>
+          </div>
+        </div>
+        <Link
+          href="/logistica/choferes"
+          className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition-all uppercase tracking-wider shrink-0"
+        >
+          <span>Abrir Bitácora de Rutas</span>
+          <ArrowUpRight className="w-4 h-4" />
+        </Link>
+      </div>
+
       {/* KPI GRID */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((item) => (
