@@ -406,9 +406,14 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
                 </div>
               </div>
             ) : (
-              <div className="p-3 bg-zinc-800 border border-amber-500/40 text-amber-300 rounded-2xl text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>Confirma el trabajador abajo o selecciona de la lista para registrar su foto de referencia.</span>
+              <div className="p-3.5 bg-rose-950/90 border-2 border-rose-600 text-rose-200 rounded-2xl space-y-1 animate-in zoom-in-95">
+                <div className="flex items-center gap-2 font-black text-xs text-rose-400 uppercase tracking-wider">
+                  <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+                  <span>🔴 TRABAJADOR NO RECONOCIDO EN BASE DE DATOS</span>
+                </div>
+                <div className="text-xs text-rose-200 pl-7 font-medium">
+                  No se encontró una coincidencia facial registrada. Selecciona su nombre abajo para asignarle esta foto y que el sistema lo reconozca automáticamente la próxima vez.
+                </div>
               </div>
             )}
 
