@@ -1576,6 +1576,9 @@ export default function ChoferesClient() {
                     Guardar y Registrar Salida Oficial
                 </button>
             </div>
+        </div>
+        )}
+
         {/* MODAL DE ESCÁNER DE ROSTRO EN VIVO CON CÁMARA */}
         {showFaceCameraModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
