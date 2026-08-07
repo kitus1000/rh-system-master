@@ -46,7 +46,7 @@ const navigationGroups = [
         bgClass: "bg-zinc-800",
         isCollapsible: false,
         items: [
-            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Jefe Médico', 'Recursos Humanos', 'Sistemas', 'Chofer'] },
+            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Jefe Médico', 'Recursos Humanos', 'Sistemas', 'Chofer', 'Encargado de Campamento y Comedor'] },
             { name: 'Chat y Muro', href: '/chat', icon: MessageCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Sistemas'] },
         ]
     },
@@ -105,8 +105,8 @@ const navigationGroups = [
         isCollapsible: true,
         defaultExpanded: true,
         items: [
-            { name: 'Campamentos', href: '/campamentos', icon: Home, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Comedor', href: '/comedor', icon: Coffee, roles: ['Administrativo', 'Superintendente'] },
+            { name: 'Campamentos', href: '/campamentos', icon: Home, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Encargado de Campamento y Comedor'] },
+            { name: 'Comedor', href: '/comedor', icon: Coffee, roles: ['Administrativo', 'Superintendente', 'Encargado de Campamento y Comedor'] },
             { name: 'Evaluaciones', href: '/evaluaciones', icon: Award, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Documentos', href: '/documentos', icon: Files, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
         ]

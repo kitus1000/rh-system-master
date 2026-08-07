@@ -312,6 +312,7 @@ export default function UsuariosPage() {
                                         <option value="Superintendente">Superintendente</option>
                                         <option value="Jefe de Departamento">Jefe de Departamento</option>
                                         <option value="Supervisor">Supervisor</option>
+                                        <option value="Encargado de Campamento y Comedor">Encargado de Campamento y Comedor (Exclusivo Comedor y Campamentos)</option>
                                         <option value="Jefe Médico">Jefe Médico (Firma Autorización en Pases)</option>
                                         <option value="Médico">Médico (Módulo Médico y Consultas)</option>
                                         <option value="Chofer">Chofer (Logística y Viajes)</option>

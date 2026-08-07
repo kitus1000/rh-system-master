@@ -72,6 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         if (rolLower.includes('chofer') || rolLower.includes('conductor') || rolLower.includes('operador') || nameLower.includes('(chofer)')) normalizedRol = 'Chofer'
                         else if (rolLower.includes('jefe médico') || rolLower.includes('jefe medico') || nameLower.includes('jefe médico') || nameLower.includes('jefe medico')) normalizedRol = 'Jefe Médico'
                         else if (rolLower.includes('médico') || rolLower.includes('medico') || nameLower.includes('médico') || nameLower.includes('medico')) normalizedRol = 'Médico'
+                        else if (rolLower.includes('campamento') || rolLower.includes('comedor') || rolLower.includes('encargado de campamento')) normalizedRol = 'Encargado de Campamento y Comedor'
                         else if (rolLower.includes('admin')) normalizedRol = 'Administrativo'
                         else if (rolLower === 'jefe' || rolLower.includes('jefe de departamento')) normalizedRol = 'Jefe de Departamento'
                         else if (rolLower.includes('superintendente')) normalizedRol = 'Superintendente'
@@ -138,6 +139,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (profile.rol === 'Chofer') {
             const allowedChoferPaths = ['/logistica/choferes', '/mi-perfil']
             const isAllowed = allowedChoferPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
+            if (!isAllowed) {
+                denied = true
+            }
+        }
+
+        // Encargado de Campamento y Comedor is strictly locked to Campamentos, Comedor, Mi Perfil, Chat, Inicio
+        if (profile.rol === 'Encargado de Campamento y Comedor') {
+            const allowedCampComedorPaths = ['/campamentos', '/comedor', '/mi-perfil', '/chat', '/inicio', '/acerca-de']
+            const isAllowed = allowedCampComedorPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
             if (!isAllowed) {
                 denied = true
             }
