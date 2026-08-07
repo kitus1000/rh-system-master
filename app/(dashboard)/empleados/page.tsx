@@ -62,7 +62,8 @@ export default function EmpleadosPage() {
 
     async function fetchEmpleados() {
         try {
-            const { data, error } = await supabase
+            let empList: any[] = []
+            const fullRes = await supabase
                 .from('empleados')
                 .select(`
                     *,
@@ -73,12 +74,42 @@ export default function EmpleadosPage() {
                 `)
                 .order('apellido_paterno', { ascending: true })
 
-            if (error) throw error
-            setEmpleados(data || [])
+            if (fullRes.error) {
+                console.warn('Empleados join error, fallback to base query:', fullRes.error.message)
+                const baseRes = await supabase.from('empleados').select('*').order('apellido_paterno', { ascending: true })
+                if (baseRes.data) empList = baseRes.data
+            } else if (fullRes.data) {
+                empList = fullRes.data
+            }
+
+            // Auto-seed if list is empty
+            if (empList.length === 0) {
+                console.log('No employees found, seeding choferes...')
+                await seedChoferesDirect()
+                const retry = await supabase.from('empleados').select('*').order('apellido_paterno', { ascending: true })
+                if (retry.data) empList = retry.data
+            }
+
+            setEmpleados(empList)
         } catch (error) {
             console.error('Error fetching empleados:', error)
         } finally {
             setLoading(false)
+        }
+    }
+
+    async function seedChoferesDirect() {
+        const choferesData = [
+            { numero_empleado: 101, nombre: 'Adalberto', apellido_paterno: 'Pinales', puesto: 'Chofer', departamento: 'Movilidad', estado_empleado: 'Activo' },
+            { numero_empleado: 102, nombre: 'Ramon', apellido_paterno: 'Yañez', puesto: 'Chofer', departamento: 'Movilidad', estado_empleado: 'Activo' },
+            { numero_empleado: 103, nombre: 'Oscar', apellido_paterno: 'Vazquez', puesto: 'Chofer', departamento: 'Movilidad', estado_empleado: 'Activo' },
+            { numero_empleado: 104, nombre: 'Enrique', apellido_paterno: 'Linares', puesto: 'Chofer', departamento: 'Movilidad', estado_empleado: 'Activo' },
+            { numero_empleado: 105, nombre: 'Samuel', apellido_paterno: 'Madriles', puesto: 'Chofer', departamento: 'Movilidad', estado_empleado: 'Activo' },
+            { numero_empleado: 106, nombre: 'Jesus', apellido_paterno: 'Saucedo', puesto: 'Chofer', departamento: 'Movilidad', estado_empleado: 'Activo' },
+        ]
+
+        for (const c of choferesData) {
+            await supabase.from('empleados').insert([c]).catch(() => {})
         }
     }
 
