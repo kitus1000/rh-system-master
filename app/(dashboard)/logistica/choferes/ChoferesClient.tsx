@@ -54,6 +54,14 @@ export default function ChoferesClient() {
   const [viajeRutaActivo, setViajeRutaActivo] = useState<any | null>(null)
   const [bitacoraRutasList, setBitacoraRutasList] = useState<any[]>([])
 
+  // Camera Face Scan State
+  const [showFaceCameraModal, setShowFaceCameraModal] = useState(false)
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('user')
+  const [capturedPasajeros, setCapturedPasajeros] = useState<Array<{ id: string, foto: string, hora: string }>>([])
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
   // Seed Choferes state
   const [seedingLoading, setSeedingLoading] = useState(false)
   const [seedingMsg, setSeedingMsg] = useState('')
@@ -154,15 +162,24 @@ export default function ChoferesClient() {
 
     let combinedChoferes: Chofer[] = []
 
+    const DRIVERS_ROSTER = [
+      'Adalberto Pinales',
+      'Ramon Yañez',
+      'Oscar Vazquez',
+      'Enrique Linares',
+      'Samuel Madriles',
+      'Jesus Saucedo'
+    ]
+
     if (pData && pData.length > 0) {
         const choferesOnly = pData.filter(p => {
             const r = (p.rol || '').toLowerCase()
             const n = (p.nombre_completo || '').toLowerCase()
-            return r.includes('chofer') || r.includes('operador') || r.includes('conductor') || n.includes('chofer')
+            return r.includes('chofer') || r.includes('operador') || r.includes('conductor') || n.includes('chofer') ||
+                   DRIVERS_ROSTER.some(d => n.includes(d.toLowerCase()))
         })
 
         choferesOnly.forEach(p => {
-            // Clean up name display if tag exists
             const cleanName = p.nombre_completo.replace(/\s*\(Chofer\)/gi, '').trim()
             combinedChoferes.push({
                 id_empleado: p.id,
@@ -174,39 +191,41 @@ export default function ChoferesClient() {
         })
     }
 
-    // Always include logged-in user if they have role 'Chofer' or if no choferes were found
+    // Ensure all 6 drivers exist in the selectable dropdown list
+    DRIVERS_ROSTER.forEach(dName => {
+      const exists = combinedChoferes.some(c => c.nombre.toLowerCase().includes(dName.toLowerCase()))
+      if (!exists) {
+        combinedChoferes.push({
+          id_empleado: 'CHOFER-' + dName.replace(/\s+/g, '-').toUpperCase(),
+          nombre: dName,
+          apellido_paterno: '',
+          departamento: 'Chofer Registrado',
+          puesto: 'Chofer'
+        })
+      }
+    })
+
+    // Always include logged-in user
     if (profile?.id && !combinedChoferes.some(c => c.id_empleado === profile.id)) {
-        const profileRolLower = (profile.rol || '').toLowerCase()
-        if (profileRolLower.includes('chofer') || profileRolLower.includes('operador') || profileRolLower.includes('conductor')) {
-            const cleanProfileName = profile.nombre_completo.replace(/\s*\(Chofer\)/gi, '').trim()
-            combinedChoferes.unshift({
-                id_empleado: profile.id,
-                nombre: cleanProfileName,
-                apellido_paterno: '',
-                departamento: 'Chofer Registrado',
-                puesto: 'Chofer'
-            })
-        }
+        const cleanProfileName = (profile.nombre_completo || '').replace(/\s*\(Chofer\)/gi, '').trim()
+        combinedChoferes.unshift({
+            id_empleado: profile.id,
+            nombre: cleanProfileName,
+            apellido_paterno: '',
+            departamento: 'Chofer Registrado',
+            puesto: profile.rol || 'Chofer'
+        })
     }
 
     setChoferes(combinedChoferes)
 
-    // Auto-select logged-in Chofer accurately
+    // Auto-select logged-in user or Adalberto Pinales by default
     if (profile?.id) {
         const matchedById = combinedChoferes.find(e => e.id_empleado === profile.id)
         if (matchedById) {
             setSelectedChofer(matchedById.id_empleado)
-        } else {
-            const profileClean = profile.nombre_completo.replace(/\s*\(Chofer\)/gi, '').trim().toLowerCase()
-            const matchedByName = combinedChoferes.find(e => {
-                const eClean = e.nombre.toLowerCase()
-                return profileClean.includes(eClean) || eClean.includes(profileClean)
-            })
-            if (matchedByName) {
-                setSelectedChofer(matchedByName.id_empleado)
-            } else if (combinedChoferes.length > 0) {
-                setSelectedChofer(combinedChoferes[0].id_empleado)
-            }
+        } else if (combinedChoferes.length > 0) {
+            setSelectedChofer(combinedChoferes[0].id_empleado)
         }
     } else if (combinedChoferes.length > 0) {
         setSelectedChofer(combinedChoferes[0].id_empleado)
@@ -283,6 +302,22 @@ export default function ChoferesClient() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error al crear choferes')
       setSeedingMsg('¡Las 6 cuentas de choferes han sido verificadas y activadas con éxito!')
+      fetchChoferesYFlota()
+    } catch (err: any) {
+      setSeedingMsg('Nota: ' + (err.message || 'Error de conexión'))
+    } finally {
+      setSeedingLoading(false)
+    }
+  }
+
+  const handleFixRolesBtn = async () => {
+    setSeedingLoading(true)
+    setSeedingMsg('')
+    try {
+      const res = await fetch('/api/fix-choferes-roles', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error al actualizar roles')
+      setSeedingMsg('¡Roles actualizados a "Chofer" para Adalberto Pinales y los 6 operadores en la Base de Datos!')
       fetchChoferesYFlota()
     } catch (err: any) {
       setSeedingMsg('Nota: ' + (err.message || 'Error de conexión'))
@@ -387,6 +422,80 @@ export default function ChoferesClient() {
     }
 
     alert(`🏁 ¡Ruta Concluida con Éxito en ${completedTrip.punto_b}!\n\n👥 Pasajeros que abordaron en A: ${completedTrip.pasajeros_subieron_a}\n👥 Pasajeros que descendieron en B: ${pasajerosB}`)
+  }
+
+  // Camera Facial Scanner Functions
+  const startFaceCamera = async () => {
+    setShowFaceCameraModal(true)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false
+      })
+      setCameraStream(stream)
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.play()
+      }
+    } catch (e: any) {
+      alert('No se pudo acceder a la cámara del dispositivo: ' + (e.message || 'Permiso denegado'))
+    }
+  }
+
+  const stopFaceCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop())
+      setCameraStream(null)
+    }
+    setShowFaceCameraModal(false)
+  }
+
+  const toggleFacingMode = async () => {
+    const newMode = facingMode === 'user' ? 'environment' : 'user'
+    setFacingMode(newMode)
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop())
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: newMode, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false
+      })
+      setCameraStream(stream)
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.play()
+      }
+    } catch (e: any) {
+      console.warn('Camera toggle error:', e)
+    }
+  }
+
+  const captureFaceScan = () => {
+    if (!videoRef.current || !canvasRef.current) return
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    canvas.width = video.videoWidth || 640
+    canvas.height = video.videoHeight || 480
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const fotoBase64 = canvas.toDataURL('image/jpeg', 0.8)
+
+      const now = new Date()
+      const horaStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
+      const newPassenger = {
+        id: 'FAC-' + Date.now(),
+        foto: fotoBase64,
+        hora: horaStr
+      }
+
+      setCapturedPasajeros(prev => [...prev, newPassenger])
+      setPasajerosA(prev => prev + 1)
+
+      alert('📸 ¡Rostro de trabajador escaneado y registrado! Se sumó 1 pasajero automáticamente.')
+    }
   }
 
   // Handle Fleet Vehicle Selection with Automatic Category Switch
@@ -665,13 +774,23 @@ export default function ChoferesClient() {
                 <div className="mt-4 pt-4 border-t border-zinc-800 space-y-3 animate-in fade-in">
                     <div className="flex justify-between items-center">
                         <div className="text-xs font-black text-amber-400 uppercase tracking-wider">Cuentas y Contraseñas Registradas de Choferes</div>
-                        <button
-                            onClick={handleSeedAccountsBtn}
-                            disabled={seedingLoading}
-                            className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg shadow-sm transition-all"
-                        >
-                            {seedingLoading ? 'Verificando...' : '⚡ Sincronizar / Crear Cuentas'}
-                        </button>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={handleFixRolesBtn}
+                                disabled={seedingLoading}
+                                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-black rounded-lg shadow-sm transition-all"
+                                title="Establecer rol 'Chofer' en perfiles de Supabase"
+                            >
+                                🛠️ Asignar Rol Chofer en BD
+                            </button>
+                            <button
+                                onClick={handleSeedAccountsBtn}
+                                disabled={seedingLoading}
+                                className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg shadow-sm transition-all"
+                            >
+                                {seedingLoading ? 'Verificando...' : '⚡ Sincronizar Cuentas'}
+                            </button>
+                        </div>
                     </div>
 
                     {seedingMsg && (
@@ -932,6 +1051,34 @@ export default function ChoferesClient() {
                                         {num}
                                     </button>
                                 ))}
+                            </div>
+
+                            {/* FACE SCANNER BUTTON & GALLERY */}
+                            <div className="pt-3 border-t border-zinc-200 text-center space-y-3">
+                                <button
+                                    type="button"
+                                    onClick={startFaceCamera}
+                                    className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-black rounded-xl shadow-md flex items-center justify-center gap-2 mx-auto transition-transform active:scale-95"
+                                >
+                                    <Camera className="w-4 h-4 text-amber-300" />
+                                    <span>📸 Escanear Rostro de Trabajador con Cámara</span>
+                                </button>
+
+                                {capturedPasajeros.length > 0 && (
+                                    <div className="space-y-1.5 text-left">
+                                        <label className="text-[10px] font-black uppercase text-purple-700 tracking-wider">
+                                            Rostros Escaneados en esta Salida ({capturedPasajeros.length}):
+                                        </label>
+                                        <div className="flex gap-2 overflow-x-auto pb-2 pt-1">
+                                            {capturedPasajeros.map((p, idx) => (
+                                                <div key={idx} className="relative shrink-0 w-16 text-center bg-white p-1 rounded-xl border border-purple-200 shadow-xs">
+                                                    <img src={p.foto} alt="Rostro" className="w-14 h-14 object-cover rounded-lg border border-purple-300" />
+                                                    <div className="text-[9px] font-mono font-bold text-zinc-700 mt-0.5">{p.hora}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -1429,7 +1576,58 @@ export default function ChoferesClient() {
                     Guardar y Registrar Salida Oficial
                 </button>
             </div>
-        </div>
+        {/* MODAL DE ESCÁNER DE ROSTRO EN VIVO CON CÁMARA */}
+        {showFaceCameraModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+                <div className="bg-zinc-900 text-white rounded-3xl p-6 max-w-sm w-full space-y-4 border border-zinc-800 relative shadow-2xl">
+                    <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+                        <div className="flex items-center gap-2">
+                            <Camera className="w-5 h-5 text-amber-400" />
+                            <span className="text-xs font-black uppercase tracking-wider text-amber-400">Escáner Facial de Pasajero</span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={stopFaceCamera}
+                            className="text-zinc-400 hover:text-white text-xs font-black p-1"
+                        >
+                            ✕ Cerrar
+                        </button>
+                    </div>
+
+                    {/* LIVE CAMERA VIEW WITH FACE TARGET OVERLAY */}
+                    <div className="relative rounded-2xl overflow-hidden bg-black aspect-4/3 border-2 border-indigo-500 shadow-inner flex items-center justify-center">
+                        <video ref={videoRef} playsInline autoPlay muted className="w-full h-full object-cover" />
+                        <canvas ref={canvasRef} className="hidden" />
+
+                        {/* FACE OVAL ALIGNMENT OVERLAY */}
+                        <div className="absolute inset-0 border-4 border-dashed border-emerald-400/60 rounded-full scale-75 pointer-events-none flex items-center justify-center">
+                            <span className="text-[10px] font-black uppercase text-emerald-300 bg-black/50 px-2 py-0.5 rounded-full tracking-widest animate-pulse">
+                                📸 ENCUADRE ROSTRO AQUÍ
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                        <button
+                            type="button"
+                            onClick={toggleFacingMode}
+                            className="px-3 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-2xl text-xs font-bold border border-zinc-700 flex items-center justify-center gap-1 shrink-0"
+                            title="Cambiar Cámara Frontal / Trasera"
+                        >
+                            🔄 Cámara
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={captureFaceScan}
+                            className="flex-1 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs rounded-2xl shadow-xl flex items-center justify-center gap-2 uppercase tracking-wider transform active:scale-95"
+                        >
+                            <Camera className="w-4 h-4" />
+                            <span>Capturar Rostro (+1 Pasajero)</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
         )}
     </div>
   )

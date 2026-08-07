@@ -69,7 +69,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         let normalizedRol = profData.rol || 'Jefe de Departamento'
                         const rolLower = normalizedRol.toLowerCase()
                         const nameLower = (profData.nombre_completo || '').toLowerCase()
-                        if (rolLower.includes('chofer') || rolLower.includes('conductor') || rolLower.includes('operador') || nameLower.includes('(chofer)')) normalizedRol = 'Chofer'
+                        const isChoferName = nameLower.includes('pinales') || nameLower.includes('yañez') || nameLower.includes('yanez') || nameLower.includes('vazquez') || nameLower.includes('linares') || nameLower.includes('madriles') || nameLower.includes('saucedo') || nameLower.includes('chofer')
+                        if (rolLower.includes('chofer') || rolLower.includes('conductor') || rolLower.includes('operador') || isChoferName) normalizedRol = 'Chofer'
                         else if (rolLower.includes('jefe médico') || rolLower.includes('jefe medico') || nameLower.includes('jefe médico') || nameLower.includes('jefe medico')) normalizedRol = 'Jefe Médico'
                         else if (rolLower.includes('médico') || rolLower.includes('medico') || nameLower.includes('médico') || nameLower.includes('medico')) normalizedRol = 'Médico'
                         else if (rolLower.includes('campamento') || rolLower.includes('comedor') || rolLower.includes('encargado de campamento')) normalizedRol = 'Encargado de Campamento y Comedor'
