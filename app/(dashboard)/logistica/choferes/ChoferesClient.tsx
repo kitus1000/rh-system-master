@@ -721,25 +721,23 @@ export default function ChoferesClient() {
         </div>
 
         {/* Pestañas de Navegación */}
-        {selectedChofer && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1.5 bg-zinc-200/80 rounded-2xl">
-                <button onClick={() => setActiveTab('bitacora_ruta')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'bitacora_ruta' ? 'bg-emerald-600 text-white shadow-md' : 'text-zinc-700 hover:text-black'}`}>
-                    <Bus className="w-4 h-4" /> Bitácora Ruta A➔B
-                </button>
-                <button onClick={() => setActiveTab('reporte')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'reporte' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
-                    <FileSignature className="w-4 h-4 text-emerald-600" /> Inspección
-                </button>
-                <button onClick={() => setActiveTab('programar')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'programar' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
-                    <Calendar className="w-4 h-4 text-indigo-600" /> Programar
-                </button>
-                <button onClick={() => setActiveTab('historial')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'historial' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
-                    <History className="w-4 h-4 text-amber-600" /> Historial Inspección
-                </button>
-            </div>
-        )}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1.5 bg-zinc-200/80 rounded-2xl">
+            <button onClick={() => setActiveTab('bitacora_ruta')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'bitacora_ruta' ? 'bg-emerald-600 text-white shadow-md' : 'text-zinc-700 hover:text-black'}`}>
+                <Bus className="w-4 h-4" /> Bitácora Ruta A➔B
+            </button>
+            <button onClick={() => setActiveTab('reporte')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'reporte' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
+                <FileSignature className="w-4 h-4 text-emerald-600" /> Inspección
+            </button>
+            <button onClick={() => setActiveTab('programar')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'programar' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
+                <Calendar className="w-4 h-4 text-indigo-600" /> Programar
+            </button>
+            <button onClick={() => setActiveTab('historial')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'historial' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
+                <History className="w-4 h-4 text-amber-600" /> Historial Inspección
+            </button>
+        </div>
 
         {/* TAB 0: BITÁCORA DE RUTA EN TIEMPO REAL (PUNTO A -> PUNTO B) - MOBILE FIRST */}
-        {selectedChofer && activeTab === 'bitacora_ruta' && (
+        {activeTab === 'bitacora_ruta' && (
             <div className="space-y-6 animate-in fade-in">
                 {/* SI HAY UN VIAJE EN CURSO */}
                 {viajeRutaActivo ? (

@@ -131,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // RBAC Route Guarding Logic
     useEffect(() => {
-        if (loading || !profile) return
+        if (loading || !profile || !pathname) return
         
         let denied = false
 

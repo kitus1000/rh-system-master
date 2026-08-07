@@ -32,13 +32,26 @@ export default function UsuariosPage() {
 
     async function fetchData() {
         setLoading(true)
-        const [usersRes, deptsRes] = await Promise.all([
-            supabase.from('perfiles').select('*, cat_departamentos(departamento)').order('nombre_completo'),
-            supabase.from('cat_departamentos').select('*').eq('activo', true).order('departamento')
-        ])
-        if (usersRes.data) setUsuarios(usersRes.data)
-        if (deptsRes.data) setDepartamentos(deptsRes.data)
-        setLoading(false)
+        try {
+            let usersData: any[] = []
+            const usersRes = await supabase.from('perfiles').select('*, cat_departamentos(departamento)').order('nombre_completo')
+            
+            if (usersRes.error) {
+                console.warn('Perfiles join error, fallback to simple select:', usersRes.error.message)
+                const baseRes = await supabase.from('perfiles').select('*').order('nombre_completo')
+                if (baseRes.data) usersData = baseRes.data
+            } else if (usersRes.data) {
+                usersData = usersRes.data
+            }
+            setUsuarios(usersData)
+
+            const deptsRes = await supabase.from('cat_departamentos').select('*').eq('activo', true).order('departamento')
+            if (deptsRes.data) setDepartamentos(deptsRes.data)
+        } catch (err) {
+            console.error('Error fetching usuarios:', err)
+        } finally {
+            setLoading(false)
+        }
     }
 
     async function handleSubmit(e: React.FormEvent) {
