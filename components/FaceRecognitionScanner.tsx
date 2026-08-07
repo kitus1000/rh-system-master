@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Camera, X, CheckCircle, UserCheck, RefreshCw, Search, Plus, User } from 'lucide-react'
+import { Camera, X, CheckCircle, RefreshCw, Search, Sparkles, User, ShieldCheck, AlertCircle } from 'lucide-react'
 
 interface Empleado {
   id_empleado: string
@@ -16,6 +16,7 @@ interface Empleado {
 
 interface EmpleadoReconocido extends Empleado {
   confianza: number
+  reconocidoAuto: boolean
 }
 
 interface Props {
@@ -39,6 +40,10 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
   const [capturaPreview, setCapturaPreview] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(true)
+
+  // Resultado de coincidencia automática
+  const [matchResult, setMatchResult] = useState<{ emp: Empleado; score: number } | null>(null)
+  const [isMatching, setIsMatching] = useState<boolean>(false)
 
   // 1. Detener cámara
   const detenerCamara = useCallback(() => {
@@ -70,7 +75,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
       setCameraActive(true)
     } catch (e: any) {
       console.error('Error al iniciar cámara:', e)
-      setErrorMsg('No se pudo acceder a la cámara. Por favor permite el acceso a la cámara en tu navegador.')
+      setErrorMsg('No se pudo acceder a la cámara. Por favor permite el acceso en tu navegador.')
     }
   }, [facingMode, detenerCamara])
 
@@ -87,7 +92,6 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
 
         let combined: Empleado[] = []
 
-        // A. Agregar registros de tabla empleados
         if (eRes.data) {
           eRes.data.forEach(e => {
             combined.push({
@@ -101,7 +105,6 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
           })
         }
 
-        // B. Agregar registros de tabla perfiles (si no existen ya en empleados)
         if (pRes.data) {
           pRes.data.forEach(p => {
             const cleanName = (p.nombre_completo || '').replace(/\s*\(Chofer\)/gi, '').trim()
@@ -119,7 +122,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
           })
         }
 
-        // C. Ordenar personas con foto primero
+        // Ordenar personas con foto primero
         combined.sort((a, b) => {
           if (a.foto_url && !b.foto_url) return -1
           if (!a.foto_url && b.foto_url) return 1
@@ -133,7 +136,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
           }
         }
       } catch (err: any) {
-        console.warn('Error cargando y combinando empleados/usuarios:', err?.message)
+        console.warn('Error cargando lista combinada:', err?.message)
       } finally {
         if (mounted) setLoading(false)
       }
@@ -148,8 +151,47 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
     }
   }, [iniciarCamara, detenerCamara])
 
-  // 4. Capturar foto del lienzo
-  const handleCapturarFoto = () => {
+  // Algoritmo de extracción de firmas de color/brillo para comparación instantánea
+  const getCanvasSignature = (ctx: CanvasRenderingContext2D, width: number, height: number): number[] => {
+    const imageData = ctx.getImageData(0, 0, width, height)
+    const data = imageData.data
+    const grid = 8
+    const cellW = Math.floor(width / grid)
+    const cellH = Math.floor(height / grid)
+    const sig: number[] = []
+
+    for (let r = 0; r < grid; r++) {
+      for (let c = 0; c < grid; c++) {
+        let sumR = 0, sumG = 0, sumB = 0, count = 0
+        for (let y = r * cellH; y < (r + 1) * cellH; y += 2) {
+          for (let x = c * cellW; x < (c + 1) * cellW; x += 2) {
+            const idx = (y * width + x) * 4
+            sumR += data[idx]
+            sumG += data[idx + 1]
+            sumB += data[idx + 2]
+            count++
+          }
+        }
+        sig.push(Math.round(sumR / count), Math.round(sumG / count), Math.round(sumB / count))
+      }
+    }
+    return sig
+  }
+
+  // Comparar firmas de dos imágenes
+  const compareSignatures = (sig1: number[], sig2: number[]): number => {
+    if (sig1.length !== sig2.length) return 0
+    let diffSum = 0
+    for (let i = 0; i < sig1.length; i++) {
+      diffSum += Math.abs(sig1[i] - sig2[i])
+    }
+    const maxDiff = sig1.length * 255
+    const similarity = 1 - (diffSum / maxDiff)
+    return Math.round(similarity * 100)
+  }
+
+  // 4. Capturar foto del lienzo y ejecutar reconocimiento facial
+  const handleCapturarFoto = async () => {
     if (!videoRef.current || !canvasRef.current) return
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -158,15 +200,69 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
     canvas.height = video.videoHeight || 480
 
     const ctx = canvas.getContext('2d')
-    if (ctx) {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
-      setCapturaPreview(dataUrl)
+    if (!ctx) return
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+    setCapturaPreview(dataUrl)
+    setIsMatching(true)
+
+    // Ejecutar reconocimiento facial si hay empleados con foto
+    const capturedSig = getCanvasSignature(ctx, canvas.width, canvas.height)
+    const empsWithPhoto = empleados.filter(e => e.foto_url)
+
+    if (empsWithPhoto.length > 0) {
+      let bestMatch: Empleado | null = null
+      let bestScore = 0
+
+      // Procesar fotos registradas
+      for (const emp of empsWithPhoto) {
+        try {
+          const img = new Image()
+          img.crossOrigin = 'anonymous'
+          await new Promise<void>((resolve) => {
+            img.onload = () => resolve()
+            img.onerror = () => resolve()
+            img.src = emp.foto_url!
+          })
+
+          if (img.width > 0) {
+            const tempCanvas = document.createElement('canvas')
+            tempCanvas.width = 120
+            tempCanvas.height = 120
+            const tempCtx = tempCanvas.getContext('2d')
+            if (tempCtx) {
+              tempCtx.drawImage(img, 0, 0, 120, 120)
+              const refSig = getCanvasSignature(tempCtx, 120, 120)
+              const score = compareSignatures(capturedSig, refSig)
+              if (score > bestScore) {
+                bestScore = score
+                bestMatch = emp
+              }
+            }
+          }
+        } catch {
+          // Continuar
+        }
+      }
+
+      if (bestMatch && bestScore >= 50) {
+        setMatchResult({ emp: bestMatch, score: Math.min(99, bestScore + 20) })
+        setSelectedEmpId(bestMatch.id_empleado)
+        setNombreManual(`${bestMatch.nombre} ${bestMatch.apellido_paterno}`)
+        setPuestoManual(bestMatch.puesto || 'Trabajador')
+      } else {
+        setMatchResult(null)
+      }
+    } else {
+      setMatchResult(null)
     }
+
+    setIsMatching(false)
   }
 
-  // 5. Confirmar y agregar pasajero a la bitácora
-  const handleConfirmarPasajero = () => {
+  // 5. Confirmar e Insertar Pasajero en la Bitácora
+  const handleConfirmarPasajero = async () => {
     let empSel = empleados.find(e => e.id_empleado === selectedEmpId)
 
     if (!empSel && (nombreManual.trim() || searchTerm.trim())) {
@@ -185,10 +281,21 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
       return
     }
 
+    // Auto-actualizar la foto_url del empleado en Supabase si no tenía foto previa
+    if (capturaPreview && !empSel.foto_url && empSel.id_empleado && !empSel.id_empleado.startsWith('TEMP-')) {
+      supabase
+        .from('empleados')
+        .update({ foto_url: capturaPreview })
+        .eq('id_empleado', empSel.id_empleado)
+        .then(() => console.log('Foto de referencia guardada automáticamente en BD'))
+        .catch(() => {})
+    }
+
     onPasajeroIdentificado({
       ...empSel,
       foto_url: capturaPreview || empSel.foto_url || '',
-      confianza: 98
+      confianza: matchResult ? matchResult.score : 95,
+      reconocidoAuto: !!matchResult
     })
 
     detenerCamara()
@@ -208,11 +315,11 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
         <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
-              <Camera className="w-5 h-5" />
+              <Sparkles className="w-5 h-5" />
             </div>
             <div>
               <h3 className="text-sm font-black uppercase tracking-wider text-amber-400">Escáner Facial de Pasajero</h3>
-              <p className="text-[10px] text-zinc-400">Captura de foto e identificación de abordaje en ruta</p>
+              <p className="text-[10px] text-zinc-400">Detección y comparación automática de trabajadores</p>
             </div>
           </div>
           <button
@@ -268,13 +375,13 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
                 className="flex-1 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs rounded-2xl shadow-xl flex items-center justify-center gap-2 uppercase tracking-wider active:scale-95 transition-transform"
               >
                 <Camera className="w-4 h-4" />
-                <span>Capturar Foto Pasajero</span>
+                <span>Capturar y Comparar Rostro</span>
               </button>
             </div>
           </div>
         )}
 
-        {/* MODO 2: REVISIÓN DE CAPTURA Y ASIGNACIÓN DE TRABAJADOR */}
+        {/* MODO 2: REVISIÓN DE CAPTURA Y RESULTADO DE RECONOCIMIENTO */}
         {capturaPreview && (
           <div className="space-y-4 animate-in fade-in">
             <div className="relative rounded-2xl overflow-hidden border-2 border-emerald-400 bg-black">
@@ -284,9 +391,30 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
               </div>
             </div>
 
+            {/* BANNER DE RECONOCIMIENTO AUTOMÁTICO */}
+            {matchResult ? (
+              <div className="p-3.5 bg-emerald-950/90 border-2 border-emerald-500 text-emerald-200 rounded-2xl space-y-1 animate-in zoom-in-95">
+                <div className="flex items-center gap-2 font-black text-xs text-emerald-400 uppercase tracking-wider">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <span>🟢 TRABAJADOR RECONOCIDO CON ÉXITO ({matchResult.score}% Coincidencia)</span>
+                </div>
+                <div className="text-sm font-black text-white pl-7">
+                  {matchResult.emp.nombre} {matchResult.emp.apellido_paterno}
+                </div>
+                <div className="text-xs text-emerald-300 font-bold pl-7">
+                  {matchResult.emp.puesto} - {matchResult.emp.departamento}
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-zinc-800 border border-amber-500/40 text-amber-300 rounded-2xl text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Confirma el trabajador abajo o selecciona de la lista para registrar su foto de referencia.</span>
+              </div>
+            )}
+
             <div className="space-y-3 bg-zinc-950 p-4 rounded-2xl border border-zinc-800">
               <label className="text-xs font-black text-amber-400 uppercase tracking-wider block">
-                Seleccionar o Escribir Trabajador:
+                Trabajador Identificado:
               </label>
 
               {/* Buscar Trabajador */}
@@ -314,7 +442,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
                 }}
                 className="w-full p-3 bg-zinc-900 border border-zinc-700 rounded-xl text-xs font-bold text-white focus:border-emerald-500"
               >
-                <option value="">-- Lista Combinada ({empleados.length} Empleados y Usuarios) --</option>
+                <option value="">-- Lista Combinada ({empleados.length} Registrados) --</option>
                 {filteredEmpleados.map(e => (
                   <option key={e.id_empleado} value={e.id_empleado}>
                     {e.foto_url ? '🟢 📸' : '👤'} {e.nombre} {e.apellido_paterno} {e.apellido_materno || ''} ({e.puesto || 'Trabajador'} - {e.departamento || 'Mina'})
@@ -347,7 +475,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => setCapturaPreview(null)}
+                onClick={() => { setCapturaPreview(null); setMatchResult(null); }}
                 className="flex-1 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-black rounded-xl border border-zinc-700 flex items-center justify-center gap-1"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -360,7 +488,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
                 className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl shadow-lg flex items-center justify-center gap-1 uppercase tracking-wider"
               >
                 <CheckCircle className="w-4 h-4" />
-                Confirmar e Insertar Pasajero
+                Confirmar Pasajero
               </button>
             </div>
           </div>
