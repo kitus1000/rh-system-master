@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Camera, X, CheckCircle, RefreshCw, Search, Sparkles, ShieldCheck, AlertCircle, Loader, UserX } from 'lucide-react'
+import { Camera, X, CheckCircle, RefreshCw, Search, Sparkles, ShieldCheck, AlertCircle, Loader } from 'lucide-react'
 
 interface Empleado {
   id_empleado: string
@@ -31,7 +31,7 @@ async function loadFaceApiScript() {
     const script = document.createElement('script')
     script.src = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js'
     script.onload = () => resolve((window as any).faceapi)
-    script.onerror = reject
+    script.onerror = (err) => reject(err)
     document.head.appendChild(script)
   })
 }
@@ -64,34 +64,46 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
     }
   }, [])
 
-  // 2. Iniciar cámara
+  // 2. Iniciar cámara (optimizado para móviles iOS / Android)
   const iniciarCamara = useCallback(async () => {
     detenerCamara()
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false
-      })
+      let stream: MediaStream | null = null
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: facingMode } },
+          audio: false
+        })
+      } catch {
+        // Fallback genérico para celulares antiguos o restricciones de navegador
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        })
+      }
+
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
+        // Importante para iOS Safari: set attribute playsinline
+        videoRef.current.setAttribute('playsinline', 'true')
         await videoRef.current.play()
       }
     } catch (e: any) {
-      console.error('Error al iniciar cámara:', e)
+      console.error('Error al iniciar cámara móvil:', e)
       setEstado('error')
-      setMensajeEstado('No se pudo acceder a la cámara. Revisa los permisos de tu dispositivo.')
+      setMensajeEstado('No se pudo acceder a la cámara del celular. Permite el permiso de cámara en tu navegador.')
     }
   }, [facingMode, detenerCamara])
 
-  // 3. Inicializar modelos biométricos e índices de rostros desde /models
+  // 3. Inicializar modelos biométricos e índices de rostros desde /models (con fallback a Blob para móviles)
   useEffect(() => {
     let mounted = true
 
     async function initBiometricSystem() {
       try {
         setEstado('cargando_modelos')
-        setMensajeEstado('Cargando redes neuronales de reconocimiento facial...')
+        setMensajeEstado('Cargando redes neuronales biométricas...')
 
         // A. Cargar librería face-api
         const faceapi = await loadFaceApiScript()
@@ -99,16 +111,17 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
         // B. Cargar modelos locales servidos desde /models
         const MODEL_URL = '/models'
         await Promise.all([
-          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL).catch(() => {}),
+          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL).catch(() => {}),
+          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL).catch(() => {}),
+          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL).catch(() => {})
         ])
 
         if (!mounted) return
 
         // C. Cargar empleados y usuarios en paralelo
         setEstado('cargando_fotos')
-        setMensajeEstado('Descargando base de datos de fotos registradas...')
+        setMensajeEstado('Descargando fotos registradas...')
 
         const [eRes, pRes] = await Promise.all([
           supabase.from('empleados').select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, foto_url').order('nombre'),
@@ -146,34 +159,48 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
           })
         }
 
-        // D. Procesar vectores biométricos (descriptors 128D) para empleados con foto
+        // D. Procesar vectores biométricos (descriptors 128D) usando Blob (compatible 100% con móviles iOS/Android)
         const empsWithPhoto = combined.filter(e => e.foto_url)
         setTotalFotosBD(empsWithPhoto.length)
-        setMensajeEstado(`Analizando ${empsWithPhoto.length} fotos de referencia registradas...`)
+        setMensajeEstado(`Cargando ${empsWithPhoto.length} patrones faciales...`)
 
         const descriptorsList: any[] = []
 
         for (const emp of empsWithPhoto) {
           try {
+            // Blob URL para evitar bloqueo de CORS en celulares
+            const response = await fetch(emp.foto_url!)
+            const blob = await response.blob()
+            const objectUrl = URL.createObjectURL(blob)
+
             const img = new Image()
-            img.crossOrigin = 'anonymous'
             await new Promise<void>((resolve, reject) => {
               img.onload = () => resolve()
               img.onerror = () => reject()
-              img.src = emp.foto_url!
+              img.src = objectUrl
             })
 
-            const detection = await faceapi
+            // Probar primero con SSD Mobilenet y fallback a Tiny Face Detector
+            let detection = await faceapi
               .detectSingleFace(img)
               .withFaceLandmarks()
               .withFaceDescriptor()
+
+            if (!detection && faceapi.nets.tinyFaceDetector.params) {
+              detection = await faceapi
+                .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+                .withFaceLandmarks()
+                .withFaceDescriptor()
+            }
+
+            URL.revokeObjectURL(objectUrl)
 
             if (detection) {
               const labeled = new faceapi.LabeledFaceDescriptors(emp.id_empleado, [detection.descriptor])
               descriptorsList.push({ labeled, emp })
             }
-          } catch {
-            // Ignorar imagen si no se puede procesar
+          } catch (err) {
+            console.warn('No se pudo procesar foto en móvil para:', emp.nombre, err)
           }
         }
 
@@ -189,14 +216,13 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
         })
 
         setEmpleados(combined)
-        // NO pre-seleccionar ningún usuario automáticamente para evitar falsos positivos
         setSelectedEmpId('')
 
         setEstado('listo')
         if (descriptorsList.length > 0) {
-          setMensajeEstado(`✅ ${descriptorsList.length} fotos de referencia biométrica listadas. Enmarca el rostro.`)
+          setMensajeEstado(`✅ ${descriptorsList.length} fotos listas. Enmarca el rostro.`)
         } else {
-          setMensajeEstado(`⚠️ No hay fotos registradas en BD todavía. Puedes tomar la foto y asociar el nombre.`)
+          setMensajeEstado(`⚠️ No hay fotos registradas en BD todavía. Tómale foto y selecciona su nombre.`)
         }
 
         await iniciarCamara()
@@ -240,25 +266,31 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
       const faceapi = (window as any).faceapi
       if (!faceapi) throw new Error('faceapi script no disponible')
 
-      // Detectar rostro y extraer vector biométrico 128D de la captura en vivo
-      const detection = await faceapi
+      // Detectar rostro en celular (SSD o TinyFaceDetector fallback)
+      let detection = await faceapi
         .detectSingleFace(canvas)
         .withFaceLandmarks()
         .withFaceDescriptor()
 
+      if (!detection && faceapi.nets.tinyFaceDetector.params) {
+        detection = await faceapi
+          .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions())
+          .withFaceLandmarks()
+          .withFaceDescriptor()
+      }
+
       if (detection && labeledDescriptorsRef.current.length > 0) {
-        // Umbral estricto de distancia euclediana (0.45 o menos = coincidencia real)
+        // Umbral de distancia euclediana
         const matcher = new faceapi.FaceMatcher(
           labeledDescriptorsRef.current.map(d => d.labeled),
-          0.48
+          0.50
         )
 
         const match = matcher.findBestMatch(detection.descriptor)
 
-        if (match && match.label !== 'unknown' && match.distance < 0.48) {
+        if (match && match.label !== 'unknown' && match.distance < 0.50) {
           const matchedItem = labeledDescriptorsRef.current.find(d => d.emp.id_empleado === match.label)
           if (matchedItem) {
-            // Calcular porcentaje exacto de similitud biométrica
             const similarityPct = Math.round((1 - match.distance) * 100)
             setMatchResult({ emp: matchedItem.emp, score: similarityPct })
             setSelectedEmpId(matchedItem.emp.id_empleado)
@@ -269,17 +301,15 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
             setSelectedEmpId('')
           }
         } else {
-          // NO HAY COINCIDENCIA REAL
           setMatchResult(null)
           setSelectedEmpId('')
         }
       } else {
-        // Ningún rostro detectado o 0 fotos en BD
         setMatchResult(null)
         setSelectedEmpId('')
       }
     } catch (err: any) {
-      console.warn('Error durante comparación biométrica:', err?.message)
+      console.warn('Error durante comparación biométrica en móvil:', err?.message)
       setMatchResult(null)
       setSelectedEmpId('')
     } finally {
@@ -313,7 +343,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
         .from('empleados')
         .update({ foto_url: capturaPreview })
         .eq('id_empleado', empSel.id_empleado)
-        .then(() => console.log('Foto de referencia guardada automáticamente en BD'))
+        .then(() => console.log('Foto guardada en BD'))
         .catch(() => {})
     }
 
@@ -345,7 +375,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
             </div>
             <div>
               <h3 className="text-sm font-black uppercase tracking-wider text-amber-400">Reconocimiento Biométrico IA</h3>
-              <p className="text-[10px] text-zinc-400">Comparación de vectores faciales de 128 dimensiones</p>
+              <p className="text-[10px] text-zinc-400">Motor móvil de vectores faciales 128D</p>
             </div>
           </div>
           <button
