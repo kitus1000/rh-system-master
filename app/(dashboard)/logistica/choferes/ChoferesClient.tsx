@@ -151,6 +151,40 @@ export default function ChoferesClient() {
   const [firmaRHData, setFirmaRHData] = useState<string | null>(null)
   const [rhApproved, setRhApproved] = useState(false)
 
+  // Validación estricta de rol para Recursos Humanos / Administrador
+  const isRHOrAdmin = profile?.rol === 'Administrativo' || 
+                      profile?.rol === 'Superintendente' || 
+                      profile?.rol === 'Jefe de Departamento' || 
+                      (profile?.rol || '').toLowerCase().includes('rh') || 
+                      (profile?.rol || '').toLowerCase().includes('recursos humanos')
+
+  const handleAprobarRHEnModal = async (reporte: any) => {
+    if (!isRHOrAdmin) {
+      alert('⚠️ Solo el personal con perfil de Recursos Humanos o Administrador puede autorizar esta salida.')
+      return
+    }
+    const nombreRH = profile?.nombre_completo || 'Recursos Humanos'
+    try {
+      if (reporte.id_reporte && isUUID(reporte.id_reporte)) {
+        await supabase.from('logistica_reportes_diarios')
+          .update({ firma_rh_url: 'APROBADO_RH', firma_rh_nombre: nombreRH })
+          .eq('id_reporte', reporte.id_reporte)
+      }
+      const updated = { ...reporte, firma_rh_url: 'APROBADO_RH', firma_rh_nombre: nombreRH }
+      setSelectedReporteModal(updated)
+      setMiHistorial(prev => prev.map(r => (r.id_reporte === reporte.id_reporte || r.creado_el === reporte.creado_el) ? updated : r))
+      
+      // Actualizar también en LocalStorage
+      const local = JSON.parse(localStorage.getItem('rh_reportes_local_backup') || '[]')
+      const updatedLocal = local.map((r: any) => (r.id_reporte === reporte.id_reporte || r.creado_el === reporte.creado_el) ? updated : r)
+      localStorage.setItem('rh_reportes_local_backup', JSON.stringify(updatedLocal))
+
+      alert(`✅ ¡Visto Bueno de Recursos Humanos estampado con éxito por ${nombreRH}!`)
+    } catch (err: any) {
+      alert('Error al autorizar: ' + err.message)
+    }
+  }
+
   // Loading state
   const [saving, setSaving] = useState(false)
 
@@ -1476,14 +1510,14 @@ export default function ChoferesClient() {
                                 </div>
                             )}
 
-                            {/* Firmas Digitales */}
+                            {/* Firmas Digitales y Sello de Recursos Humanos */}
                             <div className="space-y-2">
-                                <span className="text-[10px] font-black uppercase text-zinc-500">Firmas Digitales de Autorización</span>
-                                <div className="grid grid-cols-2 gap-2 text-center">
+                                <span className="text-[10px] font-black uppercase text-zinc-500">Firmas Digitales y Visto Bueno Oficial</span>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
                                     {selectedReporteModal.firma_chofer_url ? (
                                         <div className="p-2 border border-zinc-200 rounded-xl bg-zinc-50">
-                                            <img src={selectedReporteModal.firma_chofer_url} alt="Firma Chofer" className="h-14 mx-auto object-contain" />
-                                            <span className="text-[9px] font-bold text-zinc-500 block border-t pt-1 mt-1">Firma Chofer</span>
+                                            <img src={selectedReporteModal.firma_chofer_url} alt="Firma Chofer" className="h-12 mx-auto object-contain" />
+                                            <span className="text-[9px] font-bold text-zinc-600 block border-t pt-1 mt-1">Firma Chofer</span>
                                         </div>
                                     ) : (
                                         <div className="p-3 border border-dashed rounded-xl text-[10px] text-zinc-400 flex items-center justify-center">Sin Firma Chofer</div>
@@ -1491,12 +1525,37 @@ export default function ChoferesClient() {
 
                                     {selectedReporteModal.firma_guardia_url ? (
                                         <div className="p-2 border border-zinc-200 rounded-xl bg-zinc-50">
-                                            <img src={selectedReporteModal.firma_guardia_url} alt="Firma Guardia" className="h-14 mx-auto object-contain" />
-                                            <span className="text-[9px] font-bold text-zinc-500 block border-t pt-1 mt-1">Firma Guardia</span>
+                                            <img src={selectedReporteModal.firma_guardia_url} alt="Firma Guardia" className="h-12 mx-auto object-contain" />
+                                            <span className="text-[9px] font-bold text-zinc-600 block border-t pt-1 mt-1">Firma Guardia</span>
                                         </div>
                                     ) : (
                                         <div className="p-3 border border-dashed rounded-xl text-[10px] text-zinc-400 flex items-center justify-center">Sin Firma Guardia</div>
                                     )}
+
+                                    {/* Sello de RH */}
+                                    <div className="p-2 border border-emerald-200 rounded-xl bg-emerald-50/50 flex flex-col justify-between items-center min-h-[70px]">
+                                        {selectedReporteModal.firma_rh_url ? (
+                                            <div className="my-auto space-y-0.5">
+                                                <span className="text-xs font-black text-emerald-700 block">✓ AUTORIZADO RH</span>
+                                                <span className="text-[9px] font-bold text-emerald-800 block">
+                                                    {selectedReporteModal.firma_rh_nombre || 'Recursos Humanos'}
+                                                </span>
+                                            </div>
+                                        ) : isRHOrAdmin ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleAprobarRHEnModal(selectedReporteModal)}
+                                                className="my-auto px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] rounded-lg shadow-sm transition-all"
+                                            >
+                                                + Estampar Sello RH
+                                            </button>
+                                        ) : (
+                                            <span className="my-auto text-[10px] text-amber-700 font-bold">
+                                                ⏳ Pendiente de RH
+                                            </span>
+                                        )}
+                                        <span className="text-[9px] font-bold text-zinc-600 block border-t border-emerald-200 w-full pt-1 mt-1">V.B. Recursos Humanos</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1847,28 +1906,37 @@ export default function ChoferesClient() {
                     </div>
                 </div>
 
-                {/* Confirmación RH */}
-                <div className="bg-emerald-50/60 border border-emerald-200 p-4 rounded-2xl flex items-center justify-between">
+                {/* Confirmación RH (Exclusivo para Perfiles de Recursos Humanos / Administrador) */}
+                <div className="bg-emerald-50/60 border border-emerald-200 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div>
                         <div className="text-xs font-black text-emerald-950 uppercase flex items-center gap-1.5">
                             <Sparkles className="w-4 h-4 text-emerald-600" />
                             3. Visto Bueno de Recursos Humanos / Logística
                         </div>
                         <div className="text-[10px] text-emerald-800 font-semibold mt-0.5">
-                            Estampar sello digital de Recursos Humanos para autorizar la salida oficial.
+                            {isRHOrAdmin 
+                                ? `Estampar sello de autorización oficial como ${profile?.nombre_completo || 'RH'}.` 
+                                : 'Esta validación es obligatoria pero debe ser aprobada desde el perfil de Recursos Humanos.'}
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => setRhApproved(!rhApproved)}
-                        className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
-                            rhApproved 
-                                ? 'bg-emerald-600 text-white shadow-md' 
-                                : 'bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
-                        }`}
-                    >
-                        {rhApproved ? '✓ AUTORIZADO POR RH' : '+ Confirmar RH'}
-                    </button>
+                    {isRHOrAdmin ? (
+                        <button
+                            type="button"
+                            onClick={() => setRhApproved(!rhApproved)}
+                            className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all shrink-0 ${
+                                rhApproved 
+                                    ? 'bg-emerald-600 text-white shadow-md' 
+                                    : 'bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                            }`}
+                        >
+                            {rhApproved ? `✓ AUTORIZADO POR RH (${profile?.nombre_completo || 'RH'})` : '+ Autorizar Visto Bueno de RH'}
+                        </button>
+                    ) : (
+                        <div className="px-3.5 py-2 bg-zinc-100 border border-zinc-300 rounded-xl text-[11px] font-bold text-zinc-600 flex items-center gap-1.5 shrink-0">
+                            <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
+                            <span>Pendiente de Firma RH (Solo Personal RH)</span>
+                        </div>
+                    )}
                 </div>
             </section>
 
