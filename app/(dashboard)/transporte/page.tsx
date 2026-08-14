@@ -81,10 +81,6 @@ export default function TransporteDashboard() {
     const [editCapacidad, setEditCapacidad] = useState('37')
     const [savingEdit, setSavingEdit] = useState(false)
 
-    // Filtros de Solicitudes
-    const filterFechaStart = viajesDateStart // re-use start date filter
-    const filterFechaEnd = viajesDateEnd // re-use end date filter
-
     // Multi-selection states
     const [selectedViajeIds, setSelectedViajeIds] = useState<string[]>([])
     const [selectedSolicitudIds, setSelectedSolicitudIds] = useState<string[]>([])
@@ -95,6 +91,10 @@ export default function TransporteDashboard() {
     const [viajesEstadoFilter, setViajesEstadoFilter] = useState('TODOS')
     const [viajesDateStart, setViajesDateStart] = useState('')
     const [viajesDateEnd, setViajesDateEnd] = useState('')
+
+    // Filtros de Solicitudes
+    const filterFechaStart = viajesDateStart // re-use start date filter
+    const filterFechaEnd = viajesDateEnd // re-use end date filter
 
     // Filter states for Solicitudes de Personal
     const [solicitudesSearch, setSolicitudesSearch] = useState('')

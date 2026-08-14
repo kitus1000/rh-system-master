@@ -460,8 +460,7 @@ export default function FaceRecognitionScanner({ onPasajeroIdentificado, onCerra
         .from('empleados')
         .update({ foto_url: capturaPreview })
         .eq('id_empleado', empSel.id_empleado)
-        .then(() => console.log('Foto guardada en BD'))
-        .catch(() => {})
+        .then(() => console.log('Foto guardada en BD'), () => {})
     }
 
     onPasajeroIdentificado({

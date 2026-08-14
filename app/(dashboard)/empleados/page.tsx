@@ -109,7 +109,9 @@ export default function EmpleadosPage() {
         ]
 
         for (const c of choferesData) {
-            await supabase.from('empleados').insert([c]).catch(() => {})
+            try {
+                await supabase.from('empleados').insert([c])
+            } catch (e) {}
         }
     }
 

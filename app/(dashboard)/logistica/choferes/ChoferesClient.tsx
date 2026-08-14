@@ -3,21 +3,24 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { useAuth } from '@/components/AuthProvider'
-import { Bus, Camera, Car, CheckCircle, Droplet, FileSignature, FileText, Fuel, Upload, User, Save, Download, Truck, Calendar, History, Clock, MapPin, AlertTriangle, ShieldCheck, ShieldAlert, Ambulance, Cross, Sparkles, Wrench, Radio, Stethoscope, RefreshCw } from 'lucide-react'
+import { 
+  Bus, Camera, Car, CheckCircle, Droplet, FileSignature, FileText, Fuel, 
+  Upload, User, Save, Download, Truck, Calendar, History, Clock, MapPin, 
+  AlertTriangle, ShieldCheck, ShieldAlert, Ambulance, Sparkles, RefreshCw, 
+  QrCode, UserPlus, Trash2, StopCircle, Play, Volume2, VolumeX, CheckCircle2 
+} from 'lucide-react'
 import SignatureCanvas from 'react-signature-canvas'
 import { jsPDF } from 'jspdf'
-import dynamic from 'next/dynamic'
 import Link from 'next/link'
-
-const FaceRecognitionScanner = dynamic(() => import('@/components/FaceRecognitionScanner'), { ssr: false })
 
 interface Chofer {
   id_empleado: string
   nombre: string
-  apellido_paterno: string
+  apellido_paterno?: string
   apellido_materno?: string
   departamento?: string
   puesto?: string
+  numero_economico?: string
 }
 
 interface Viaje {
@@ -35,43 +38,96 @@ interface VehiculoFlota {
   activo: boolean
 }
 
+interface PasajeroEscaneado {
+  id: string
+  nombre: string
+  puesto?: string
+  departamento?: string
+  hora: string
+  metodo: 'QR' | 'Manual'
+}
+
+// 6 Choferes Oficiales Registrados
+const DRIVERS_ROSTER = [
+  { nombre: 'Adalberto Pinales', defaultEco: 'CAM-01', depto: 'Logística y Transporte' },
+  { nombre: 'Ramon Yañez', defaultEco: 'CAM-02', depto: 'Logística y Transporte' },
+  { nombre: 'Oscar Vazquez', defaultEco: 'URVAN-01', depto: 'Logística y Transporte' },
+  { nombre: 'Enrique Linares', defaultEco: 'CAM-03', depto: 'Logística y Transporte' },
+  { nombre: 'Samuel Madriles', defaultEco: 'BUS-01', depto: 'Logística y Transporte' },
+  { nombre: 'Jesus Saucedo', defaultEco: 'CAM-04', depto: 'Logística y Transporte' }
+]
+
+// Audio Beep Synthesizer
+function playBeep(success = true) {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = success ? 'sine' : 'sawtooth'
+    osc.frequency.setValueAtTime(success ? 880 : 300, ctx.currentTime)
+    if (success) osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.1)
+    gain.gain.setValueAtTime(0.3, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.15)
+    if (navigator.vibrate) navigator.vibrate(success ? [80, 50, 80] : [200])
+  } catch (e) {}
+}
+
 export default function ChoferesClient() {
   const { profile } = useAuth()
   const [activeTab, setActiveTab] = useState<'bitacora_ruta' | 'reporte' | 'programar' | 'historial'>('bitacora_ruta')
   
+  // Validación de Rol (Chofer vs Administrador/RH)
+  const isRHOrAdmin = profile?.rol === 'Administrativo' || 
+                      profile?.rol === 'Superintendente' || 
+                      profile?.rol === 'Jefe de Departamento' || 
+                      (profile?.rol || '').toLowerCase().includes('rh') || 
+                      (profile?.rol || '').toLowerCase().includes('recursos humanos') ||
+                      (profile?.rol || '').toLowerCase().includes('admin')
+
   const [choferes, setChoferes] = useState<Chofer[]>([])
   const [vehiculosFlota, setVehiculosFlota] = useState<VehiculoFlota[]>([])
   const [selectedChofer, setSelectedChofer] = useState('')
-  const [selectedVehiculoId, setSelectedVehiculoId] = useState('')
+  const [selectedChoferObj, setSelectedChoferObj] = useState<Chofer | null>(null)
+  
   const [camion, setCamion] = useState('')
   const [tipoVehiculo, setTipoVehiculo] = useState<'Camioneta' | 'Camión' | 'Ambulancia'>('Camioneta')
-  const [motivoViaje, setMotivoViaje] = useState('Viaje Foráneo (Durango / Ciudad)')
-  const [tipoAmbulancia, setTipoAmbulancia] = useState<'Avanzada / Soporte Vital' | 'Básica / Traslado'>('Avanzada / Soporte Vital')
-
-  // Bitácora de Ruta (Punto A -> Punto B) State
+  const [motivoViaje, setMotivoViaje] = useState('Ruta de Personal (Mina ➔ Campamento)')
+  
+  // Bitácora de Ruta (Punto A -> Punto B)
   const [puntoA, setPuntoA] = useState('Mina Bacis')
   const [puntoB, setPuntoB] = useState('Parajes')
-  const [pasajerosA, setPasajerosA] = useState<number>(1)
-  const [pasajerosB, setPasajerosB] = useState<number>(1)
+  const [pasajerosA, setPasajerosA] = useState<number>(0)
+  const [pasajerosB, setPasajerosB] = useState<number>(0)
   const [comentariosRuta, setComentariosRuta] = useState('')
-
+  
   const [viajeRutaActivo, setViajeRutaActivo] = useState<any | null>(null)
   const [bitacoraRutasList, setBitacoraRutasList] = useState<any[]>([])
+  const [pasajerosAbordados, setPasajerosAbordados] = useState<PasajeroEscaneado[]>([])
+  const [manualIdInput, setManualIdInput] = useState('')
 
-  // Camera Face Scan State
-  const [showFaceCameraModal, setShowFaceCameraModal] = useState(false)
-  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('user')
-  const [capturedPasajeros, setCapturedPasajeros] = useState<Array<{ id: string, foto: string, hora: string }>>([])
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null)
+  // QR Scanner Modal State
+  const [showQrScanner, setShowQrScanner] = useState(false)
+  const [scanMessage, setScanMessage] = useState('')
+  const [cameraLoading, setCameraLoading] = useState(false)
+  const [cameraError, setCameraError] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const scanLoopRef = useRef<number | null>(null)
+  const [empleadosCatalog, setEmpleadosCatalog] = useState<any[]>([])
 
-  // Seed Choferes state
+  // Seed / Credenciales de Choferes
+  const [showChoferesCredentials, setShowChoferesCredentials] = useState(false)
   const [seedingLoading, setSeedingLoading] = useState(false)
   const [seedingMsg, setSeedingMsg] = useState('')
-  const [showChoferesCredentials, setShowChoferesCredentials] = useState(false)
-  
-  // Programar Viaje State
+
+  // Programar Viaje
   const [nuevoDestino, setNuevoDestino] = useState('')
   const [nuevaFecha, setNuevaFecha] = useState('')
   const [nuevaHora, setNuevaHora] = useState('')
@@ -79,8 +135,8 @@ export default function ChoferesClient() {
   const [selectedViaje, setSelectedViaje] = useState('')
   const [miHistorial, setMiHistorial] = useState<any[]>([])
   const [selectedReporteModal, setSelectedReporteModal] = useState<any | null>(null)
-  
-  // Mining Dynamic Checklists Specialized by Vehicle Type
+
+  // Checklist de Vehículo
   const [checklistCamioneta, setChecklistCamioneta] = useState({
     pertiga_banderola: true,
     torreta_seguridad: true,
@@ -129,34 +185,483 @@ export default function ChoferesClient() {
   })
 
   const [comentariosVehiculo, setComentariosVehiculo] = useState('')
-  
-  // Gas & KMs
   const [kmInicial, setKmInicial] = useState('')
   const [kmFinal, setKmFinal] = useState('')
   const [gasInicio, setGasInicio] = useState('Lleno')
   const [gasFin, setGasFin] = useState('3/4')
   const [litros, setLitros] = useState('')
   
-  // Caseta / Recorrido
-  const [caseta, setCaseta] = useState('Caseta Durango / Bacis')
+  const [caseta, setCaseta] = useState('Caseta Principal / Mina Bacis')
   const [obsCaseta, setObsCaseta] = useState('')
   const [fotoBase64, setFotoBase64] = useState<string | null>(null)
   
-  // Signatures Refs & Data
+  // Firmas
   const sigChoferRef = useRef<SignatureCanvas>(null)
   const sigGuardiaRef = useRef<SignatureCanvas>(null)
-  const sigRHRef = useRef<SignatureCanvas>(null)
   const [firmaChoferData, setFirmaChoferData] = useState<string | null>(null)
   const [firmaGuardiaData, setFirmaGuardiaData] = useState<string | null>(null)
-  const [firmaRHData, setFirmaRHData] = useState<string | null>(null)
   const [rhApproved, setRhApproved] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  // Validación estricta de rol para Recursos Humanos / Administrador
-  const isRHOrAdmin = profile?.rol === 'Administrativo' || 
-                      profile?.rol === 'Superintendente' || 
-                      profile?.rol === 'Jefe de Departamento' || 
-                      (profile?.rol || '').toLowerCase().includes('rh') || 
-                      (profile?.rol || '').toLowerCase().includes('recursos humanos')
+  const isUUID = (str?: string) => {
+    if (!str) return false
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim())
+  }
+
+  // 1. CARGA INICIAL Y ROSTER DE CHOFERES
+  useEffect(() => {
+    fetchChoferesYFlota()
+    cargarEmpleadosCatalogo()
+  }, [profile])
+
+  const cargarEmpleadosCatalogo = async () => {
+    try {
+      const { data } = await supabase.from('empleados')
+        .select('id_empleado, nombre, apellido_paterno, puesto, departamento, qr_token')
+        .order('nombre')
+      if (data) setEmpleadosCatalog(data)
+    } catch (e) {}
+  }
+
+  const fetchChoferesYFlota = async () => {
+    try {
+      const [pRes, eRes, cRes] = await Promise.all([
+        supabase.from('perfiles').select('id, nombre_completo, rol'),
+        supabase.from('empleados').select('id_empleado, nombre, apellido_paterno, puesto, departamento'),
+        supabase.from('logistica_camiones').select('*').eq('activo', true).order('numero_economico')
+      ])
+
+      const pData = pRes.data || []
+      const eData = eRes.data || []
+      if (cRes.data) setVehiculosFlota(cRes.data)
+
+      // Construir la lista con los 6 choferes oficiales
+      const list: Chofer[] = DRIVERS_ROSTER.map(r => {
+        const pMatch = pData.find(p => (p.nombre_completo || '').toLowerCase().includes(r.nombre.toLowerCase()))
+        const eMatch = eData.find(e => `${e.nombre || ''} ${e.apellido_paterno || ''}`.toLowerCase().includes(r.nombre.toLowerCase()))
+        
+        return {
+          id_empleado: pMatch?.id || eMatch?.id_empleado || 'CHOFER-' + r.nombre.replace(/\s+/g, '-').toUpperCase(),
+          nombre: r.nombre,
+          puesto: 'Chofer Operador',
+          departamento: r.depto,
+          numero_economico: r.defaultEco
+        }
+      })
+
+      setChoferes(list)
+
+      // AUTO-VINCULACIÓN SEGÚN EL USUARIO LOGUEADO:
+      if (profile) {
+        const nombreLog = (profile.nombre_completo || '').toLowerCase()
+        // Si el usuario logueado es uno de los choferes
+        const myDriver = list.find(c => nombreLog.includes(c.nombre.toLowerCase()) || c.id_empleado === profile.id)
+
+        if (myDriver) {
+          setSelectedChofer(myDriver.id_empleado)
+          setSelectedChoferObj(myDriver)
+          if (!camion && myDriver.numero_economico) setCamion(myDriver.numero_economico)
+        } else if (isRHOrAdmin && list.length > 0) {
+          // Si es Administrador o RH, selecciona el primer chofer para supervisar
+          setSelectedChofer(list[0].id_empleado)
+          setSelectedChoferObj(list[0])
+          if (!camion && list[0].numero_economico) setCamion(list[0].numero_economico)
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching choferes:', err)
+    }
+  }
+
+  // Actualizar chofer objeto cuando cambia el select
+  useEffect(() => {
+    if (!selectedChofer) return
+    const found = choferes.find(c => c.id_empleado === selectedChofer)
+    if (found) {
+      setSelectedChoferObj(found)
+      if (found.numero_economico && !camion) setCamion(found.numero_economico)
+    }
+  }, [selectedChofer, choferes])
+
+  // 2. CARGA DE VIAJES Y HISTORIAL
+  const fetchViajesYHistorial = async () => {
+    if (!selectedChofer) return
+
+    try {
+      if (isUUID(selectedChofer)) {
+        const { data: vData } = await supabase.from('logistica_viajes_programados')
+          .select('*')
+          .eq('id_empleado', selectedChofer)
+          .in('estado', ['Programado', 'Retrasado'])
+          .order('fecha_esperada', { ascending: true })
+        setMisViajes(vData || [])
+      }
+
+      let loadedReports: any[] = []
+      if (isUUID(selectedChofer)) {
+        const { data: directData } = await supabase.from('logistica_reportes_diarios')
+          .select('*')
+          .eq('id_empleado', selectedChofer)
+          .order('creado_el', { ascending: false })
+          .limit(30)
+        if (directData && directData.length > 0) loadedReports = directData
+      }
+
+      if (loadedReports.length === 0) {
+        const { data: allReports } = await supabase.from('logistica_reportes_diarios')
+          .select('*')
+          .order('creado_el', { ascending: false })
+          .limit(30)
+        if (allReports && allReports.length > 0) loadedReports = allReports
+      }
+
+      let localReports: any[] = []
+      try {
+        const rawLocal = localStorage.getItem('rh_reportes_local_backup')
+        if (rawLocal) localReports = JSON.parse(rawLocal)
+      } catch (e) {}
+
+      const combined = [...localReports, ...loadedReports]
+      const unique = combined.filter((v, i, a) => 
+        a.findIndex(t => (t.id_reporte && t.id_reporte === v.id_reporte) || (t.creado_el && t.creado_el === v.creado_el)) === i
+      )
+      setMiHistorial(unique)
+    } catch (err) {
+      console.error('Error loading history:', err)
+    }
+  }
+
+  useEffect(() => {
+    fetchViajesYHistorial()
+  }, [selectedChofer, activeTab])
+
+  // 3. BITÁCORA DE RUTA Y REGISTRO DE PASAJEROS CON QR
+  useEffect(() => {
+    if (!selectedChofer) return
+    try {
+      const active = localStorage.getItem(`active_route_${selectedChofer}`)
+      if (active) {
+        const parsed = JSON.parse(active)
+        setViajeRutaActivo(parsed)
+        setPasajerosB(parsed.pasajeros_subieron_a || 0)
+        if (parsed.pasajeros_lista) setPasajerosAbordados(parsed.pasajeros_lista)
+      } else {
+        setViajeRutaActivo(null)
+      }
+    } catch (e) {}
+
+    try {
+      const hist = localStorage.getItem(`history_routes_${selectedChofer}`)
+      if (hist) setBitacoraRutasList(JSON.parse(hist))
+    } catch (e) {}
+  }, [selectedChofer])
+
+  const handleIniciarRuta = async () => {
+    if (!selectedChofer) return alert('Por favor selecciona un chofer')
+    if (!puntoA.trim() || !puntoB.trim()) return alert('Define el Punto A y Punto B')
+
+    const choferNombre = selectedChoferObj?.nombre || profile?.nombre_completo || 'Chofer Operador'
+    const now = new Date()
+    const horaActual = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
+    const fechaActual = now.toISOString().split('T')[0]
+
+    const newTrip = {
+      id_bitacora: 'RUT-' + Date.now(),
+      id_chofer: selectedChofer,
+      chofer_nombre: choferNombre,
+      punto_a: puntoA.toUpperCase().trim(),
+      punto_b: puntoB.toUpperCase().trim(),
+      hora_salida_a: horaActual,
+      pasajeros_subieron_a: pasajerosAbordados.length > 0 ? pasajerosAbordados.length : pasajerosA,
+      pasajeros_lista: pasajerosAbordados,
+      estatus: 'EN_CURSO',
+      fecha: fechaActual,
+      comentarios: comentariosRuta,
+      creado_el: now.toISOString()
+    }
+
+    setViajeRutaActivo(newTrip)
+    setPasajerosB(newTrip.pasajeros_subieron_a)
+    localStorage.setItem(`active_route_${selectedChofer}`, JSON.stringify(newTrip))
+
+    try {
+      await supabase.from('chofer_bitacora_rutas').insert([{
+        id_chofer: isUUID(selectedChofer) ? selectedChofer : null,
+        chofer_nombre: choferNombre,
+        punto_a: newTrip.punto_a,
+        punto_b: newTrip.punto_b,
+        hora_salida_a: horaActual,
+        pasajeros_subieron_a: newTrip.pasajeros_subieron_a,
+        estatus: 'EN_CURSO',
+        fecha: fechaActual,
+        comentarios: comentariosRuta
+      }])
+    } catch (e) {}
+
+    playBeep(true)
+    alert(`🟢 ¡Ruta Iniciada con Éxito!\n\nSalida: ${newTrip.punto_a} ➔ Destino: ${newTrip.punto_b}\nPasajeros a bordo: ${newTrip.pasajeros_subieron_a}`)
+  }
+
+  const handleFinalizarRuta = async () => {
+    if (!viajeRutaActivo) return
+
+    const now = new Date()
+    const horaActual = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
+
+    const completedTrip = {
+      ...viajeRutaActivo,
+      hora_llegada_b: horaActual,
+      pasajeros_bajaron_b: pasajerosB,
+      estatus: 'CONCLUIDO'
+    }
+
+    setViajeRutaActivo(null)
+    setPasajerosAbordados([])
+    setPasajerosA(0)
+    localStorage.removeItem(`active_route_${selectedChofer}`)
+
+    const updatedHistory = [completedTrip, ...bitacoraRutasList]
+    setBitacoraRutasList(updatedHistory)
+    localStorage.setItem(`history_routes_${selectedChofer}`, JSON.stringify(updatedHistory))
+
+    try {
+      await supabase.from('chofer_bitacora_rutas').insert([{
+        id_chofer: isUUID(selectedChofer) ? selectedChofer : null,
+        chofer_nombre: completedTrip.chofer_nombre,
+        punto_a: completedTrip.punto_a,
+        punto_b: completedTrip.punto_b,
+        hora_salida_a: completedTrip.hora_salida_a,
+        hora_llegada_b: horaActual,
+        pasajeros_subieron_a: completedTrip.pasajeros_subieron_a,
+        pasajeros_bajaron_b: pasajerosB,
+        estatus: 'CONCLUIDO',
+        fecha: completedTrip.fecha,
+        comentarios: completedTrip.comentarios
+      }])
+    } catch (e) {}
+
+    playBeep(true)
+    alert(`🏁 ¡Ruta Concluida en ${completedTrip.punto_b}!\n\n👥 Subieron en A: ${completedTrip.pasajeros_subieron_a}\n👥 Descendieron en B: ${pasajerosB}`)
+  }
+
+  // AGREGAR PASAJERO (QR O MANUAL)
+  const agregarPasajero = (idOrQr: string, metodo: 'QR' | 'Manual' = 'Manual') => {
+    if (!idOrQr.trim()) return
+
+    const cleanStr = idOrQr.trim()
+    const existe = pasajerosAbordados.some(p => p.id === cleanStr)
+    if (existe) {
+      playBeep(false)
+      setScanMessage(`⚠️ Ya registrado: ${cleanStr}`)
+      return
+    }
+
+    // Buscar en catálogo de empleados
+    const emp = empleadosCatalog.find(e => 
+      e.id_empleado === cleanStr || 
+      e.qr_token === cleanStr || 
+      `${e.nombre} ${e.apellido_paterno}`.toLowerCase().includes(cleanStr.toLowerCase())
+    )
+
+    const nuevo: PasajeroEscaneado = {
+      id: emp?.id_empleado || cleanStr,
+      nombre: emp ? `${emp.nombre} ${emp.apellido_paterno}` : `Trabajador ID: ${cleanStr}`,
+      puesto: emp?.puesto || 'Personal de Turno',
+      departamento: emp?.departamento || 'Mina Bacis',
+      hora: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
+      metodo
+    }
+
+    const updated = [nuevo, ...pasajerosAbordados]
+    setPasajerosAbordados(updated)
+    setPasajerosA(updated.length)
+    setManualIdInput('')
+    playBeep(true)
+    setScanMessage(`✅ Pasajero agregado: ${nuevo.nombre}`)
+
+    // Si hay viaje activo, actualizar en localStorage
+    if (viajeRutaActivo) {
+      const uTrip = { ...viajeRutaActivo, pasajeros_subieron_a: updated.length, pasajeros_lista: updated }
+      setViajeRutaActivo(uTrip)
+      localStorage.setItem(`active_route_${selectedChofer}`, JSON.stringify(uTrip))
+    }
+  }
+
+  const quitarPasajero = (id: string) => {
+    const updated = pasajerosAbordados.filter(p => p.id !== id)
+    setPasajerosAbordados(updated)
+    setPasajerosA(updated.length)
+    if (viajeRutaActivo) {
+      const uTrip = { ...viajeRutaActivo, pasajeros_subieron_a: updated.length, pasajeros_lista: updated }
+      setViajeRutaActivo(uTrip)
+      localStorage.setItem(`active_route_${selectedChofer}`, JSON.stringify(uTrip))
+    }
+  }
+
+  // 4. CÁMARA ESCÁNER QR
+  const iniciarCamaraQR = async () => {
+    setShowQrScanner(true)
+    setCameraLoading(true)
+    setCameraError('')
+    setScanMessage('Apunte la cámara a la credencial con QR...')
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false
+      })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.setAttribute('playsinline', 'true')
+        await videoRef.current.play()
+        setCameraLoading(false)
+        iniciarBucleEscaneo()
+      }
+    } catch (err: any) {
+      setCameraLoading(false)
+      setCameraError('No se pudo acceder a la cámara. Revisa los permisos del navegador.')
+    }
+  }
+
+  const detenerCamaraQR = () => {
+    if (scanLoopRef.current) cancelAnimationFrame(scanLoopRef.current)
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+    }
+    setShowQrScanner(false)
+  }
+
+  const iniciarBucleEscaneo = () => {
+    let detector: any = null
+    if ('BarcodeDetector' in window) {
+      try {
+        detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] })
+      } catch (e) {}
+    }
+
+    const scan = async () => {
+      if (!videoRef.current || videoRef.current.readyState < 2) {
+        scanLoopRef.current = requestAnimationFrame(scan)
+        return
+      }
+
+      try {
+        if (detector) {
+          const barcodes = await detector.detect(videoRef.current)
+          if (barcodes.length > 0) {
+            const rawVal = barcodes[0].rawValue
+            if (rawVal) {
+              agregarPasajero(rawVal, 'QR')
+              // Pequeña pausa para no escanear el mismo 20 veces por segundo
+              await new Promise(r => setTimeout(r, 1200))
+            }
+          }
+        }
+      } catch (e) {}
+
+      scanLoopRef.current = requestAnimationFrame(scan)
+    }
+
+    scanLoopRef.current = requestAnimationFrame(scan)
+  }
+
+  // 5. EVALUACIÓN Y GUARDADO DE CHECKLIST
+  const getIsVehicleApto = () => {
+    if (tipoVehiculo === 'Camioneta') {
+      return Object.values(checklistCamioneta).every(v => v === true)
+    } else if (tipoVehiculo === 'Camión') {
+      return Object.values(checklistCamion).every(v => v === true)
+    } else {
+      return Object.values(checklistAmbulancia).every(v => v === true)
+    }
+  }
+
+  const isApto = getIsVehicleApto()
+
+  const handleSaveToDB = async () => {
+    if (!selectedChofer || !camion) {
+      alert('Por favor selecciona el Chofer Operador y la Unidad / Vehículo')
+      return
+    }
+    setSaving(true)
+
+    try {
+      let validEmpleadoId: string | null = null
+      if (isUUID(selectedChofer)) {
+        validEmpleadoId = selectedChofer
+      } else {
+        const { data: anyEmp } = await supabase.from('empleados').select('id_empleado').limit(1)
+        if (anyEmp && anyEmp.length > 0) validEmpleadoId = anyEmp[0].id_empleado
+      }
+
+      const choferNombre = selectedChoferObj?.nombre || profile?.nombre_completo || 'Chofer Operador'
+      const nombreRH = isRHOrAdmin ? (profile?.nombre_completo || 'Recursos Humanos') : null
+
+      const payload: any = {
+        id_empleado: validEmpleadoId,
+        camion_numero: camion,
+        id_viaje: (selectedViaje && isUUID(selectedViaje)) ? selectedViaje : null,
+        kilometraje_inicial: parseInt(kmInicial) || 0,
+        kilometraje_final: parseInt(kmFinal) || 0,
+        gasolina_inicio: gasInicio,
+        gasolina_fin: gasFin,
+        litros_cargados: parseFloat(litros) || 0,
+        frenos_ok: isApto,
+        luces_ok: isApto,
+        llantas_ok: isApto,
+        niveles_aceite_ok: isApto,
+        carroceria_ok: isApto,
+        extintor_ok: isApto,
+        botiquin_ok: isApto,
+        comentarios_vehiculo: `[MOTIVO: ${motivoViaje}] [CATEGORÍA: ${tipoVehiculo}] [APTO MINA: ${isApto ? 'SI' : 'NO'}] ${comentariosVehiculo}`,
+        ubicacion_caseta: caseta,
+        foto_caseta_url: fotoBase64,
+        observaciones_recorrido: obsCaseta,
+        firma_chofer_url: firmaChoferData,
+        firma_guardia_url: firmaGuardiaData,
+        firma_rh_url: rhApproved && isRHOrAdmin ? 'APROBADO_RH' : null,
+        firma_rh_nombre: rhApproved && isRHOrAdmin ? nombreRH : null,
+        tipo_vehiculo: tipoVehiculo
+      }
+
+      let supabaseSaved = false
+      let createdReportId = 'rep_' + Date.now()
+
+      try {
+        const { data: insData, error: insErr } = await supabase.from('logistica_reportes_diarios').insert([payload]).select()
+        if (!insErr && insData && insData[0]) {
+          supabaseSaved = true
+          createdReportId = insData[0].id_reporte
+        }
+      } catch (e) {}
+
+      const localReport = {
+        ...payload,
+        id_reporte: createdReportId,
+        creado_el: new Date().toISOString(),
+        chofer_nombre: choferNombre,
+        sincronizado: supabaseSaved
+      }
+
+      const existingLocal = JSON.parse(localStorage.getItem('rh_reportes_local_backup') || '[]')
+      const updatedLocal = [localReport, ...existingLocal]
+      localStorage.setItem('rh_reportes_local_backup', JSON.stringify(updatedLocal))
+      setMiHistorial(updatedLocal)
+
+      alert('✅ ¡Checklist de Inspección Minera y Reporte guardados exitosamente!\n\nPuedes consultarlo en la pestaña de Historial.')
+      setActiveTab('historial')
+      sigChoferRef.current?.clear(); setFirmaChoferData(null)
+      sigGuardiaRef.current?.clear(); setFirmaGuardiaData(null)
+      setFotoBase64(null)
+      fetchViajesYHistorial()
+    } catch (err: any) {
+      alert('Nota: ' + (err.message || 'El reporte se guardó localmente en tu navegador.'))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const handleAprobarRHEnModal = async (reporte: any) => {
     if (!isRHOrAdmin) {
@@ -174,7 +679,6 @@ export default function ChoferesClient() {
       setSelectedReporteModal(updated)
       setMiHistorial(prev => prev.map(r => (r.id_reporte === reporte.id_reporte || r.creado_el === reporte.creado_el) ? updated : r))
       
-      // Actualizar también en LocalStorage
       const local = JSON.parse(localStorage.getItem('rh_reportes_local_backup') || '[]')
       const updatedLocal = local.map((r: any) => (r.id_reporte === reporte.id_reporte || r.creado_el === reporte.creado_el) ? updated : r)
       localStorage.setItem('rh_reportes_local_backup', JSON.stringify(updatedLocal))
@@ -185,537 +689,30 @@ export default function ChoferesClient() {
     }
   }
 
-  // Loading state
-  const [saving, setSaving] = useState(false)
+  const exportPDFReport = () => {
+    const doc = new jsPDF()
+    const choferNombre = selectedChoferObj?.nombre || profile?.nombre_completo || 'CHOFER OPERADOR'
+    const nombreRH = isRHOrAdmin ? (profile?.nombre_completo || 'Recursos Humanos') : 'RECURSOS HUMANOS'
 
-  useEffect(() => {
-    // Auto-ensure choferes exist in empleados table and have correct role
-    fetch('/api/seed-choferes-empleados', { method: 'POST' }).catch(() => {})
-    fetch('/api/fix-choferes-roles').catch(() => {})
-    fetchChoferesYFlota()
-  }, [profile])
-
-  const fetchChoferesYFlota = async () => {
-    // 1. Fetch system users registered in perfiles AND empleados tables
-    const [pRes, eRes] = await Promise.all([
-      supabase.from('perfiles').select('id, nombre_completo, rol').order('nombre_completo'),
-      supabase.from('empleados').select('id_empleado, nombre, apellido_paterno, puesto, departamento').order('apellido_paterno')
-    ])
-
-    const pData = pRes.data || []
-    const eData = eRes.data || []
-
-    let combinedChoferes: Chofer[] = []
-
-    const DRIVERS_ROSTER = [
-      'Adalberto Pinales',
-      'Ramon Yañez',
-      'Oscar Vazquez',
-      'Enrique Linares',
-      'Samuel Madriles',
-      'Jesus Saucedo'
-    ]
-
-    // Process empleados table first
-    eData.forEach(e => {
-      const full = `${e.nombre || ''} ${e.apellido_paterno || ''}`.trim()
-      const p = (e.puesto || '').toLowerCase()
-      const d = (e.departamento || '').toLowerCase()
-      const isDrv = p.includes('chofer') || d.includes('movilidad') || DRIVERS_ROSTER.some(r => full.toLowerCase().includes(r.toLowerCase()))
-      if (isDrv && full) {
-        if (!combinedChoferes.some(c => c.nombre.toLowerCase() === full.toLowerCase())) {
-          combinedChoferes.push({
-            id_empleado: e.id_empleado,
-            nombre: full,
-            apellido_paterno: '',
-            departamento: e.departamento || 'Movilidad',
-            puesto: 'Chofer'
-          })
-        }
-      }
-    })
-
-    // Process perfiles table
-    pData.forEach(p => {
-      const cleanName = (p.nombre_completo || '').replace(/\s*\(Chofer\)/gi, '').trim()
-      const r = (p.rol || '').toLowerCase()
-      const n = cleanName.toLowerCase()
-      const isDrv = r.includes('chofer') || n.includes('chofer') || DRIVERS_ROSTER.some(d => n.includes(d.toLowerCase()))
-      if (isDrv && cleanName) {
-        if (!combinedChoferes.some(c => c.nombre.toLowerCase() === cleanName.toLowerCase())) {
-          combinedChoferes.push({
-            id_empleado: p.id,
-            nombre: cleanName,
-            apellido_paterno: '',
-            departamento: 'Chofer Registrado',
-            puesto: 'Chofer'
-          })
-        }
-      }
-    })
-
-    // Fallback: Ensure all 6 roster drivers exist in array
-    DRIVERS_ROSTER.forEach(dName => {
-      const exists = combinedChoferes.some(c => c.nombre.toLowerCase().includes(dName.toLowerCase()))
-      if (!exists) {
-        combinedChoferes.push({
-          id_empleado: 'CHOFER-' + dName.replace(/\s+/g, '-').toUpperCase(),
-          nombre: dName,
-          apellido_paterno: '',
-          departamento: 'Chofer Registrado',
-          puesto: 'Chofer'
-        })
-      }
-    })
-
-    // Always include logged-in user if missing
-    if (profile?.id && !combinedChoferes.some(c => c.id_empleado === profile.id)) {
-        const cleanProfileName = (profile.nombre_completo || '').replace(/\s*\(Chofer\)/gi, '').trim()
-        combinedChoferes.unshift({
-            id_empleado: profile.id,
-            nombre: cleanProfileName,
-            apellido_paterno: '',
-            departamento: 'Chofer Registrado',
-            puesto: profile.rol || 'Chofer'
-        })
-    }
-
-    setChoferes(combinedChoferes)
-
-    // Auto-select Adalberto Pinales or first chofer if nothing selected
-    if (!selectedChofer && combinedChoferes.length > 0) {
-      const adalberto = combinedChoferes.find(c => c.nombre.toLowerCase().includes('pinales'))
-      setSelectedChofer(adalberto ? adalberto.id_empleado : combinedChoferes[0].id_empleado)
-    }
-
-    setChoferes(combinedChoferes)
-
-    // Auto-select logged-in user or Adalberto Pinales by default
-    if (profile?.id) {
-        const matchedById = combinedChoferes.find(e => e.id_empleado === profile.id)
-        if (matchedById) {
-            setSelectedChofer(matchedById.id_empleado)
-        } else if (combinedChoferes.length > 0) {
-            setSelectedChofer(combinedChoferes[0].id_empleado)
-        }
-    } else if (combinedChoferes.length > 0) {
-        setSelectedChofer(combinedChoferes[0].id_empleado)
-    }
-
-    // 2. Fetch official registered fleet from logistica_camiones
-    const { data: cData } = await supabase
-        .from('logistica_camiones')
-        .select('*')
-        .eq('activo', true)
-        .order('numero_economico')
-    
-    if (cData) {
-        setVehiculosFlota(cData)
-    }
-  }
-
-  // Load Bitácora de Ruta from LocalStorage & Supabase when chofer changes
-  useEffect(() => {
-    if (!selectedChofer) return
-
-    try {
-      const storedActive = localStorage.getItem(`active_route_${selectedChofer}`)
-      if (storedActive) {
-        const parsed = JSON.parse(storedActive)
-        setViajeRutaActivo(parsed)
-        setPasajerosB(parsed.pasajeros_subieron_a || 1)
-      } else {
-        setViajeRutaActivo(null)
-      }
-    } catch (e) {
-      console.warn('LocalStorage read error:', e)
-    }
-
-    try {
-      const storedHistory = localStorage.getItem(`history_routes_${selectedChofer}`)
-      if (storedHistory) {
-        setBitacoraRutasList(JSON.parse(storedHistory))
-      }
-    } catch (e) {
-      console.warn('LocalStorage read error:', e)
-    }
-
-    fetchSupabaseBitacora()
-  }, [selectedChofer])
-
-  const fetchSupabaseBitacora = async () => {
-    if (!selectedChofer) return
-    try {
-      const { data } = await supabase
-        .from('chofer_bitacora_rutas')
-        .select('*')
-        .eq('id_chofer', selectedChofer)
-        .order('creado_el', { ascending: false })
-
-      if (data && data.length > 0) {
-        const active = data.find(r => r.estatus === 'EN_CURSO')
-        if (active) {
-          setViajeRutaActivo(active)
-          setPasajerosB(active.pasajeros_subieron_a || 1)
-        }
-        setBitacoraRutasList(data)
-      }
-    } catch (e) {
-      console.warn('Supabase bitacora fetch note:', e)
-    }
-  }
-
-  const handleSeedAccountsBtn = async () => {
-    setSeedingLoading(true)
-    setSeedingMsg('')
-    try {
-      const res = await fetch('/api/seed-choferes', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Error al crear choferes')
-      setSeedingMsg('¡Las 6 cuentas de choferes han sido verificadas y activadas con éxito!')
-      fetchChoferesYFlota()
-    } catch (err: any) {
-      setSeedingMsg('Nota: ' + (err.message || 'Error de conexión'))
-    } finally {
-      setSeedingLoading(false)
-    }
-  }
-
-  const handleFixRolesBtn = async () => {
-    setSeedingLoading(true)
-    setSeedingMsg('')
-    try {
-      const res = await fetch('/api/fix-choferes-roles', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Error al actualizar roles')
-      setSeedingMsg('¡Roles actualizados a "Chofer" para Adalberto Pinales y los 6 operadores en la Base de Datos!')
-      fetchChoferesYFlota()
-    } catch (err: any) {
-      setSeedingMsg('Nota: ' + (err.message || 'Error de conexión'))
-    } finally {
-      setSeedingLoading(false)
-    }
-  }
-
-  const handleIniciarRuta = async () => {
-    if (!selectedChofer) return alert('Seleccione un chofer para iniciar')
-    if (!puntoA.trim() || !puntoB.trim()) return alert('Defina el Punto A (Origen) y Punto B (Destino)')
-    if (pasajerosA < 0) return alert('Ingrese la cantidad de pasajeros que abordaron en Punto A')
-
-    const choferObj = choferes.find(c => c.id_empleado === selectedChofer)
-    const choferNombre = choferObj ? `${choferObj.nombre} ${choferObj.apellido_paterno || ''}`.trim() : 'Chofer'
-
-    const now = new Date()
-    const horaActual = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
-    const fechaActual = now.toISOString().split('T')[0]
-
-    const newTrip = {
-      id_bitacora: 'RUT-' + Date.now(),
-      id_chofer: selectedChofer,
-      chofer_nombre: choferNombre,
-      punto_a: puntoA.toUpperCase().trim(),
-      punto_b: puntoB.toUpperCase().trim(),
-      hora_salida_a: horaActual,
-      pasajeros_subieron_a: pasajerosA,
-      pasajeros_bajaron_b: pasajerosA,
-      estatus: 'EN_CURSO',
-      fecha: fechaActual,
-      comentarios: comentariosRuta,
-      creado_el: now.toISOString()
-    }
-
-    setViajeRutaActivo(newTrip)
-    setPasajerosB(pasajerosA)
-
-    localStorage.setItem(`active_route_${selectedChofer}`, JSON.stringify(newTrip))
-
-    try {
-      await supabase.from('chofer_bitacora_rutas').insert([{
-        id_chofer: selectedChofer,
-        chofer_nombre: choferNombre,
-        punto_a: puntoA.toUpperCase().trim(),
-        punto_b: puntoB.toUpperCase().trim(),
-        hora_salida_a: horaActual,
-        pasajeros_subieron_a: pasajerosA,
-        estatus: 'EN_CURSO',
-        fecha: fechaActual,
-        comentarios: comentariosRuta
-      }])
-    } catch (e) {
-      console.warn('Supabase active trip insert note:', e)
-    }
-  }
-
-  const handleFinalizarRuta = async () => {
-    if (!viajeRutaActivo) return
-
-    const now = new Date()
-    const horaActual = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
-
-    const completedTrip = {
-      ...viajeRutaActivo,
-      hora_llegada_b: horaActual,
-      pasajeros_bajaron_b: pasajerosB,
-      estatus: 'CONCLUIDO'
-    }
-
-    setViajeRutaActivo(null)
-    localStorage.removeItem(`active_route_${selectedChofer}`)
-
-    const updatedHistory = [completedTrip, ...bitacoraRutasList]
-    setBitacoraRutasList(updatedHistory)
-    localStorage.setItem(`history_routes_${selectedChofer}`, JSON.stringify(updatedHistory))
-
-    try {
-      if (viajeRutaActivo.id_bitacora && !viajeRutaActivo.id_bitacora.startsWith('RUT-')) {
-        await supabase.from('chofer_bitacora_rutas').update({
-          hora_llegada_b: horaActual,
-          pasajeros_bajaron_b: pasajerosB,
-          estatus: 'CONCLUIDO'
-        }).eq('id_bitacora', viajeRutaActivo.id_bitacora)
-      } else {
-        await supabase.from('chofer_bitacora_rutas').insert([{
-          id_chofer: selectedChofer,
-          chofer_nombre: viajeRutaActivo.chofer_nombre,
-          punto_a: viajeRutaActivo.punto_a,
-          punto_b: viajeRutaActivo.punto_b,
-          hora_salida_a: viajeRutaActivo.hora_salida_a,
-          hora_llegada_b: horaActual,
-          pasajeros_subieron_a: viajeRutaActivo.pasajeros_subieron_a,
-          pasajeros_bajaron_b: pasajerosB,
-          estatus: 'CONCLUIDO',
-          fecha: viajeRutaActivo.fecha,
-          comentarios: viajeRutaActivo.comentarios
-        }])
-      }
-    } catch (e) {
-      console.warn('Supabase trip completion note:', e)
-    }
-
-    alert(`🏁 ¡Ruta Concluida con Éxito en ${completedTrip.punto_b}!\n\n👥 Pasajeros que abordaron en A: ${completedTrip.pasajeros_subieron_a}\n👥 Pasajeros que descendieron en B: ${pasajerosB}`)
-  }
-
-  // Camera Facial Scanner Functions
-  const startFaceCamera = async () => {
-    setShowFaceCameraModal(true)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: false
-      })
-      setCameraStream(stream)
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.play()
-      }
-    } catch (e: any) {
-      alert('No se pudo acceder a la cámara del dispositivo: ' + (e.message || 'Permiso denegado'))
-    }
-  }
-
-  const stopFaceCamera = () => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop())
-      setCameraStream(null)
-    }
-    setShowFaceCameraModal(false)
-  }
-
-  const toggleFacingMode = async () => {
-    const newMode = facingMode === 'user' ? 'environment' : 'user'
-    setFacingMode(newMode)
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop())
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: newMode, width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: false
-      })
-      setCameraStream(stream)
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.play()
-      }
-    } catch (e: any) {
-      console.warn('Camera toggle error:', e)
-    }
-  }
-
-  const captureFaceScan = () => {
-    if (!videoRef.current || !canvasRef.current) return
-    const video = videoRef.current
-    const canvas = canvasRef.current
-    canvas.width = video.videoWidth || 640
-    canvas.height = video.videoHeight || 480
-    const ctx = canvas.getContext('2d')
-    if (ctx) {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-      const fotoBase64 = canvas.toDataURL('image/jpeg', 0.8)
-
-      const now = new Date()
-      const horaStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-
-      const newPassenger = {
-        id: 'FAC-' + Date.now(),
-        foto: fotoBase64,
-        hora: horaStr
-      }
-
-      setCapturedPasajeros(prev => [...prev, newPassenger])
-      setPasajerosA(prev => prev + 1)
-
-      alert('📸 ¡Rostro de trabajador escaneado y registrado! Se sumó 1 pasajero automáticamente.')
-    }
-  }
-
-  // Handle Fleet Vehicle Selection with Automatic Category Switch
-  const handleVehiculoSelect = (vId: string) => {
-    setSelectedVehiculoId(vId)
-    const v = vehiculosFlota.find(x => x.id_camion === vId)
-    if (!v) return
-
-    const numEco = (v.numero_economico || '').toUpperCase()
-    setCamion(v.numero_economico)
-
-    // Auto-detect vehicle category and set appropriate checklist & purpose
-    if (numEco.includes('AMB') || numEco.includes('AMBULANCIA') || numEco.includes('MEDICO') || numEco.includes('RESCATE')) {
-        setTipoVehiculo('Ambulancia')
-        setMotivoViaje('Traslado Médico de Emergencia')
-    } else if (numEco.includes('BUS') || numEco.includes('CAMION') || numEco.includes('RUTA') || numEco.includes('URVAN') || numEco.includes('PASAJEROS')) {
-        setTipoVehiculo('Camión')
-        setMotivoViaje('Ruta de Personal de Turno')
-    } else {
-        setTipoVehiculo('Camioneta')
-        setMotivoViaje('Viaje Foráneo (Durango / Ciudad)')
-    }
-  }
-
-  const isUUID = (str?: string) => {
-    if (!str) return false
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim())
-  }
-
-  const fetchViajesYHistorial = async () => {
-    if (!selectedChofer) return
-
-    try {
-      // 1. Cargar Viajes Programados (solo si es UUID válido)
-      if (isUUID(selectedChofer)) {
-        const { data: vData } = await supabase.from('logistica_viajes_programados')
-          .select('*')
-          .eq('id_empleado', selectedChofer)
-          .in('estado', ['Programado', 'Retrasado'])
-          .order('fecha_esperada', { ascending: true })
-        setMisViajes(vData || [])
-      }
-
-      // 2. Cargar Historial de Reportes Diarios con Fallback Multicapa
-      let loadedReports: any[] = []
-
-      if (isUUID(selectedChofer)) {
-        // Intento A: Por id_empleado con join de viaje
-        const { data: joinData, error: joinErr } = await supabase.from('logistica_reportes_diarios')
-          .select('*, logistica_viajes_programados(destino)')
-          .eq('id_empleado', selectedChofer)
-          .order('creado_el', { ascending: false })
-          .limit(20)
-
-        if (!joinErr && joinData && joinData.length > 0) {
-          loadedReports = joinData
-        } else {
-          // Intento B: Directo sin join
-          const { data: directData } = await supabase.from('logistica_reportes_diarios')
-            .select('*')
-            .eq('id_empleado', selectedChofer)
-            .order('creado_el', { ascending: false })
-            .limit(20)
-          if (directData && directData.length > 0) {
-            loadedReports = directData
-          }
-        }
-      }
-
-      // Intento C: Si no se encontraron por UUID o selectedChofer no es UUID, buscar por nombre o traer generales
-      if (loadedReports.length === 0) {
-        const { data: allReports } = await supabase.from('logistica_reportes_diarios')
-          .select('*')
-          .order('creado_el', { ascending: false })
-          .limit(30)
-        if (allReports && allReports.length > 0) {
-          loadedReports = allReports
-        }
-      }
-
-      // 3. Fusionar con reportes guardados en LocalStorage (Offline Backup)
-      let localReports: any[] = []
-      try {
-        const rawLocal = localStorage.getItem('rh_reportes_local_backup')
-        if (rawLocal) localReports = JSON.parse(rawLocal)
-      } catch (e) {}
-
-      const combined = [...localReports, ...loadedReports]
-      // Deduplicar
-      const unique = combined.filter((v, i, a) => 
-        a.findIndex(t => (t.id_reporte && t.id_reporte === v.id_reporte) || (t.creado_el && t.creado_el === v.creado_el)) === i
-      )
-
-      setMiHistorial(unique)
-    } catch (err) {
-      console.error('Error fetching historial:', err)
-      // En caso de fallo de red, usar el respaldo local
-      try {
-        const rawLocal = localStorage.getItem('rh_reportes_local_backup')
-        if (rawLocal) setMiHistorial(JSON.parse(rawLocal))
-      } catch (e) {}
-    }
-  }
-
-  useEffect(() => {
-    fetchViajesYHistorial()
-  }, [selectedChofer, activeTab])
-
-  // Evaluate if vehicle passes inspection
-  const getIsVehicleApto = () => {
-    if (tipoVehiculo === 'Camioneta') {
-      return Object.values(checklistCamioneta).every(v => v === true)
-    } else if (tipoVehiculo === 'Camión') {
-      return Object.values(checklistCamion).every(v => v === true)
-    } else {
-      return Object.values(checklistAmbulancia).every(v => v === true)
-    }
-  }
-
-  const isApto = getIsVehicleApto()
-
-  const handleProgramarViaje = async () => {
-    if (!selectedChofer || !nuevoDestino || !nuevaFecha || !nuevaHora) return alert('Por favor llena todos los campos del viaje.')
-    setSaving(true)
-    try {
-        let validEmpId: string | null = isUUID(selectedChofer) ? selectedChofer : null
-        if (!validEmpId) {
-          const { data: anyEmp } = await supabase.from('empleados').select('id_empleado').limit(1)
-          if (anyEmp && anyEmp.length > 0) validEmpId = anyEmp[0].id_empleado
-        }
-
-        const { error } = await supabase.from('logistica_viajes_programados').insert([{
-            id_empleado: validEmpId,
-            destino: nuevoDestino,
-            fecha_esperada: nuevaFecha,
-            hora_esperada: nuevaHora,
-            estado: 'Programado'
-        }])
-        if (error) throw error
-        alert('¡Viaje Programado Exitosamente!')
-        setNuevoDestino(''); setNuevaFecha(''); setNuevaHora('')
-        setActiveTab('reporte')
-        fetchViajesYHistorial()
-    } catch (e: any) {
-        console.error(e)
-        alert('Error al programar viaje: ' + e.message)
-    } finally {
-        setSaving(false)
-    }
+    doc.setFontSize(16)
+    doc.text("Dictamen Oficial de Inspección Vehicular y Salida Minera", 105, 20, { align: 'center' })
+    doc.setFontSize(10)
+    doc.text(`Operador / Chofer: ${choferNombre.toUpperCase()}`, 14, 35)
+    doc.text(`Vehículo / Eco: ${camion || 'N/A'} | Tipo: ${tipoVehiculo.toUpperCase()}`, 14, 43)
+    doc.text(`Motivo de Salida: ${motivoViaje}`, 14, 51)
+    doc.text(`Odómetro Inicial: ${kmInicial || '0'} KM | Nivel Combustible: ${gasInicio}`, 14, 59)
+    doc.text(`Dictamen Minero: ${isApto ? '🟢 VEHÍCULO APTO PARA SALIDA (APROBADO)' : '🔴 VEHÍCULO NO APTO (REQUIERE REPARACIÓN)'}`, 14, 67)
+    doc.line(14, 75, 196, 75)
+    doc.setFontSize(11)
+    doc.text("Firmas Digitales de Autorización:", 14, 87)
+    doc.setFontSize(9)
+    doc.text("-----------------------", 30, 120)
+    doc.text(`Firma: ${choferNombre}`, 30, 125)
+    doc.text("-----------------------", 90, 120)
+    doc.text("Firma Guardia Caseta", 90, 125)
+    doc.text("-----------------------", 150, 120)
+    doc.text(`V.B. RH: ${nombreRH}`, 150, 125)
+    doc.save(`Dictamen_Minero_${tipoVehiculo}_${camion || 'Eco'}.pdf`)
   }
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -724,1268 +721,989 @@ export default function ChoferesClient() {
     const reader = new FileReader()
     reader.onload = (event) => {
       const result = event.target?.result as string
-      if (!result) return
-      
-      const img = new Image()
-      img.onerror = () => {
-        setFotoBase64(result)
-      }
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas')
-          const MAX_WIDTH = 400
-          const scaleSize = Math.min(1, MAX_WIDTH / (img.width || 1))
-          canvas.width = Math.round((img.width || 400) * scaleSize)
-          canvas.height = Math.round((img.height || 300) * scaleSize)
-          const ctx = canvas.getContext('2d')
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-            setFotoBase64(canvas.toDataURL('image/jpeg', 0.4))
-          } else {
-            setFotoBase64(result)
-          }
-        } catch (err) {
-          console.warn("Canvas compression fallback:", err)
-          setFotoBase64(result)
-        }
-      }
-      img.src = result
+      if (result) setFotoBase64(result)
     }
     reader.readAsDataURL(file)
   }
 
-  const handleSaveToDB = async () => {
-      if(!selectedChofer || !camion) {
-          alert('Por favor selecciona el Chofer Operador y la Unidad/Vehículo')
-          return
-      }
-      setSaving(true)
-      try {
-          // 1. Resolver un UUID válido para id_empleado
-          let validEmpleadoId: string | null = null
-
-          if (isUUID(selectedChofer)) {
-            const { data: empCheck } = await supabase.from('empleados').select('id_empleado').eq('id_empleado', selectedChofer).maybeSingle()
-            if (empCheck) {
-              validEmpleadoId = empCheck.id_empleado
-            }
-          }
-
-          if (!validEmpleadoId) {
-            const choferObj = choferes.find(c => c.id_empleado === selectedChofer)
-            if (choferObj && choferObj.nombre) {
-              const firstName = choferObj.nombre.split(' ')[0]
-              const { data: matchEmp } = await supabase.from('empleados').select('id_empleado').ilike('nombre', `%${firstName}%`).limit(1)
-              if (matchEmp && matchEmp.length > 0) {
-                validEmpleadoId = matchEmp[0].id_empleado
-              }
-            }
-          }
-
-          // Fallback a cualquier empleado válido si la FK es estricta
-          if (!validEmpleadoId) {
-            const { data: anyEmp } = await supabase.from('empleados').select('id_empleado').limit(1)
-            if (anyEmp && anyEmp.length > 0) validEmpleadoId = anyEmp[0].id_empleado
-          }
-
-          const payload: any = {
-              id_empleado: validEmpleadoId,
-              camion_numero: camion,
-              id_viaje: (selectedViaje && selectedViaje.trim() !== '' && isUUID(selectedViaje)) ? selectedViaje : null,
-              kilometraje_inicial: parseInt(kmInicial) || 0,
-              kilometraje_final: parseInt(kmFinal) || 0,
-              gasolina_inicio: gasInicio,
-              gasolina_fin: gasFin,
-              litros_cargados: parseFloat(litros) || 0,
-              frenos_ok: isApto,
-              luces_ok: isApto,
-              llantas_ok: isApto,
-              niveles_aceite_ok: isApto,
-              carroceria_ok: isApto,
-              extintor_ok: isApto,
-              botiquin_ok: isApto,
-              comentarios_vehiculo: `[MOTIVO: ${motivoViaje}] [CATEGORÍA: ${tipoVehiculo}] [APTO MINA: ${isApto ? 'SI' : 'NO'}] ${comentariosVehiculo}`,
-              ubicacion_caseta: caseta,
-              foto_caseta_url: fotoBase64,
-              observaciones_recorrido: obsCaseta,
-              firma_chofer_url: firmaChoferData,
-              firma_guardia_url: firmaGuardiaData,
-              firma_rh_url: firmaRHData || (rhApproved ? 'APROBADO_RH' : null),
-              tipo_vehiculo: tipoVehiculo
-          }
-
-          // 2. Guardar en Supabase
-          let supabaseSaved = false
-          let createdReportId = 'rep_' + Date.now()
-
-          try {
-            const { data: insData, error: insErr } = await supabase.from('logistica_reportes_diarios').insert([payload]).select()
-            if (insErr) {
-              console.warn("Supabase insert warning, trying retry without optional fields:", insErr)
-              // Retry without id_empleado or tipo_vehiculo if schema differs
-              delete payload.tipo_vehiculo
-              const retry = await supabase.from('logistica_reportes_diarios').insert([payload]).select()
-              if (!retry.error) {
-                supabaseSaved = true
-                if (retry.data && retry.data[0]) createdReportId = retry.data[0].id_reporte
-              }
-            } else {
-              supabaseSaved = true
-              if (insData && insData[0]) createdReportId = insData[0].id_reporte
-            }
-          } catch (netErr) {
-            console.warn("Network error to Supabase:", netErr)
-          }
-
-          // 3. Respaldo Local Garantizado (LocalStorage)
-          const newReportForLocal = {
-            ...payload,
-            id_reporte: createdReportId,
-            creado_el: new Date().toISOString(),
-            chofer_nombre: choferes.find(c => c.id_empleado === selectedChofer)?.nombre || 'Chofer Operador',
-            sincronizado: supabaseSaved
-          }
-
-          const existingLocal = JSON.parse(localStorage.getItem('rh_reportes_local_backup') || '[]')
-          const updatedLocal = [newReportForLocal, ...existingLocal]
-          localStorage.setItem('rh_reportes_local_backup', JSON.stringify(updatedLocal))
-          setMiHistorial(updatedLocal)
-
-          if (selectedViaje && isUUID(selectedViaje)) {
-              const viajeAsociado = misViajes.find(v => v.id_viaje === selectedViaje)
-              if (viajeAsociado) {
-                  const limite = new Date(`${viajeAsociado.fecha_esperada}T${viajeAsociado.hora_esperada}`)
-                  const estatusFinal = new Date() > limite ? 'Completado con Retraso' : 'Completado'
-                  try {
-                    await supabase.from('logistica_viajes_programados').update({ estado: estatusFinal }).eq('id_viaje', selectedViaje)
-                  } catch (e) {}
-              }
-          }
-          
-          alert('✅ ¡Checklist de Inspección Minera y Reporte guardados exitosamente!\n\nPuedes consultarlo en la pestaña de Historial.')
-          setActiveTab('historial')
-          sigChoferRef.current?.clear(); setFirmaChoferData(null)
-          sigGuardiaRef.current?.clear(); setFirmaGuardiaData(null)
-          sigRHRef.current?.clear(); setFirmaRHData(null)
-          setFotoBase64(null)
-          fetchViajesYHistorial()
-      } catch (err: any) {
-          console.error(err)
-          alert('Nota: ' + (err.message || 'El reporte se guardó localmente en tu navegador.'))
-      } finally {
-          setSaving(false)
-      }
-  }
-
-  const exportPDFReport = () => {
-    const doc = new jsPDF()
-    const choferObj = choferes.find(c => c.id_empleado === selectedChofer)
-    const choferNombre = choferObj ? `${choferObj.nombre} ${choferObj.apellido_paterno} ${choferObj.apellido_materno || ''}` : 'NO ESPECIFICADO'
-
-    doc.setFontSize(16)
-    doc.text("Dictamen Oficial de Inspección Vehicular y Salida Minera", 105, 20, { align: 'center' })
-
-    doc.setFontSize(10)
-    doc.text(`Operador / Chofer: ${choferNombre.toUpperCase()}`, 14, 35)
-    doc.text(`Vehículo / Eco: ${camion || 'N/A'} | Tipo: ${tipoVehiculo.toUpperCase()}`, 14, 43)
-    doc.text(`Motivo de Salida: ${motivoViaje}`, 14, 51)
-    doc.text(`Odómetro Inicial: ${kmInicial || '0'} KM | Nivel Combustible: ${gasInicio}`, 14, 59)
-    doc.text(`Dictamen Minero: ${isApto ? '🟢 VEHÍCULO APTO PARA SALIDA (APROBADO)' : '🔴 VEHÍCULO NO APTO (REQUIERE REPARACIÓN)'}`, 14, 67)
-
-    doc.line(14, 75, 196, 75)
-
-    doc.setFontSize(11)
-    doc.text("Firmas Digitales de Autorización:", 14, 87)
-
-    doc.setFontSize(9)
-    doc.text("-----------------------", 30, 120)
-    doc.text("Firma Operador Chofer", 30, 125)
-
-    doc.text("-----------------------", 90, 120)
-    doc.text("Firma Guardia Caseta", 90, 125)
-
-    doc.text("-----------------------", 150, 120)
-    doc.text("Visto Bueno RH / Logística", 150, 125)
-
-    doc.save(`Dictamen_Minero_${tipoVehiculo}_${camion || 'Eco'}.pdf`)
-  }
-
   const clearSignature = (ref: React.RefObject<SignatureCanvas | null>, setter: (val: string | null) => void) => {
-      ref.current?.clear()
-      setter(null)
+    ref.current?.clear()
+    setter(null)
+  }
+
+  const handleProgramarViaje = async () => {
+    if (!selectedChofer || !nuevoDestino || !nuevaFecha || !nuevaHora) return alert('Por favor llena todos los campos del viaje.')
+    setSaving(true)
+    try {
+      let validEmpId: string | null = isUUID(selectedChofer) ? selectedChofer : null
+      if (!validEmpId) {
+        const { data: anyEmp } = await supabase.from('empleados').select('id_empleado').limit(1)
+        if (anyEmp && anyEmp.length > 0) validEmpId = anyEmp[0].id_empleado
+      }
+
+      const { error } = await supabase.from('logistica_viajes_programados').insert([{
+        id_empleado: validEmpId,
+        destino: nuevoDestino,
+        fecha_esperada: nuevaFecha,
+        hora_esperada: nuevaHora,
+        estado: 'Programado'
+      }])
+      if (error) throw error
+      alert('¡Viaje Programado Exitosamente!')
+      setNuevoDestino(''); setNuevaFecha(''); setNuevaHora('')
+      setActiveTab('reporte')
+      fetchViajesYHistorial()
+    } catch (e: any) {
+      alert('Error al programar viaje: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSeedAccountsBtn = async () => {
+    setSeedingLoading(true)
+    try {
+      const res = await fetch('/api/seed-choferes-empleados', { method: 'POST' })
+      const data = await res.json()
+      setSeedingMsg('✅ Cuentas de choferes verificadas y sincronizadas.')
+      fetchChoferesYFlota()
+    } catch (e) {
+      setSeedingMsg('Error al sincronizar cuentas.')
+    } finally {
+      setSeedingLoading(false)
+    }
   }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-20 font-sans">
-        
-        {/* Header Principal */}
-        <div className="bg-zinc-900 p-6 rounded-3xl text-white shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-8 opacity-10">
-                <Truck className="w-36 h-36" />
-            </div>
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative z-10">
-                <div className="flex items-center gap-3">
-                    <div className="bg-emerald-500 p-2.5 rounded-2xl text-black">
-                        <Bus className="w-7 h-7" />
-                    </div>
-                    <div>
-                        <h1 className="text-2xl font-black tracking-tight">Portal Oficial de Choferes y Rutas</h1>
-                        <p className="text-zinc-400 text-xs mt-0.5">Captura rápida de pasajeros y tiempo en ruta (Punto A ➔ Punto B)</p>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                    <Link
-                        href="/chofer-app"
-                        target="_blank"
-                        className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-xs font-black rounded-xl border border-blue-400/50 flex items-center gap-1.5 transition-all shrink-0 shadow-lg shadow-blue-500/20"
-                    >
-                        <Truck className="w-4 h-4" />
-                        <span>📱 Abrir App Choferes (QR & Offline)</span>
-                    </Link>
-
-                    <button
-                        onClick={() => setShowChoferesCredentials(!showChoferesCredentials)}
-                        className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-xs font-black rounded-xl border border-zinc-700 flex items-center gap-1.5 transition-all shrink-0"
-                    >
-                        <User className="w-4 h-4 text-amber-400" />
-                        <span>{showChoferesCredentials ? 'Ocultar Accesos' : '🔑 Ver Cuentas Choferes'}</span>
-                    </button>
-                </div>
-            </div>
-
-            {/* CHOFERES ACCOUNTS DRAWER */}
-            {showChoferesCredentials && (
-                <div className="mt-4 pt-4 border-t border-zinc-800 space-y-3 animate-in fade-in">
-                    <div className="flex justify-between items-center">
-                        <div className="text-xs font-black text-amber-400 uppercase tracking-wider">Cuentas y Contraseñas Registradas de Choferes</div>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={handleFixRolesBtn}
-                                disabled={seedingLoading}
-                                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-black rounded-lg shadow-sm transition-all"
-                                title="Establecer rol 'Chofer' en perfiles de Supabase"
-                            >
-                                🛠️ Asignar Rol Chofer en BD
-                            </button>
-                            <button
-                                onClick={handleSeedAccountsBtn}
-                                disabled={seedingLoading}
-                                className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg shadow-sm transition-all"
-                            >
-                                {seedingLoading ? 'Verificando...' : '⚡ Sincronizar Cuentas'}
-                            </button>
-                        </div>
-                    </div>
-
-                    {seedingMsg && (
-                        <div className="p-2.5 bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-xs rounded-xl font-mono">
-                            {seedingMsg}
-                        </div>
-                    )}
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
-                        {[
-                            { nombre: 'Adalberto Pinales', email: 'adalberto.pinales@bacis.com', pass: 'Bacis2026!' },
-                            { nombre: 'Ramon Yañez', email: 'ramon.yanez@bacis.com', pass: 'Bacis2026!' },
-                            { nombre: 'Oscar Vazquez', email: 'oscar.vazquez@bacis.com', pass: 'Bacis2026!' },
-                            { nombre: 'Enrique Linares', email: 'enrique.linares@bacis.com', pass: 'Bacis2026!' },
-                            { nombre: 'Samuel Madriles', email: 'samuel.madriles@bacis.com', pass: 'Bacis2026!' },
-                            { nombre: 'Jesus Saucedo', email: 'jesus.saucedo@bacis.com', pass: 'Bacis2026!' },
-                        ].map((c, i) => (
-                            <div key={i} className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-800 space-y-0.5">
-                                <div className="font-sans font-bold text-white text-xs">{c.nombre}</div>
-                                <div className="text-[10px] text-zinc-400">Usuario: <span className="text-amber-300">{c.email}</span></div>
-                                <div className="text-[10px] text-zinc-400">Contraseña: <span className="text-emerald-400 font-bold">{c.pass}</span></div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
+      
+      {/* Header Principal */}
+      <div className="bg-zinc-900 p-6 rounded-3xl text-white shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-8 opacity-10">
+          <Truck className="w-36 h-36" />
         </div>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="bg-emerald-500 p-2.5 rounded-2xl text-black shadow-md">
+              <Bus className="w-7 h-7" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-black tracking-tight">Portal Oficial de Choferes y Rutas</h1>
+              <p className="text-zinc-400 text-xs mt-0.5">Captura de pasaje con QR y control de salidas mineras</p>
+            </div>
+          </div>
 
-        {/* 1. Selector de Operador / Chofer */}
-        <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-5 space-y-2">
-            <label className="text-xs font-black text-zinc-700 uppercase tracking-wider block">1. Seleccionar Chofer / Operador Autorizado</label>
-            <select 
-                value={selectedChofer} onChange={e => setSelectedChofer(e.target.value)}
-                className="w-full p-3.5 border border-zinc-200 rounded-2xl text-xs font-black bg-zinc-50 text-zinc-900 focus:bg-white focus:border-emerald-500"
+          <div className="flex items-center gap-2">
+            <Link
+              href="/chofer-app"
+              target="_blank"
+              className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-xs font-black rounded-xl border border-blue-400/50 flex items-center gap-1.5 transition-all shrink-0 shadow-lg shadow-blue-500/20"
             >
-                <option value="">Seleccionar operador con rol de Chofer...</option>
-                {choferes.length === 0 ? (
-                    <option value="" disabled>No se encontraron usuarios asignados con el rol de Chofer</option>
-                ) : (
-                    choferes.map(c => (
-                        <option key={c.id_empleado} value={c.id_empleado}>
-                            👔 {c.nombre} {c.apellido_paterno} {c.apellido_materno || ''} ({c.puesto || 'Chofer'})
-                        </option>
-                    ))
-                )}
-            </select>
+              <Truck className="w-4 h-4" />
+              <span>📱 App Choferes (QR & Offline)</span>
+            </Link>
+
+            {isRHOrAdmin && (
+              <button
+                onClick={() => setShowChoferesCredentials(!showChoferesCredentials)}
+                className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-xs font-black rounded-xl border border-zinc-700 flex items-center gap-1.5 transition-all shrink-0"
+              >
+                <span>🔑 Cuentas Choferes</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Pestañas de Navegación */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1.5 bg-zinc-200/80 rounded-2xl">
-            <button onClick={() => setActiveTab('bitacora_ruta')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'bitacora_ruta' ? 'bg-emerald-600 text-white shadow-md' : 'text-zinc-700 hover:text-black'}`}>
-                <Bus className="w-4 h-4" /> Bitácora Ruta A➔B
-            </button>
-            <button onClick={() => setActiveTab('reporte')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'reporte' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
-                <FileSignature className="w-4 h-4 text-emerald-600" /> Inspección
-            </button>
-            <button onClick={() => setActiveTab('programar')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'programar' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
-                <Calendar className="w-4 h-4 text-indigo-600" /> Programar
-            </button>
-            <button onClick={() => setActiveTab('historial')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'historial' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
-                <History className="w-4 h-4 text-amber-600" /> Historial Inspección
-            </button>
-        </div>
-
-        {/* TAB 0: BITÁCORA DE RUTA EN TIEMPO REAL (PUNTO A -> PUNTO B) - MOBILE FIRST */}
-        {activeTab === 'bitacora_ruta' && (
-            <div className="space-y-6 animate-in fade-in">
-                {/* SI HAY UN VIAJE EN CURSO */}
-                {viajeRutaActivo ? (
-                    <div className="bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700 text-white p-6 rounded-3xl shadow-xl space-y-5 border border-amber-400">
-                        <div className="flex justify-between items-center border-b border-amber-400/50 pb-3">
-                            <span className="text-xs font-black uppercase tracking-widest bg-black/30 px-3 py-1 rounded-full flex items-center gap-1.5 animate-pulse">
-                                🟡 VIAJE EN CURSO (PUNTO A ➔ PUNTO B)
-                            </span>
-                            <span className="text-xs font-mono font-bold bg-white/20 px-2.5 py-0.5 rounded-lg">
-                                🕒 Salida: {viajeRutaActivo.hora_salida_a}
-                            </span>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4 text-center bg-black/20 p-4 rounded-2xl backdrop-blur-xs">
-                            <div>
-                                <div className="text-[10px] uppercase tracking-wider text-amber-200 font-extrabold">PUNTO A (ORIGEN)</div>
-                                <div className="text-lg font-black mt-0.5 truncate">{viajeRutaActivo.punto_a}</div>
-                                <div className="text-xs font-bold text-amber-200 mt-1">👥 {viajeRutaActivo.pasajeros_subieron_a} Subieron en A</div>
-                            </div>
-
-                            <div className="border-l border-amber-400/40 pl-2">
-                                <div className="text-[10px] uppercase tracking-wider text-amber-200 font-extrabold">PUNTO B (DESTINO)</div>
-                                <div className="text-lg font-black mt-0.5 truncate">{viajeRutaActivo.punto_b}</div>
-                                <div className="text-xs font-bold text-emerald-200 mt-1">🏁 Rumbo a Punto B</div>
-                            </div>
-                        </div>
-
-                        {/* REGISTRO DE PASAJEROS QUE BAJAN EN PUNTO B */}
-                        <div className="bg-white text-zinc-900 p-5 rounded-2xl shadow-lg space-y-3">
-                            <label className="block text-xs font-black uppercase tracking-wider text-zinc-800 text-center">
-                                🏁 Personas que descenderán al llegar al Punto B:
-                            </label>
-                            
-                            <div className="flex items-center justify-center gap-4">
-                                <button
-                                    type="button"
-                                    onClick={() => setPasajerosB(Math.max(0, pasajerosB - 1))}
-                                    className="w-14 h-14 bg-zinc-200 hover:bg-zinc-300 text-zinc-900 rounded-2xl text-2xl font-black flex items-center justify-center shadow-xs active:scale-95 transition-transform"
-                                >
-                                    -
-                                </button>
-                                
-                                <div className="w-24 text-center">
-                                    <input
-                                        type="number"
-                                        min={0}
-                                        value={pasajerosB}
-                                        onChange={e => setPasajerosB(Math.max(0, parseInt(e.target.value) || 0))}
-                                        className="w-full text-center text-3xl font-black border-2 border-emerald-500 rounded-2xl py-2 bg-emerald-50 text-emerald-950 focus:outline-none"
-                                    />
-                                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Pasajeros</span>
-                                </div>
-
-                                <button
-                                    type="button"
-                                    onClick={() => setPasajerosB(pasajerosB + 1)}
-                                    className="w-14 h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-2xl font-black flex items-center justify-center shadow-md active:scale-95 transition-transform"
-                                >
-                                    +
-                                </button>
-                            </div>
-
-                            {/* Preset Buttons for Quick Touch */}
-                            <div className="flex justify-center gap-2 pt-1">
-                                {[1, 5, 10, 15, 20, 25].map(num => (
-                                    <button
-                                        key={num}
-                                        type="button"
-                                        onClick={() => setPasajerosB(num)}
-                                        className="px-2.5 py-1 bg-zinc-100 hover:bg-emerald-100 text-zinc-800 hover:text-emerald-900 text-xs font-bold rounded-lg border border-zinc-300"
-                                    >
-                                        {num}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        <button
-                            onClick={handleFinalizarRuta}
-                            className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-base rounded-2xl shadow-2xl flex items-center justify-center gap-2 transform active:scale-95 transition-all uppercase tracking-wide"
-                        >
-                            <CheckCircle className="w-6 h-6" />
-                            <span>🏁 Finalizar Viaje en Punto B ({viajeRutaActivo.punto_b})</span>
-                        </button>
-                    </div>
-                ) : (
-                    /* FORMULARIO DE INICIO DE RUTA PUNTO A -> PUNTO B */
-                    <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-5">
-                        <div className="border-b border-zinc-100 pb-3">
-                            <span className="text-[10px] font-black uppercase text-emerald-600 tracking-wider flex items-center gap-1">
-                                <Bus className="w-4 h-4" /> REGISTRO DE RUTA DE PERSONAL (MÓVIL)
-                            </span>
-                            <h2 className="text-lg font-black text-zinc-900 uppercase">
-                                Iniciar Nueva Ruta (Punto A ➔ Punto B)
-                            </h2>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Punto A (Origen de Salida)</label>
-                                <select
-                                    value={puntoA}
-                                    onChange={e => setPuntoA(e.target.value)}
-                                    className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50 mb-1"
-                                >
-                                    <option value="Mina Bacis">📍 Mina Bacis</option>
-                                    <option value="San Miguel">📍 San Miguel</option>
-                                    <option value="Parajes">📍 Campamento Parajes</option>
-                                    <option value="Zona Norte">📍 Campamento Zona Norte</option>
-                                    <option value="Planta">📍 Planta de Beneficio</option>
-                                    <option value="Durango">📍 Durango / Ciudad</option>
-                                    <option value="Otro">📍 Otro Punto (Especificar a continuación)</option>
-                                </select>
-                                <input
-                                    type="text"
-                                    value={puntoA}
-                                    onChange={e => setPuntoA(e.target.value)}
-                                    placeholder="Escribe Origen exacto..."
-                                    className="w-full p-2.5 border border-zinc-200 rounded-xl text-xs font-bold"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Punto B (Destino de Llegada)</label>
-                                <select
-                                    value={puntoB}
-                                    onChange={e => setPuntoB(e.target.value)}
-                                    className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50 mb-1"
-                                >
-                                    <option value="Parajes">📍 Campamento Parajes</option>
-                                    <option value="San Miguel">📍 San Miguel</option>
-                                    <option value="Mina Bacis">📍 Mina Bacis</option>
-                                    <option value="Zona Norte">📍 Campamento Zona Norte</option>
-                                    <option value="Planta">📍 Planta de Beneficio</option>
-                                    <option value="Durango">📍 Durango / Ciudad</option>
-                                    <option value="Otro">📍 Otro Punto (Especificar a continuación)</option>
-                                </select>
-                                <input
-                                    type="text"
-                                    value={puntoB}
-                                    onChange={e => setPuntoB(e.target.value)}
-                                    placeholder="Escribe Destino exacto..."
-                                    className="w-full p-2.5 border border-zinc-200 rounded-xl text-xs font-bold"
-                                />
-                            </div>
-                        </div>
-
-                        {/* CONTADOR DE PERSONAS QUE ABORDAN EN PUNTO A */}
-                        <div className="bg-zinc-50 border border-zinc-200 p-5 rounded-2xl space-y-3">
-                            <label className="block text-xs font-black uppercase tracking-wider text-zinc-800 text-center">
-                                👥 Cantidad de Personas que abordaron en Punto A ({puntoA}):
-                            </label>
-
-                            <div className="flex items-center justify-center gap-4">
-                                <button
-                                    type="button"
-                                    onClick={() => setPasajerosA(Math.max(0, pasajerosA - 1))}
-                                    className="w-14 h-14 bg-zinc-200 hover:bg-zinc-300 text-zinc-900 rounded-2xl text-2xl font-black flex items-center justify-center shadow-xs active:scale-95 transition-transform"
-                                >
-                                    -
-                                </button>
-                                
-                                <div className="w-24 text-center">
-                                    <input
-                                        type="number"
-                                        min={0}
-                                        value={pasajerosA}
-                                        onChange={e => setPasajerosA(Math.max(0, parseInt(e.target.value) || 0))}
-                                        className="w-full text-center text-3xl font-black border-2 border-indigo-500 rounded-2xl py-2 bg-white text-indigo-950 focus:outline-none"
-                                    />
-                                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Subieron</span>
-                                </div>
-
-                                <button
-                                    type="button"
-                                    onClick={() => setPasajerosA(pasajerosA + 1)}
-                                    className="w-14 h-14 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-2xl font-black flex items-center justify-center shadow-md active:scale-95 transition-transform"
-                                >
-                                    +
-                                </button>
-                            </div>
-
-                            {/* Preset Buttons for Quick Touch */}
-                            <div className="flex justify-center gap-2 pt-1">
-                                {[1, 5, 10, 15, 20, 25].map(num => (
-                                    <button
-                                        key={num}
-                                        type="button"
-                                        onClick={() => setPasajerosA(num)}
-                                        className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-zinc-800 hover:text-indigo-900 text-xs font-bold rounded-lg border border-zinc-300"
-                                    >
-                                        {num}
-                                    </button>
-                                ))}
-                            </div>
-
-                            {/* FACE SCANNER BUTTON & GALLERY */}
-                            <div className="pt-3 border-t border-zinc-200 text-center space-y-3">
-                                <button
-                                    type="button"
-                                    onClick={startFaceCamera}
-                                    className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-black rounded-xl shadow-md flex items-center justify-center gap-2 mx-auto transition-transform active:scale-95"
-                                >
-                                    <Camera className="w-4 h-4 text-amber-300" />
-                                    <span>📸 Escanear Rostro de Trabajador con Cámara</span>
-                                </button>
-
-                                {capturedPasajeros.length > 0 && (
-                                    <div className="space-y-1.5 text-left">
-                                        <label className="text-[10px] font-black uppercase text-purple-700 tracking-wider">
-                                            Rostros Escaneados en esta Salida ({capturedPasajeros.length}):
-                                        </label>
-                                        <div className="flex gap-2 overflow-x-auto pb-2 pt-1">
-                                            {capturedPasajeros.map((p, idx) => (
-                                                <div key={idx} className="relative shrink-0 w-16 text-center bg-white p-1 rounded-xl border border-purple-200 shadow-xs">
-                                                    <img src={p.foto} alt="Rostro" className="w-14 h-14 object-cover rounded-lg border border-purple-300" />
-                                                    <div className="text-[9px] font-mono font-bold text-zinc-700 mt-0.5">{p.hora}</div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Observaciones / Comentarios Específicos (Opcional)</label>
-                            <input
-                                type="text"
-                                value={comentariosRuta}
-                                onChange={e => setComentariosRuta(e.target.value)}
-                                placeholder="Ej. Ruta regular de cambio de turno..."
-                                className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50"
-                            />
-                        </div>
-
-                        <button
-                            onClick={handleIniciarRuta}
-                            className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-base rounded-2xl shadow-xl flex items-center justify-center gap-2 transform active:scale-95 transition-all uppercase tracking-wide"
-                        >
-                            <Bus className="w-6 h-6" />
-                            <span>🟢 Iniciar Ruta (Salida desde Punto A)</span>
-                        </button>
-                    </div>
-                )}
-
-                {/* TABLA DE HISTORIAL DE RUTAS DEL CHOFER */}
-                <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-4">
-                    <h3 className="text-sm font-black text-zinc-900 uppercase flex items-center gap-2 border-b pb-3 border-zinc-100">
-                        <History className="w-4 h-4 text-emerald-600" />
-                        Historial de Rutas Concluidas A➔B ({bitacoraRutasList.length})
-                    </h3>
-
-                    {bitacoraRutasList.length === 0 ? (
-                        <div className="text-center p-8 text-zinc-400 font-bold text-xs">
-                            No hay rutas concluidas aún para este chofer.
-                        </div>
-                    ) : (
-                        <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                            {bitacoraRutasList.map((r, idx) => (
-                                <div key={idx} className="border border-zinc-200 rounded-2xl p-4 bg-zinc-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs">
-                                    <div className="space-y-1">
-                                        <div className="font-black text-zinc-900 text-sm flex items-center gap-2">
-                                            <span>📍 {r.punto_a} ➔ {r.punto_b}</span>
-                                            <span className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-bold uppercase ${r.estatus === 'CONCLUIDO' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                                                {r.estatus || 'CONCLUIDO'}
-                                            </span>
-                                        </div>
-                                        <div className="text-[11px] text-zinc-500 font-mono">
-                                            ⏱️ Salida A: {r.hora_salida_a || '-'} | Llegada B: {r.hora_llegada_b || '-'}
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-3 bg-white px-3 py-2 rounded-xl border border-zinc-200 font-mono font-bold text-xs">
-                                        <div className="text-indigo-700">Subieron A: <strong>{r.pasajeros_subieron_a || 0}</strong></div>
-                                        <div className="text-zinc-300">|</div>
-                                        <div className="text-emerald-700">Bajaron B: <strong>{r.pasajeros_bajaron_b || 0}</strong></div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
+        {/* Panel de Cuentas de Choferes (Solo visible para RH / Admin) */}
+        {showChoferesCredentials && isRHOrAdmin && (
+          <div className="mt-4 pt-4 border-t border-zinc-800 space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold text-amber-400">Roster de 6 Choferes Oficiales Registrados:</span>
+              <button
+                onClick={handleSeedAccountsBtn}
+                disabled={seedingLoading}
+                className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black rounded-lg shadow-sm"
+              >
+                {seedingLoading ? 'Verificando...' : '⚡ Sincronizar'}
+              </button>
             </div>
+            {seedingMsg && <div className="p-2 bg-emerald-950/80 text-emerald-300 text-xs rounded-xl font-mono">{seedingMsg}</div>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
+              {[
+                { nombre: 'Adalberto Pinales', email: 'adalberto.pinales@bacis.com', pass: 'Bacis2026!' },
+                { nombre: 'Ramon Yañez', email: 'ramon.yanez@bacis.com', pass: 'Bacis2026!' },
+                { nombre: 'Oscar Vazquez', email: 'oscar.vazquez@bacis.com', pass: 'Bacis2026!' },
+                { nombre: 'Enrique Linares', email: 'enrique.linares@bacis.com', pass: 'Bacis2026!' },
+                { nombre: 'Samuel Madriles', email: 'samuel.madriles@bacis.com', pass: 'Bacis2026!' },
+                { nombre: 'Jesus Saucedo', email: 'jesus.saucedo@bacis.com', pass: 'Bacis2026!' },
+              ].map((c, i) => (
+                <div key={i} className="bg-zinc-950 p-2 rounded-xl border border-zinc-800 space-y-0.5">
+                  <div className="font-sans font-bold text-white text-xs">{c.nombre}</div>
+                  <div className="text-[10px] text-zinc-400">Usuario: <span className="text-amber-300">{c.email}</span></div>
+                  <div className="text-[10px] text-zinc-400">Contraseña: <span className="text-emerald-400 font-bold">{c.pass}</span></div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
+      </div>
 
-        {/* TAB: PROGRAMAR VIAJE */}
-        {selectedChofer && activeTab === 'programar' && (
-            <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-4 animate-in fade-in">
-                <h2 className="text-base font-black text-zinc-900 flex items-center gap-2 border-b pb-3 border-zinc-100">
-                    <MapPin className="w-5 h-5 text-indigo-600" /> Programar Salida o Viaje Foráneo
-                </h2>
+      {/* 1. SELECCIÓN / IDENTIFICACIÓN DEL CHOFER */}
+      {!isRHOrAdmin ? (
+        // VISTA CHOFER: Bloqueado a su propio perfil
+        <div className="bg-gradient-to-r from-zinc-900 to-zinc-800 text-white rounded-3xl p-5 flex items-center justify-between shadow-sm border border-zinc-700">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-zinc-950 flex items-center justify-center font-black text-xl shadow-md">
+              👔
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider block">Chofer Operador Autenticado</span>
+              <h2 className="text-base font-black text-white">{profile?.nombre_completo || 'Chofer Operador'}</h2>
+              <span className="text-[11px] text-zinc-400">Sesión iniciada correctamente • Rol Oficial: Chofer</span>
+            </div>
+          </div>
+          <div className="px-3 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black flex items-center gap-1.5">
+            <CheckCircle className="w-3.5 h-3.5" />
+            <span>En Turno</span>
+          </div>
+        </div>
+      ) : (
+        // VISTA SUPERVISOR RH / ADMIN: Puede supervisar cualquiera de los 6 choferes
+        <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-5 space-y-2">
+          <div className="flex justify-between items-center">
+            <label className="text-xs font-black text-zinc-700 uppercase tracking-wider block">
+              Supervisión de Choferes (Vista Administrador / RH)
+            </label>
+            <span className="text-[10px] font-black uppercase text-amber-600 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
+              Supervisor: {profile?.nombre_completo || 'RH'}
+            </span>
+          </div>
+          <select 
+            value={selectedChofer} 
+            onChange={e => setSelectedChofer(e.target.value)}
+            className="w-full p-3.5 border border-zinc-200 rounded-2xl text-xs font-black bg-zinc-50 text-zinc-900 focus:bg-white focus:border-emerald-500"
+          >
+            {choferes.map(c => (
+              <option key={c.id_empleado} value={c.id_empleado}>
+                👔 {c.nombre} ({c.departamento}) - Eco Asignado: {c.numero_economico || 'Unidad'}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Pestañas de Navegación */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1.5 bg-zinc-200/80 rounded-2xl">
+        <button onClick={() => setActiveTab('bitacora_ruta')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'bitacora_ruta' ? 'bg-emerald-600 text-white shadow-md' : 'text-zinc-700 hover:text-black'}`}>
+          <Bus className="w-4 h-4" /> 1. Ruta y Pasaje QR
+        </button>
+        <button onClick={() => setActiveTab('reporte')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'reporte' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
+          <FileSignature className="w-4 h-4 text-emerald-600" /> 2. Checklist Mecánico
+        </button>
+        <button onClick={() => setActiveTab('programar')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'programar' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
+          <Calendar className="w-4 h-4 text-indigo-600" /> 3. Programar Salida
+        </button>
+        <button onClick={() => setActiveTab('historial')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'historial' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
+          <History className="w-4 h-4 text-amber-600" /> 4. Historial ({miHistorial.length})
+        </button>
+      </div>
+
+      {/* ============================================================ */}
+      {/* TAB 1: BITÁCORA DE RUTA Y CAPTURA DE PASAJEROS CON QR */}
+      {/* ============================================================ */}
+      {activeTab === 'bitacora_ruta' && (
+        <div className="space-y-6 animate-in fade-in">
+          
+          {/* VIAJE EN CURSO */}
+          {viajeRutaActivo ? (
+            <div className="bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700 text-white p-6 rounded-3xl shadow-xl space-y-5 border border-amber-400">
+              <div className="flex justify-between items-center border-b border-amber-400/50 pb-3">
+                <span className="text-xs font-black uppercase tracking-widest bg-black/30 px-3 py-1 rounded-full flex items-center gap-1.5 animate-pulse">
+                  🟡 EN RUTA: {viajeRutaActivo.punto_a} ➔ {viajeRutaActivo.punto_b}
+                </span>
+                <span className="text-xs font-mono font-bold bg-white/20 px-2.5 py-0.5 rounded-lg">
+                  🕒 Salida: {viajeRutaActivo.hora_salida_a}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 text-center bg-black/20 p-4 rounded-2xl backdrop-blur-xs">
                 <div>
-                    <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Lugar de Destino (Ej. Durango, Bacis, Mina)</label>
-                    <input type="text" value={nuevoDestino} onChange={e => setNuevoDestino(e.target.value)} placeholder="Ej. Durango / Clinica Bacis" className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50" />
+                  <div className="text-[10px] uppercase tracking-wider text-amber-200 font-extrabold">ORIGEN (PUNTO A)</div>
+                  <div className="text-lg font-black mt-0.5 truncate">{viajeRutaActivo.punto_a}</div>
+                  <div className="text-xs font-bold text-amber-200 mt-1">👥 {viajeRutaActivo.pasajeros_subieron_a || 0} a bordo</div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Fecha de Salida</label>
-                        <input type="date" value={nuevaFecha} onChange={e => setNuevaFecha(e.target.value)} className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50" />
-                    </div>
-                    <div>
-                        <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Hora Estimada</label>
-                        <input type="time" value={nuevaHora} onChange={e => setNuevaHora(e.target.value)} className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50" />
-                    </div>
+
+                <div className="border-l border-amber-400/40 pl-2">
+                  <div className="text-[10px] uppercase tracking-wider text-amber-200 font-extrabold">DESTINO (PUNTO B)</div>
+                  <div className="text-lg font-black mt-0.5 truncate">{viajeRutaActivo.punto_b}</div>
+                  <div className="text-xs font-bold text-emerald-200 mt-1">🏁 Llegada</div>
                 </div>
-                <button onClick={handleProgramarViaje} disabled={saving} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-3 rounded-2xl flex items-center justify-center gap-2 shadow-md transition-all">
-                    <Save className="w-4 h-4" /> Registrar Viaje Programado
+              </div>
+
+              {/* Botones de Escaneo Durante el Viaje */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={iniciarCamaraQR}
+                  className="flex-1 py-3 bg-white text-zinc-900 hover:bg-zinc-100 font-black text-xs rounded-2xl shadow-md flex items-center justify-center gap-2"
+                >
+                  <QrCode className="w-4 h-4 text-emerald-600" /> Escanear Pasajero Adicional (QR)
                 </button>
-            </div>
-        )}
+              </div>
 
-        {/* TAB: HISTORIAL */}
-        {selectedChofer && activeTab === 'historial' && (
-            <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-5 animate-in fade-in">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b pb-4 border-zinc-100">
-                    <div>
-                        <h2 className="text-base font-black text-zinc-900 flex items-center gap-2">
-                            <History className="w-5 h-5 text-amber-600" /> Bitácora de Inspecciones y Salidas ({miHistorial.length})
-                        </h2>
-                        <p className="text-xs text-zinc-500 mt-0.5">Historial oficial de checklists mecánicos, odómetros y dictámenes de salida.</p>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={fetchViajesYHistorial}
-                        className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all"
-                    >
-                        <RefreshCw className="w-3.5 h-3.5" /> Actualizar Lista
-                    </button>
+              {/* Descendientes en Punto B */}
+              <div className="bg-white text-zinc-900 p-5 rounded-2xl shadow-lg space-y-3">
+                <label className="block text-xs font-black uppercase tracking-wider text-zinc-800 text-center">
+                  🏁 Personas que descenderán al llegar a {viajeRutaActivo.punto_b}:
+                </label>
+                <div className="flex items-center justify-center gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setPasajerosB(Math.max(0, pasajerosB - 1))}
+                    className="w-14 h-14 bg-zinc-200 hover:bg-zinc-300 text-zinc-900 rounded-2xl text-2xl font-black flex items-center justify-center shadow-xs active:scale-95"
+                  >
+                    -
+                  </button>
+                  <div className="w-24 text-center">
+                    <input
+                      type="number"
+                      min={0}
+                      value={pasajerosB}
+                      onChange={e => setPasajerosB(Math.max(0, parseInt(e.target.value) || 0))}
+                      className="w-full text-center text-3xl font-black border-2 border-emerald-500 rounded-2xl py-2 bg-emerald-50 text-emerald-950 focus:outline-none"
+                    />
+                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Pasajeros</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPasajerosB(pasajerosB + 1)}
+                    className="w-14 h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-2xl font-black flex items-center justify-center shadow-md active:scale-95"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <button
+                onClick={handleFinalizarRuta}
+                className="w-full py-4 bg-emerald-400 hover:bg-emerald-300 text-zinc-950 font-black text-base rounded-2xl shadow-2xl flex items-center justify-center gap-2 transform active:scale-95 transition-all uppercase tracking-wide"
+              >
+                <CheckCircle className="w-6 h-6" />
+                <span>🏁 Finalizar Viaje en {viajeRutaActivo.punto_b}</span>
+              </button>
+            </div>
+          ) : (
+            // FORMULARIO PARA INICIAR NUEVA RUTA
+            <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-5">
+              <div className="border-b border-zinc-100 pb-3">
+                <span className="text-[10px] font-black uppercase text-emerald-600 tracking-wider flex items-center gap-1">
+                  <Bus className="w-4 h-4" /> REGISTRO DE TRASLADO DE PERSONAL
+                </span>
+                <h2 className="text-lg font-black text-zinc-900 uppercase">
+                  Iniciar Nueva Ruta (Punto A ➔ Punto B)
+                </h2>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Origen (Punto A)</label>
+                  <select
+                    value={puntoA}
+                    onChange={e => setPuntoA(e.target.value)}
+                    className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50 mb-1"
+                  >
+                    <option value="Mina Bacis">📍 Mina Bacis</option>
+                    <option value="San Miguel">📍 San Miguel</option>
+                    <option value="Parajes">📍 Campamento Parajes</option>
+                    <option value="Obscuridad">📍 Obscuridad</option>
+                    <option value="Zona Norte">📍 Campamento Zona Norte</option>
+                    <option value="Planta">📍 Planta de Beneficio</option>
+                    <option value="Durango">📍 Durango / Ciudad</option>
+                  </select>
                 </div>
 
-                {miHistorial.length === 0 ? (
-                    <div className="text-center p-12 text-zinc-400 font-bold text-xs space-y-2">
-                        <FileText className="w-8 h-8 mx-auto text-zinc-300" />
-                        <div>No se registran checklists o salidas previas para este chofer.</div>
-                        <p className="text-[10px] text-zinc-400">Completa el formulario en la pestaña "2. Reporte e Inspección Minera" y guarda tu reporte.</p>
-                    </div>
-                ) : (
-                    <div className="space-y-3">
-                        {miHistorial.map(h => (
-                            <div 
-                                key={h.id_reporte || h.creado_el} 
-                                className="border border-zinc-200 rounded-2xl p-4 bg-zinc-50/80 hover:bg-zinc-50 hover:border-zinc-300 transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs shadow-xs"
-                            >
-                                <div className="space-y-1">
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-black text-zinc-900 text-sm">
-                                            {h.tipo_vehiculo || 'Vehículo'} Eco: {h.camion_numero}
-                                        </span>
-                                        <span className={`px-2 py-0.5 rounded-full font-black text-[9px] uppercase tracking-wider ${
-                                            h.frenos_ok 
-                                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
-                                                : 'bg-rose-100 text-rose-800 border border-rose-200'
-                                        }`}>
-                                            {h.frenos_ok ? '🟢 Apto Salida' : '🔴 Con Falla'}
-                                        </span>
-                                    </div>
-                                    
-                                    <div className="text-[11px] text-zinc-500 flex flex-wrap items-center gap-2">
-                                        <span>📅 {new Date(h.creado_el).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
-                                        <span>•</span>
-                                        <span>📍 {h.ubicacion_caseta || 'Caseta Principal'}</span>
-                                        {h.kilometraje_inicial && (
-                                            <>
-                                                <span>•</span>
-                                                <span className="font-mono font-bold text-zinc-600">Odómetro: {h.kilometraje_inicial} KM</span>
-                                            </>
-                                        )}
-                                    </div>
+                <div>
+                  <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Destino (Punto B)</label>
+                  <select
+                    value={puntoB}
+                    onChange={e => setPuntoB(e.target.value)}
+                    className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50 mb-1"
+                  >
+                    <option value="Parajes">📍 Campamento Parajes</option>
+                    <option value="Mina Bacis">📍 Mina Bacis</option>
+                    <option value="San Miguel">📍 San Miguel</option>
+                    <option value="Obscuridad">📍 Obscuridad</option>
+                    <option value="Zona Norte">📍 Campamento Zona Norte</option>
+                    <option value="Planta">📍 Planta de Beneficio</option>
+                    <option value="Durango">📍 Durango / Ciudad</option>
+                  </select>
+                </div>
+              </div>
 
-                                    {/* Mini resumen de checklist */}
-                                    <div className="flex flex-wrap gap-1.5 pt-1">
-                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${h.frenos_ok ? 'bg-zinc-200/80 text-zinc-700' : 'bg-rose-200 text-rose-800'}`}>Frenos: {h.frenos_ok ? '✓' : '✗'}</span>
-                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${h.luces_ok ? 'bg-zinc-200/80 text-zinc-700' : 'bg-rose-200 text-rose-800'}`}>Luces: {h.luces_ok ? '✓' : '✗'}</span>
-                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${h.llantas_ok ? 'bg-zinc-200/80 text-zinc-700' : 'bg-rose-200 text-rose-800'}`}>Llantas: {h.llantas_ok ? '✓' : '✗'}</span>
-                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${h.niveles_aceite_ok ? 'bg-zinc-200/80 text-zinc-700' : 'bg-rose-200 text-rose-800'}`}>Aceite: {h.niveles_aceite_ok ? '✓' : '✗'}</span>
-                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${h.extintor_ok ? 'bg-zinc-200/80 text-zinc-700' : 'bg-rose-200 text-rose-800'}`}>Extintor: {h.extintor_ok ? '✓' : '✗'}</span>
-                                    </div>
-                                </div>
+              {/* SECCIÓN ESCANEAR QR / AGREGAR PASAJEROS */}
+              <div className="bg-zinc-50 border border-zinc-200 p-5 rounded-2xl space-y-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <label className="block text-xs font-black uppercase tracking-wider text-zinc-800">
+                      👥 Pasajeros a Bordo ({pasajerosAbordados.length}):
+                    </label>
+                    <p className="text-[11px] text-zinc-500">Escanea la credencial de cada trabajador o teclea su ID.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={iniciarCamaraQR}
+                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 transition-all"
+                  >
+                    <QrCode className="w-4 h-4 text-emerald-200" />
+                    <span>Abrir Escáner QR</span>
+                  </button>
+                </div>
 
-                                <div className="flex items-center gap-2 self-end sm:self-center">
-                                    <button
-                                        type="button"
-                                        onClick={() => setSelectedReporteModal(h)}
-                                        className="px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all"
-                                    >
-                                        <FileText className="w-3.5 h-3.5 text-amber-400" />
-                                        <span>Ver Detalle y Firmas</span>
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                {/* Input Manual de ID */}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={manualIdInput}
+                    onChange={e => setManualIdInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), agregarPasajero(manualIdInput, 'Manual'))}
+                    placeholder="Ingresar ID o Nombre de Trabajador..."
+                    className="flex-1 p-3 border border-zinc-300 rounded-xl text-xs font-bold bg-white focus:border-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => agregarPasajero(manualIdInput, 'Manual')}
+                    className="px-4 bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs rounded-xl flex items-center gap-1"
+                  >
+                    <UserPlus className="w-4 h-4" /> Agregar
+                  </button>
+                </div>
 
-                {/* MODAL DETALLE DE REPORTE Y CHECKLIST */}
-                {selectedReporteModal && (
-                    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-                        <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 shadow-2xl border border-zinc-200">
-                            <div className="flex justify-between items-start border-b pb-3 border-zinc-100">
-                                <div>
-                                    <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">EXPEDIENTE DE SALIDA</span>
-                                    <h3 className="text-lg font-black text-zinc-900">
-                                        {selectedReporteModal.tipo_vehiculo || 'Vehículo'} - {selectedReporteModal.camion_numero}
-                                    </h3>
-                                    <p className="text-xs text-zinc-500">{new Date(selectedReporteModal.creado_el).toLocaleString()}</p>
-                                </div>
-                                <button
-                                    onClick={() => setSelectedReporteModal(null)}
-                                    className="p-1.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-600 font-black text-xs"
-                                >
-                                    ✕ Cerrar
-                                </button>
-                            </div>
-
-                            {/* Desglose de Checklist */}
-                            <div className="space-y-2">
-                                <h4 className="text-xs font-black text-zinc-700 uppercase tracking-wider">Desglose de Inspección Mecánica</h4>
-                                <div className="grid grid-cols-2 gap-2 text-xs">
-                                    {[
-                                        { label: 'Frenos de Servicio', ok: selectedReporteModal.frenos_ok },
-                                        { label: 'Luces y Faros', ok: selectedReporteModal.luces_ok },
-                                        { label: 'Llantas y Presión', ok: selectedReporteModal.llantas_ok },
-                                        { label: 'Niveles de Aceite/Agua', ok: selectedReporteModal.niveles_aceite_ok },
-                                        { label: 'Carrocería e Interiores', ok: selectedReporteModal.carroceria_ok },
-                                        { label: 'Extintor Vigente', ok: selectedReporteModal.extintor_ok },
-                                        { label: 'Botiquín de Auxilio', ok: selectedReporteModal.botiquin_ok },
-                                    ].map((item, idx) => (
-                                        <div key={idx} className={`p-2.5 rounded-xl border flex items-center justify-between font-bold text-xs ${item.ok ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950' : 'bg-rose-50 border-rose-200 text-rose-950'}`}>
-                                            <span>{item.label}</span>
-                                            <span>{item.ok ? '✓ OK' : '✗ FALLA'}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Odómetro y Combustible */}
-                            <div className="bg-zinc-50 p-3.5 rounded-2xl border border-zinc-200 grid grid-cols-3 gap-2 text-center text-xs font-mono">
-                                <div>
-                                    <span className="text-[10px] text-zinc-400 block uppercase">Km Inicial</span>
-                                    <strong className="text-zinc-900">{selectedReporteModal.kilometraje_inicial || 0} KM</strong>
-                                </div>
-                                <div>
-                                    <span className="text-[10px] text-zinc-400 block uppercase">Tanque Inicio</span>
-                                    <strong className="text-zinc-900">{selectedReporteModal.gasolina_inicio || 'N/A'}</strong>
-                                </div>
-                                <div>
-                                    <span className="text-[10px] text-zinc-400 block uppercase">Litros Cargados</span>
-                                    <strong className="text-zinc-900">{selectedReporteModal.litros_cargados || 0} L</strong>
-                                </div>
-                            </div>
-
-                            {/* Comentarios */}
-                            {selectedReporteModal.comentarios_vehiculo && (
-                                <div className="space-y-1">
-                                    <span className="text-[10px] font-black uppercase text-zinc-500">Observaciones y Comentarios</span>
-                                    <p className="text-xs text-zinc-700 bg-zinc-50 p-3 rounded-xl border border-zinc-200">{selectedReporteModal.comentarios_vehiculo}</p>
-                                </div>
-                            )}
-
-                            {/* Evidencia Fotográfica */}
-                            {selectedReporteModal.foto_caseta_url && (
-                                <div className="space-y-1">
-                                    <span className="text-[10px] font-black uppercase text-zinc-500">Foto de Evidencia (Odómetro / Caseta)</span>
-                                    <img src={selectedReporteModal.foto_caseta_url} alt="Evidencia" className="rounded-2xl max-h-48 w-full object-cover border border-zinc-200 shadow-xs" />
-                                </div>
-                            )}
-
-                            {/* Firmas Digitales y Sello de Recursos Humanos */}
-                            <div className="space-y-2">
-                                <span className="text-[10px] font-black uppercase text-zinc-500">Firmas Digitales y Visto Bueno Oficial</span>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
-                                    {selectedReporteModal.firma_chofer_url ? (
-                                        <div className="p-2 border border-zinc-200 rounded-xl bg-zinc-50">
-                                            <img src={selectedReporteModal.firma_chofer_url} alt="Firma Chofer" className="h-12 mx-auto object-contain" />
-                                            <span className="text-[9px] font-bold text-zinc-600 block border-t pt-1 mt-1">Firma Chofer</span>
-                                        </div>
-                                    ) : (
-                                        <div className="p-3 border border-dashed rounded-xl text-[10px] text-zinc-400 flex items-center justify-center">Sin Firma Chofer</div>
-                                    )}
-
-                                    {selectedReporteModal.firma_guardia_url ? (
-                                        <div className="p-2 border border-zinc-200 rounded-xl bg-zinc-50">
-                                            <img src={selectedReporteModal.firma_guardia_url} alt="Firma Guardia" className="h-12 mx-auto object-contain" />
-                                            <span className="text-[9px] font-bold text-zinc-600 block border-t pt-1 mt-1">Firma Guardia</span>
-                                        </div>
-                                    ) : (
-                                        <div className="p-3 border border-dashed rounded-xl text-[10px] text-zinc-400 flex items-center justify-center">Sin Firma Guardia</div>
-                                    )}
-
-                                    {/* Sello de RH */}
-                                    <div className="p-2 border border-emerald-200 rounded-xl bg-emerald-50/50 flex flex-col justify-between items-center min-h-[70px]">
-                                        {selectedReporteModal.firma_rh_url ? (
-                                            <div className="my-auto space-y-0.5">
-                                                <span className="text-xs font-black text-emerald-700 block">✓ AUTORIZADO RH</span>
-                                                <span className="text-[9px] font-bold text-emerald-800 block">
-                                                    {selectedReporteModal.firma_rh_nombre || 'Recursos Humanos'}
-                                                </span>
-                                            </div>
-                                        ) : isRHOrAdmin ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => handleAprobarRHEnModal(selectedReporteModal)}
-                                                className="my-auto px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] rounded-lg shadow-sm transition-all"
-                                            >
-                                                + Estampar Sello RH
-                                            </button>
-                                        ) : (
-                                            <span className="my-auto text-[10px] text-amber-700 font-bold">
-                                                ⏳ Pendiente de RH
-                                            </span>
-                                        )}
-                                        <span className="text-[9px] font-bold text-zinc-600 block border-t border-emerald-200 w-full pt-1 mt-1">V.B. Recursos Humanos</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <button
-                                onClick={() => setSelectedReporteModal(null)}
-                                className="w-full bg-zinc-900 text-white font-bold py-3 rounded-xl text-xs hover:bg-zinc-800 transition-all"
-                            >
-                                Cerrar Ventana
-                            </button>
+                {/* Lista de Pasajeros Abordados */}
+                {pasajerosAbordados.length > 0 && (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pt-2 border-t border-zinc-200">
+                    {pasajerosAbordados.map((p, idx) => (
+                      <div key={idx} className="flex justify-between items-center p-2.5 bg-white rounded-xl border border-zinc-200 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[10px]">
+                            {idx + 1}
+                          </span>
+                          <div>
+                            <div className="font-black text-zinc-900">{p.nombre}</div>
+                            <div className="text-[10px] text-zinc-500">{p.puesto} • {p.hora} ({p.metodo})</div>
+                          </div>
                         </div>
-                    </div>
+                        <button
+                          type="button"
+                          onClick={() => quitarPasajero(p.id)}
+                          className="p-1.5 text-zinc-400 hover:text-rose-600"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 )}
-            </div>
-        )}
+              </div>
 
-        {/* TAB: NUEVO REPORTE */}
-        {selectedChofer && activeTab === 'reporte' && (
+              <div>
+                <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Observaciones de Salida (Opcional)</label>
+                <input
+                  type="text"
+                  value={comentariosRuta}
+                  onChange={e => setComentariosRuta(e.target.value)}
+                  placeholder="Ej. Cambio de turno regular..."
+                  className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50"
+                />
+              </div>
+
+              <button
+                onClick={handleIniciarRuta}
+                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-base rounded-2xl shadow-xl flex items-center justify-center gap-2 transform active:scale-95 transition-all uppercase tracking-wide"
+              >
+                <Bus className="w-6 h-6" />
+                <span>🟢 Iniciar Ruta ({puntoA} ➔ {puntoB})</span>
+              </button>
+            </div>
+          )}
+
+          {/* HISTORIAL DE RUTAS CONCLUIDAS */}
+          <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-4">
+            <h3 className="text-sm font-black text-zinc-900 uppercase flex items-center gap-2 border-b pb-3 border-zinc-100">
+              <History className="w-4 h-4 text-emerald-600" />
+              Rutas Recientes del Chofer ({bitacoraRutasList.length})
+            </h3>
+            {bitacoraRutasList.length === 0 ? (
+              <div className="text-center p-8 text-zinc-400 font-bold text-xs">No se registran rutas concluidas previas.</div>
+            ) : (
+              <div className="space-y-3">
+                {bitacoraRutasList.map((r, i) => (
+                  <div key={i} className="border border-zinc-200 rounded-2xl p-4 bg-zinc-50 flex justify-between items-center text-xs">
+                    <div>
+                      <div className="font-black text-zinc-900">{r.punto_a} ➔ {r.punto_b}</div>
+                      <div className="text-[10px] text-zinc-500">{r.fecha} • Salida: {r.hora_salida_a} | Llegada: {r.hora_llegada_b || 'Completado'}</div>
+                    </div>
+                    <div className="bg-white px-3 py-1.5 rounded-xl border border-zinc-200 font-mono font-bold text-xs text-indigo-700">
+                      👥 {r.pasajeros_subieron_a || 0} Pasajeros
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* TAB 2: CHECKLIST MECÁNICO E INSPECCIÓN */}
+      {/* ============================================================ */}
+      {activeTab === 'reporte' && (
         <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-6 animate-in fade-in">
-            
-            {/* FIT EVALUATION BANNER */}
-            <div className={`p-4.5 rounded-2xl border-2 flex items-center gap-3 transition-all ${
-                isApto 
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-950' 
-                    : 'bg-rose-50 border-rose-500 text-rose-950 shadow-lg animate-pulse'
-            }`}>
-                {isApto ? (
-                    <ShieldCheck className="w-7 h-7 text-emerald-600 flex-shrink-0" />
-                ) : (
-                    <ShieldAlert className="w-7 h-7 text-rose-600 flex-shrink-0" />
-                )}
+          
+          {/* BANNER DE DICTAMEN */}
+          <div className={`p-4.5 rounded-2xl border-2 flex items-center gap-3 ${isApto ? 'bg-emerald-50 border-emerald-300 text-emerald-950' : 'bg-rose-50 border-rose-500 text-rose-950'}`}>
+            {isApto ? <ShieldCheck className="w-7 h-7 text-emerald-600 shrink-0" /> : <ShieldAlert className="w-7 h-7 text-rose-600 shrink-0" />}
+            <div>
+              <div className="text-sm font-black uppercase">
+                {isApto ? '🟢 DICTAMEN: VEHÍCULO APTO PARA SALIDA' : '🔴 DICTAMEN: VEHÍCULO NO APTO (REVISIÓN REQUERIDA)'}
+              </div>
+              <p className="text-xs opacity-80 mt-0.5">
+                {isApto ? 'Todas las inspecciones mecánicas y de seguridad pasaron satisfactoriamente.' : 'Algunos puntos del checklist presentan observaciones que impiden la salida.'}
+              </p>
+            </div>
+          </div>
+
+          {/* 1. SELECCIÓN DE VEHÍCULO */}
+          <section className="space-y-4">
+            <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
+              <Car className="w-4 h-4 text-emerald-600" /> 1. Vehículo y Motivo de Salida
+            </h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Tipo de Vehículo</label>
+                <select
+                  value={tipoVehiculo}
+                  onChange={e => setTipoVehiculo(e.target.value as any)}
+                  className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-black bg-zinc-50"
+                >
+                  <option value="Camioneta">🛻 Camioneta 4x4 / Escolta</option>
+                  <option value="Camión">🚌 Camión / Urvan de Personal</option>
+                  <option value="Ambulancia">🚑 Ambulancia / Rescate Médico</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Unidad / Número Económico</label>
+                <input
+                  type="text"
+                  value={camion}
+                  onChange={e => setCamion(e.target.value)}
+                  placeholder="Ej. CAM-01 o Eco 12"
+                  className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-black bg-zinc-50"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Motivo de Salida</label>
+              <input
+                type="text"
+                value={motivoViaje}
+                onChange={e => setMotivoViaje(e.target.value)}
+                className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50"
+              />
+            </div>
+          </section>
+
+          {/* 2. CHECKLIST MECÁNICO */}
+          <section className="space-y-4">
+            <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" /> 2. Puntos de Inspección de Seguridad
+            </h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              {Object.entries(tipoVehiculo === 'Camioneta' ? checklistCamioneta : tipoVehiculo === 'Camión' ? checklistCamion : checklistAmbulancia).map(([key, val]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    if (tipoVehiculo === 'Camioneta') setChecklistCamioneta(prev => ({ ...prev, [key]: !val }))
+                    else if (tipoVehiculo === 'Camión') setChecklistCamion(prev => ({ ...prev, [key]: !val }))
+                    else setChecklistAmbulancia(prev => ({ ...prev, [key]: !val }))
+                  }}
+                  className={`p-3 rounded-2xl border flex items-center justify-between font-bold transition-all ${val ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950' : 'bg-rose-50 border-rose-300 text-rose-950'}`}
+                >
+                  <span className="capitalize">{key.replace(/_/g, ' ')}</span>
+                  <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${val ? 'bg-emerald-200 text-emerald-900' : 'bg-rose-200 text-rose-900'}`}>
+                    {val ? '✓ OK' : '✗ Falla'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* 3. ODÓMETRO Y COMBUSTIBLE */}
+          <section className="space-y-4">
+            <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
+              <Fuel className="w-4 h-4 text-emerald-600" /> 3. Odómetro y Combustible
+            </h2>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <label className="text-xs font-bold text-zinc-700 uppercase mb-1 block">Km Inicial</label>
+                <input
+                  type="number"
+                  value={kmInicial}
+                  onChange={e => setKmInicial(e.target.value)}
+                  placeholder="0"
+                  className="w-full p-2.5 border border-zinc-200 rounded-xl text-xs font-mono font-bold bg-zinc-50"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-zinc-700 uppercase mb-1 block">Tanque Inicio</label>
+                <select
+                  value={gasInicio}
+                  onChange={e => setGasInicio(e.target.value)}
+                  className="w-full p-2.5 border border-zinc-200 rounded-xl text-xs font-bold bg-zinc-50"
+                >
+                  <option>Lleno</option><option>3/4</option><option>1/2</option><option>1/4</option><option>Reserva</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-zinc-700 uppercase mb-1 block">Litros Cargados</label>
+                <input
+                  type="number"
+                  value={litros}
+                  onChange={e => setLitros(e.target.value)}
+                  placeholder="0"
+                  className="w-full p-2.5 border border-zinc-200 rounded-xl text-xs font-mono font-bold bg-zinc-50"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-zinc-700 uppercase mb-1 block">Caseta / Ubicación</label>
+                <input
+                  type="text"
+                  value={caseta}
+                  onChange={e => setCaseta(e.target.value)}
+                  className="w-full p-2.5 border border-zinc-200 rounded-xl text-xs font-bold bg-zinc-50"
+                />
+              </div>
+            </div>
+
+            {/* Foto de Odómetro */}
+            <div className="border-2 border-dashed border-zinc-300 rounded-2xl p-4 text-center bg-zinc-50">
+              {fotoBase64 ? (
+                <div className="space-y-2">
+                  <img src={fotoBase64} alt="Evidencia" className="mx-auto rounded-xl max-h-40 object-cover shadow-sm" />
+                  <button type="button" onClick={() => setFotoBase64(null)} className="text-xs font-bold text-rose-600 underline">Cambiar Foto</button>
+                </div>
+              ) : (
                 <div>
-                    <div className="font-black text-xs uppercase tracking-wider">
-                        {isApto ? '🟢 VEHÍCULO EVALUADO COMO APTO PARA SALIDA EN MINA' : '🔴 ATENCIÓN: VEHÍCULO NO APTO - REQUIERE MANTENIMIENTO'}
-                    </div>
-                    <div className="text-[11px] font-semibold opacity-90 mt-0.5">
-                        {isApto 
-                            ? 'Todos los elementos de seguridad y equipamiento minero están verificados.' 
-                            : 'Existen elementos de seguridad con falla. Notifica al taller o departamento de seguridad.'
-                        }
-                    </div>
+                  <Camera className="w-6 h-6 text-zinc-400 mx-auto mb-1" />
+                  <p className="text-xs font-bold text-zinc-600 mb-2">Foto de odómetro o tablero (Opcional)</p>
+                  <label className="bg-zinc-900 text-white px-4 py-1.5 rounded-xl text-xs font-bold cursor-pointer inline-flex items-center gap-1.5">
+                    <Upload className="w-3.5 h-3.5" /> Subir Evidencia
+                    <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                  </label>
                 </div>
+              )}
+            </div>
+          </section>
+
+          {/* 4. FIRMAS DIGITALES & AUTORIZACIÓN RH */}
+          <section className="space-y-4">
+            <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
+              <FileSignature className="w-4 h-4 text-emerald-600" /> 4. Firmas Digitales y Autorización
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Firma Chofer */}
+              <div className="border border-zinc-200 rounded-2xl overflow-hidden bg-zinc-50">
+                <div className="bg-zinc-100 px-4 py-2 flex justify-between items-center border-b border-zinc-200">
+                  <span className="text-[10px] font-black uppercase text-zinc-700">1. Firma del Chofer ({selectedChoferObj?.nombre || profile?.nombre_completo || 'Chofer'})</span>
+                  <button type="button" onClick={() => clearSignature(sigChoferRef, setFirmaChoferData)} className="text-[10px] text-zinc-500 hover:text-rose-600 font-bold uppercase">Limpiar</button>
+                </div>
+                <SignatureCanvas 
+                  ref={sigChoferRef} 
+                  clearOnResize={false} 
+                  onEnd={() => setFirmaChoferData(sigChoferRef.current?.toDataURL() || null)}
+                  canvasProps={{className: 'w-full h-24 bg-white', style: { touchAction: 'none' }}} 
+                />
+              </div>
+
+              {/* Firma Guardia */}
+              <div className="border border-zinc-200 rounded-2xl overflow-hidden bg-zinc-50">
+                <div className="bg-zinc-100 px-4 py-2 flex justify-between items-center border-b border-zinc-200">
+                  <span className="text-[10px] font-black uppercase text-zinc-700">2. Firma Guardia de Caseta</span>
+                  <button type="button" onClick={() => clearSignature(sigGuardiaRef, setFirmaGuardiaData)} className="text-[10px] text-zinc-500 hover:text-rose-600 font-bold uppercase">Limpiar</button>
+                </div>
+                <SignatureCanvas 
+                  ref={sigGuardiaRef} 
+                  clearOnResize={false} 
+                  onEnd={() => setFirmaGuardiaData(sigGuardiaRef.current?.toDataURL() || null)}
+                  canvasProps={{className: 'w-full h-24 bg-white', style: { touchAction: 'none' }}} 
+                />
+              </div>
             </div>
 
-            {/* 2. Seleccionar Vehículo de la Flota Oficial y Categoría */}
-            <section className="space-y-4 border-b border-zinc-100 pb-5">
-                <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
-                    <Truck className="w-4 h-4 text-emerald-600" /> 2. Seleccionar Vehículo / Unidad de la Flota Minera
-                </h2>
-
-                <div className="space-y-4">
-                    <div>
-                        <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Vehículo Registrado en Inventario</label>
-                        <select
-                            value={selectedVehiculoId}
-                            onChange={e => handleVehiculoSelect(e.target.value)}
-                            className="w-full p-3.5 border border-zinc-200 rounded-2xl text-xs font-black bg-zinc-50 text-zinc-900 focus:bg-white focus:border-emerald-500"
-                        >
-                            <option value="">Seleccionar vehículo de la flota minera...</option>
-                            {vehiculosFlota.map(v => (
-                                <option key={v.id_camion} value={v.id_camion}>
-                                    🚛 {v.numero_economico} (Placas: {v.placas})
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    {/* Visual Vehicle Category Selector Cards */}
-                    <div>
-                        <label className="text-xs font-black text-zinc-700 uppercase mb-2 block">Categoría de Unidad (Determina el Checklist)</label>
-                        <div className="grid grid-cols-3 gap-2.5">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setTipoVehiculo('Camioneta')
-                                    setMotivoViaje('Viaje Foráneo (Durango / Ciudad)')
-                                }}
-                                className={`p-3 rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all ${
-                                    tipoVehiculo === 'Camioneta' 
-                                        ? 'bg-emerald-50 border-emerald-500 text-emerald-950 shadow-sm' 
-                                        : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:border-zinc-300'
-                                }`}
-                            >
-                                <Car className="w-5 h-5 text-emerald-600" />
-                                <span className="text-[10px] font-black uppercase text-center">🛻 Camioneta Pickup 4x4</span>
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setTipoVehiculo('Camión')
-                                    setMotivoViaje('Ruta de Personal de Turno')
-                                }}
-                                className={`p-3 rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all ${
-                                    tipoVehiculo === 'Camión' 
-                                        ? 'bg-blue-50 border-blue-500 text-blue-950 shadow-sm' 
-                                        : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:border-zinc-300'
-                                }`}
-                            >
-                                <Truck className="w-5 h-5 text-blue-600" />
-                                <span className="text-[10px] font-black uppercase text-center">🚛 Camión / Autobús</span>
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setTipoVehiculo('Ambulancia')
-                                    setMotivoViaje('Traslado Médico de Emergencia')
-                                }}
-                                className={`p-3 rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all ${
-                                    tipoVehiculo === 'Ambulancia' 
-                                        ? 'bg-rose-50 border-rose-500 text-rose-950 shadow-sm' 
-                                        : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:border-zinc-300'
-                                }`}
-                            >
-                                <Ambulance className="w-5 h-5 text-rose-600" />
-                                <span className="text-[10px] font-black uppercase text-center">🚑 Ambulancia de Emergencia</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Propósito del Viaje</label>
-                        <select 
-                            value={motivoViaje} 
-                            onChange={e => setMotivoViaje(e.target.value)}
-                            className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50"
-                        >
-                            <option value="Viaje Foráneo (Durango / Ciudad)">Viaje Foráneo (Durango / Ciudad)</option>
-                            <option value="Traslado Interno (Bacis / Mina)">Traslado Interno (Bacis / Mina)</option>
-                            <option value="Traslado Médico de Emergencia">Traslado Médico de Emergencia</option>
-                            <option value="Ruta de Personal de Turno">Ruta de Personal de Turno</option>
-                            <option value="Carga de Insumos y Almacén">Carga de Insumos y Almacén</option>
-                        </select>
-                    </div>
+            {/* SELLO / VISTO BUENO DE RECURSOS HUMANOS */}
+            <div className="bg-emerald-50/70 border border-emerald-200 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-black text-emerald-950 uppercase flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-emerald-600" />
+                  3. Visto Bueno Oficial de Recursos Humanos / Logística
                 </div>
-            </section>
-
-            {/* 3. MINING CHECKLIST SPECIFIC BY VEHICLE */}
-            <section className="space-y-4 border-b border-zinc-100 pb-5">
-                <div className="flex justify-between items-center bg-zinc-100 p-3 rounded-2xl border border-zinc-200">
-                    <h2 className="text-xs font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
-                        <Wrench className="w-4 h-4 text-emerald-600" /> 
-                        {tipoVehiculo === 'Ambulancia' && '🚑 CHECKLIST ESPECIALIZADO DE AMBULANCIA Y SOPORTE VITAL'}
-                        {tipoVehiculo === 'Camión' && '🚛 CHECKLIST ESPECIALIZADO DE CAMIÓN Y TRANSPORTE PESADO'}
-                        {tipoVehiculo === 'Camioneta' && '🛻 CHECKLIST ESPECIALIZADO DE CAMIONETA PICKUP 4X4 MINA'}
-                    </h2>
-                    <span className="px-3 py-1 bg-white text-zinc-900 border border-zinc-300 rounded-xl font-black text-[10px] uppercase shadow-xs">
-                        {tipoVehiculo}
-                    </span>
+                <div className="text-[10px] text-emerald-800 font-medium mt-0.5">
+                  {isRHOrAdmin 
+                    ? `Sello autorizado como ${profile?.nombre_completo || 'Recursos Humanos'}.` 
+                    : 'Esta autorización es validada exclusivamente desde el perfil de Recursos Humanos.'}
                 </div>
+              </div>
 
-                {/* CAMIONETA CHECKLIST */}
-                {tipoVehiculo === 'Camioneta' && (
-                    <div className="space-y-2">
-                        {[
-                            { key: 'pertiga_banderola', label: '🚩 Pértiga Flexible con Banderola Reflejante (> 3m)' },
-                            { key: 'torreta_seguridad', label: '🚨 Torreta de Seguridad Estroboscópica sobre Toldo' },
-                            { key: 'cunas_llantas', label: '🛑 Cuñas Mecánicas de Bloqueo de Neumáticos' },
-                            { key: 'radio_frecuencia_mina', label: '📻 Radio de Comunicación VHF/UHF Frecuencia Mina' },
-                            { key: 'aceite_motor_agua', label: '🛢️ Niveles de Aceite de Motor, Anticongelante y Agua' },
-                            { key: 'liquido_frenos_direccion', label: '⚙️ Líquido de Frenos y Dirección Hidráulica' },
-                            { key: 'llantas_presion_at', label: '🛞 Neumáticos Todo Terreno (Presión AT y Grabado)' },
-                            { key: 'refaccion_gato_cruceta', label: '🛞 Llanta de Refacción, Gato Hidráulico y Cruceta' },
-                            { key: 'luces_faros_niebla', label: '💡 Luces Principales, Intermitentes y Faros de Niebla' },
-                            { key: 'extintor_pqs_6kg', label: '🧯 Extintor PQS de 6kg Vigente (Manómetro en Verde)' },
-                            { key: 'botiquin_primeros_auxilios', label: '🩹 Botiquín de Primeros Auxilios de Operación' },
-                            { key: 'frenos_pie_mano', label: '🛑 Frenos Principales y Freno de Mano / Parqueo' },
-                            { key: 'traccion_4x4_selector', label: '⚙️ Sistema de Doble Tracción 4x4 (Perilla/Palanca)' },
-                        ].map(item => (
-                            <div key={item.key} className="flex justify-between items-center p-3 bg-zinc-50 rounded-2xl border border-zinc-200 text-xs font-bold text-zinc-800">
-                                <span>{item.label}</span>
-                                <div className="flex gap-1.5">
-                                    <button 
-                                        type="button"
-                                        onClick={() => setChecklistCamioneta(p => ({ ...p, [item.key]: true }))}
-                                        className={`px-3 py-1 rounded-xl font-black text-[10px] ${checklistCamioneta[item.key as keyof typeof checklistCamioneta] ? 'bg-emerald-600 text-white' : 'bg-zinc-200 text-zinc-600'}`}
-                                    >OK</button>
-                                    <button 
-                                        type="button"
-                                        onClick={() => setChecklistCamioneta(p => ({ ...p, [item.key]: false }))}
-                                        className={`px-3 py-1 rounded-xl font-black text-[10px] ${!checklistCamioneta[item.key as keyof typeof checklistCamioneta] ? 'bg-rose-600 text-white' : 'bg-zinc-200 text-zinc-600'}`}
-                                    >FALLA</button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* CAMION CHECKLIST */}
-                {tipoVehiculo === 'Camión' && (
-                    <div className="space-y-2">
-                        {[
-                            { key: 'frenos_aire_manometros', label: '🛑 Frenos de Aire / Manómetros de Doble Tanque (> 90 PSI)' },
-                            { key: 'freno_motor_jake', label: '⚙️ Freno de Motor / Retardador (Jake Brake) para Pendientes' },
-                            { key: 'salidas_emergencia_martillos', label: '🚨 Salidas de Emergencia y Martillos Rompementanas' },
-                            { key: 'cunas_bloqueadoras_pesadas', label: '🛑 Cuñas Bloqueadoras de Llantas Pesadas (Par)' },
-                            { key: 'luces_alarma_reversa', label: '💡 Luces completas y Alarma Sonora de Reversa' },
-                            { key: 'llantas_desgaste_torque', label: '🛞 Neumáticos de Carga y Torque de Tuercas' },
-                            { key: 'niveles_aceite_agua', label: '🛢️ Niveles de Aceite de Motor, Agua y Transmisión' },
-                            { key: 'extintor_abc_9kg', label: '🧯 Extintor Industrial ABC de 9kg Vigente' },
-                            { key: 'botiquin_ruta', label: '🩹 Botiquín de Auxilio Médico de Ruta' },
-                            { key: 'torreta_toldo', label: '🚨 Torreta Giratoria / Estroboscópica sobre Toldo' },
-                            { key: 'cinturones_pasajeros', label: '🔒 Cinturón de Chofer y Asientos de Trabajadores' },
-                            { key: 'tacografo_limpiaparabrisas', label: '⚙️ Limpiaparabrisas, Defroster y Tacógrafo/Velocímetro' },
-                        ].map(item => (
-                            <div key={item.key} className="flex justify-between items-center p-3 bg-blue-50/60 rounded-2xl border border-blue-200 text-xs font-bold text-blue-950">
-                                <span>{item.label}</span>
-                                <div className="flex gap-1.5">
-                                    <button 
-                                        type="button"
-                                        onClick={() => setChecklistCamion(p => ({ ...p, [item.key]: true }))}
-                                        className={`px-3 py-1 rounded-xl font-black text-[10px] ${checklistCamion[item.key as keyof typeof checklistCamion] ? 'bg-blue-600 text-white' : 'bg-zinc-200 text-zinc-600'}`}
-                                    >OK</button>
-                                    <button 
-                                        type="button"
-                                        onClick={() => setChecklistCamion(p => ({ ...p, [item.key]: false }))}
-                                        className={`px-3 py-1 rounded-xl font-black text-[10px] ${!checklistCamion[item.key as keyof typeof checklistCamion] ? 'bg-rose-600 text-white' : 'bg-zinc-200 text-zinc-600'}`}
-                                    >FALLA</button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* AMBULANCIA MINERA CHECKLIST */}
-                {tipoVehiculo === 'Ambulancia' && (
-                    <div className="space-y-3">
-                        <div className="bg-rose-100/70 border border-rose-300 p-3.5 rounded-2xl flex flex-wrap justify-between items-center gap-2">
-                            <span className="text-xs font-black text-rose-950 uppercase flex items-center gap-1.5">
-                                <Stethoscope className="w-4.5 h-4.5 text-rose-700" /> Nivel de Equipamiento Médico de la Unidad:
-                            </span>
-                            <select 
-                                value={tipoAmbulancia}
-                                onChange={e => setTipoAmbulancia(e.target.value as any)}
-                                className="p-2 rounded-xl text-xs font-black bg-white text-rose-950 border border-rose-300 shadow-xs"
-                            >
-                                <option value="Avanzada / Soporte Vital">Soporte Vital Completo (Avanzada)</option>
-                                <option value="Básica / Traslado">Traslado Básico (Estándar)</option>
-                            </select>
-                        </div>
-
-                        <div className="space-y-2">
-                            {[
-                                { key: 'motor_frenos_4x4', label: '🚑 Motor, Transmisión 4x4 y Frenos de Respuesta Rápida' },
-                                { key: 'sirena_estrobos_pa', label: '🚨 Sirena de Emergencia (Wail/Yelp), Torreta y Altavoz P.A.' },
-                                { key: 'tanque_combustible_lleno', label: '⛽ Tanque de Combustible Lleno (Mínimo 3/4)' },
-                                { key: 'oxigeno_fijo_manometro', label: '🏥 Oxígeno Fijo: Manómetro Principal (> 1200 PSI) y Mascarillas' },
-                                { key: 'oxigeno_portatil_regulador', label: '🏥 Oxígeno Portátil: Tanque de Traslado con Regulador' },
-                                { key: 'camilla_principal_cinturones', label: '🏥 Camilla Principal Retráctil con Cinturones de Retención' },
-                                { key: 'camilla_cuchara_scoop', label: '🏥 Camilla Marina de Rescate y Camilla de Cuchara (Scoop)' },
-                                { key: 'desfibrilador_dea', label: '🏥 Desfibrilador Externo Automático (DEA) y Aspirador' },
-                                { key: 'maletin_trauma_medicamentos', label: '🏥 Mochila / Maletín de Trauma y Medicamentos de Urgencia' },
-                                { key: 'tabla_espinal_collarines', label: '🏥 Tabla Espinal Larga, Collarines Cervicales y Férulas' },
-                                { key: 'glucometro_signos_vitales', label: '🩺 Gluciómetro, Baumanómetro y Estetoscopio de Signos Vitales' },
-                                { key: 'radio_frecuencia_medica', label: '📻 Radio VHF/UHF Frecuencia Médica y de Mina' },
-                            ].map(item => (
-                                <div key={item.key} className="flex justify-between items-center p-3 bg-rose-50/80 rounded-2xl border border-rose-200 text-xs font-bold text-rose-950">
-                                    <span>{item.label}</span>
-                                    <div className="flex gap-1.5">
-                                        <button 
-                                            type="button"
-                                            onClick={() => setChecklistAmbulancia(p => ({ ...p, [item.key]: true }))}
-                                            className={`px-3 py-1 rounded-xl font-black text-[10px] ${checklistAmbulancia[item.key as keyof typeof checklistAmbulancia] ? 'bg-rose-600 text-white' : 'bg-zinc-200 text-zinc-600'}`}
-                                        >DISPONIBLE</button>
-                                        <button 
-                                            type="button"
-                                            onClick={() => setChecklistAmbulancia(p => ({ ...p, [item.key]: false }))}
-                                            className={`px-3 py-1 rounded-xl font-black text-[10px] ${!checklistAmbulancia[item.key as keyof typeof checklistAmbulancia] ? 'bg-zinc-900 text-white' : 'bg-zinc-200 text-zinc-600'}`}
-                                        >FALTA / FALLA</button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </section>
-
-            {/* 4. Odómetro y Evidencia */}
-            <section className="space-y-4 border-b border-zinc-100 pb-5">
-                <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
-                    <Fuel className="w-4 h-4 text-emerald-600" /> 4. Odómetro y Evidencia Visual
-                </h2>
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <label className="text-xs font-bold text-zinc-500 uppercase">Km Inicial</label>
-                        <input type="number" value={kmInicial} onChange={e => setKmInicial(e.target.value)} placeholder="125400" className="w-full mt-1 p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50" />
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-zinc-500 uppercase">Tanque Inicial</label>
-                        <select value={gasInicio} onChange={e => setGasInicio(e.target.value)} className="w-full mt-1 p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50">
-                            <option>Lleno</option><option>3/4</option><option>1/2</option><option>1/4</option><option>Reserva</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div className="border-2 border-dashed border-zinc-300 rounded-3xl p-5 text-center bg-zinc-50 mt-3">
-                    {fotoBase64 ? (
-                        <div className="space-y-3">
-                            <img src={fotoBase64} alt="Evidencia" className="mx-auto rounded-2xl max-h-48 object-cover shadow-sm" />
-                            <button type="button" onClick={() => setFotoBase64(null)} className="text-xs font-bold text-rose-600 underline">Cambiar Foto</button>
-                        </div>
-                    ) : (
-                        <div>
-                            <Camera className="w-7 h-7 text-zinc-400 mx-auto mb-1.5" />
-                            <p className="text-xs font-bold text-zinc-600 mb-2">Tomar foto de tablero u odómetro</p>
-                            <label className="bg-zinc-900 text-white px-5 py-2 rounded-2xl text-xs font-black shadow-md cursor-pointer inline-flex items-center gap-2">
-                                <Upload className="w-4 h-4" /> Capturar Evidencia
-                                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoUpload} />
-                            </label>
-                        </div>
-                    )}
-                </div>
-            </section>
-
-            {/* 5. Triple Digital Signatures & RH Approval */}
-            <section className="space-y-4">
-                <h2 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
-                    <FileSignature className="w-4 h-4 text-emerald-600" /> 5. Validaciones y Firmas Digitales
-                </h2>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Firma Chofer */}
-                    <div className="border border-zinc-200 rounded-2xl overflow-hidden bg-zinc-50">
-                        <div className="bg-zinc-100 px-4 py-2 flex justify-between items-center border-b border-zinc-200">
-                            <span className="text-[10px] font-black uppercase text-zinc-700">1. Firma del Chofer Operador</span>
-                            <button type="button" onClick={() => clearSignature(sigChoferRef, setFirmaChoferData)} className="text-[10px] text-zinc-500 hover:text-rose-600 font-bold uppercase">Limpiar</button>
-                        </div>
-                        <SignatureCanvas 
-                            ref={sigChoferRef} 
-                            clearOnResize={false} 
-                            onEnd={() => setFirmaChoferData(sigChoferRef.current?.toDataURL() || null)}
-                            canvasProps={{className: 'w-full h-28 bg-white', style: { touchAction: 'none' }}} 
-                        />
-                    </div>
-
-                    {/* Firma Guardia Caseta */}
-                    <div className="border border-zinc-200 rounded-2xl overflow-hidden bg-zinc-50">
-                        <div className="bg-zinc-100 px-4 py-2 flex justify-between items-center border-b border-zinc-200">
-                            <span className="text-[10px] font-black uppercase text-zinc-700">2. Firma Guardia de Caseta</span>
-                            <button type="button" onClick={() => clearSignature(sigGuardiaRef, setFirmaGuardiaData)} className="text-[10px] text-zinc-500 hover:text-rose-600 font-bold uppercase">Limpiar</button>
-                        </div>
-                        <SignatureCanvas 
-                            ref={sigGuardiaRef} 
-                            clearOnResize={false} 
-                            onEnd={() => setFirmaGuardiaData(sigGuardiaRef.current?.toDataURL() || null)}
-                            canvasProps={{className: 'w-full h-28 bg-white', style: { touchAction: 'none' }}} 
-                        />
-                    </div>
-                </div>
-
-                {/* Confirmación RH (Exclusivo para Perfiles de Recursos Humanos / Administrador) */}
-                <div className="bg-emerald-50/60 border border-emerald-200 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                    <div>
-                        <div className="text-xs font-black text-emerald-950 uppercase flex items-center gap-1.5">
-                            <Sparkles className="w-4 h-4 text-emerald-600" />
-                            3. Visto Bueno de Recursos Humanos / Logística
-                        </div>
-                        <div className="text-[10px] text-emerald-800 font-semibold mt-0.5">
-                            {isRHOrAdmin 
-                                ? `Estampar sello de autorización oficial como ${profile?.nombre_completo || 'RH'}.` 
-                                : 'Esta validación es obligatoria pero debe ser aprobada desde el perfil de Recursos Humanos.'}
-                        </div>
-                    </div>
-                    {isRHOrAdmin ? (
-                        <button
-                            type="button"
-                            onClick={() => setRhApproved(!rhApproved)}
-                            className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all shrink-0 ${
-                                rhApproved 
-                                    ? 'bg-emerald-600 text-white shadow-md' 
-                                    : 'bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
-                            }`}
-                        >
-                            {rhApproved ? `✓ AUTORIZADO POR RH (${profile?.nombre_completo || 'RH'})` : '+ Autorizar Visto Bueno de RH'}
-                        </button>
-                    ) : (
-                        <div className="px-3.5 py-2 bg-zinc-100 border border-zinc-300 rounded-xl text-[11px] font-bold text-zinc-600 flex items-center gap-1.5 shrink-0">
-                            <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
-                            <span>Pendiente de Firma RH (Solo Personal RH)</span>
-                        </div>
-                    )}
-                </div>
-            </section>
-
-            {/* Actions */}
-            <div className="pt-4 border-t border-zinc-200 flex flex-col sm:flex-row gap-3">
-                <button 
-                    type="button"
-                    onClick={exportPDFReport}
-                    className="bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-black py-3.5 px-6 rounded-2xl text-xs flex items-center justify-center gap-2 border border-zinc-200"
+              {isRHOrAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => setRhApproved(!rhApproved)}
+                  className={`px-4 py-2 rounded-xl text-xs font-black transition-all shrink-0 ${
+                    rhApproved 
+                      ? 'bg-emerald-600 text-white shadow-md' 
+                      : 'bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                  }`}
                 >
-                    <Download className="w-4 h-4 text-zinc-600" />
-                    <span>Exportar Dictamen PDF</span>
+                  {rhApproved ? `✓ AUTORIZADO POR RH (${profile?.nombre_completo || 'RH'})` : '+ Autorizar Visto Bueno de RH'}
                 </button>
-
-                <button 
-                    type="button"
-                    onClick={handleSaveToDB}
-                    disabled={saving}
-                    className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white font-black py-3.5 rounded-2xl text-xs flex items-center justify-center gap-2 shadow-md transition-all"
-                >
-                    {saving ? <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> : <Save className="w-4 h-4 text-emerald-400" />}
-                    Guardar y Registrar Salida Oficial
-                </button>
+              ) : (
+                <div className="px-3 py-1.5 bg-zinc-100 border border-zinc-300 rounded-xl text-[11px] font-bold text-zinc-600 flex items-center gap-1.5 shrink-0">
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Pendiente de Firma RH</span>
+                </div>
+              )}
             </div>
+          </section>
+
+          {/* BOTONES DE ACCIÓN */}
+          <div className="pt-4 border-t border-zinc-200 flex flex-col sm:flex-row gap-3">
+            <button 
+              type="button"
+              onClick={exportPDFReport}
+              className="bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-black py-3.5 px-6 rounded-2xl text-xs flex items-center justify-center gap-2 border border-zinc-200"
+            >
+              <Download className="w-4 h-4 text-zinc-600" />
+              <span>Exportar Dictamen PDF</span>
+            </button>
+
+            <button 
+              type="button"
+              onClick={handleSaveToDB}
+              disabled={saving}
+              className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white font-black py-3.5 rounded-2xl text-xs flex items-center justify-center gap-2 shadow-md transition-all"
+            >
+              <Save className="w-4 h-4 text-emerald-400" />
+              <span>{saving ? 'Guardando Inspección...' : 'Guardar y Registrar Salida Oficial'}</span>
+            </button>
+          </div>
         </div>
-        )}
+      )}
 
-        {/* RECONOCIMIENTO FACIAL REAL — identifica empleados por foto vs BD */}
-        {showFaceCameraModal && (
-            <FaceRecognitionScanner
-                onPasajeroIdentificado={(emp) => {
-                    const yaExiste = capturedPasajeros.some(p => p.id === emp.id_empleado)
-                    if (!yaExiste) {
-                        setCapturedPasajeros(prev => [...prev, {
-                            id: emp.id_empleado,
-                            nombre: `${emp.nombre} ${emp.apellido_paterno}`,
-                            puesto: emp.puesto || 'Sin puesto',
-                            foto: emp.foto_url || '',
-                            hora: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
-                            confianza: emp.confianza
-                        }])
-                        setPasajerosA((prev: number) => prev + 1)
-                    } else {
-                        alert(`⚠️ ${emp.nombre} ${emp.apellido_paterno} ya está registrado en este viaje.`)
-                    }
-                }}
-                onCerrar={() => setShowFaceCameraModal(false)}
-            />
-        )}
+      {/* ============================================================ */}
+      {/* TAB 3: PROGRAMAR SALIDA FORÁNEA */}
+      {/* ============================================================ */}
+      {activeTab === 'programar' && (
+        <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-4 animate-in fade-in">
+          <h2 className="text-base font-black text-zinc-900 flex items-center gap-2 border-b pb-3 border-zinc-100">
+            <Calendar className="w-5 h-5 text-indigo-600" /> Programar Salida o Viaje Foráneo
+          </h2>
+          <div>
+            <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Lugar de Destino (Ej. Durango, Bacis, Parajes)</label>
+            <input type="text" value={nuevoDestino} onChange={e => setNuevoDestino(e.target.value)} placeholder="Ej. Durango / Clínica Bacis" className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Fecha de Salida</label>
+              <input type="date" value={nuevaFecha} onChange={e => setNuevaFecha(e.target.value)} className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50" />
+            </div>
+            <div>
+              <label className="text-xs font-black text-zinc-700 uppercase mb-1 block">Hora Estimada</label>
+              <input type="time" value={nuevaHora} onChange={e => setNuevaHora(e.target.value)} className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50" />
+            </div>
+          </div>
+          <button onClick={handleProgramarViaje} disabled={saving} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-3.5 rounded-2xl flex items-center justify-center gap-2 shadow-md">
+            <Save className="w-4 h-4" /> Registrar Viaje Programado
+          </button>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* TAB 4: HISTORIAL DE INSPECCIONES Y MODAL DETALLADO */}
+      {/* ============================================================ */}
+      {activeTab === 'historial' && (
+        <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-5 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b pb-4 border-zinc-100">
+            <div>
+              <h2 className="text-base font-black text-zinc-900 flex items-center gap-2">
+                <History className="w-5 h-5 text-amber-600" /> Bitácora de Inspecciones y Salidas ({miHistorial.length})
+              </h2>
+              <p className="text-xs text-zinc-500 mt-0.5">Expediente oficial de revisiones mecánicas y autorizaciones</p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchViajesYHistorial}
+              className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Actualizar
+            </button>
+          </div>
+
+          {miHistorial.length === 0 ? (
+            <div className="text-center p-12 text-zinc-400 font-bold text-xs space-y-2">
+              <FileText className="w-8 h-8 mx-auto text-zinc-300" />
+              <div>No se registran checklists o salidas previas para este chofer.</div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {miHistorial.map(h => (
+                <div 
+                  key={h.id_reporte || h.creado_el} 
+                  className="border border-zinc-200 rounded-2xl p-4 bg-zinc-50/80 hover:bg-zinc-50 hover:border-zinc-300 transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs shadow-xs"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-black text-zinc-900 text-sm">
+                        {h.tipo_vehiculo || 'Vehículo'} Eco: {h.camion_numero}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full font-black text-[9px] uppercase tracking-wider ${
+                        h.frenos_ok ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                      }`}>
+                        {h.frenos_ok ? '🟢 Apto Salida' : '🔴 Con Falla'}
+                      </span>
+                      {h.firma_rh_url && (
+                        <span className="px-2 py-0.5 rounded-full font-black text-[9px] uppercase bg-emerald-50 text-emerald-700 border border-emerald-300">
+                          ✓ V.B. RH
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="text-[11px] text-zinc-500 flex flex-wrap items-center gap-2">
+                      <span>📅 {new Date(h.creado_el).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                      <span>•</span>
+                      <span>📍 {h.ubicacion_caseta || 'Caseta Principal'}</span>
+                      {h.kilometraje_inicial && (
+                        <>
+                          <span>•</span>
+                          <span className="font-mono font-bold text-zinc-600">Odómetro: {h.kilometraje_inicial} KM</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedReporteModal(h)}
+                    className="px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all self-end sm:self-center"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Ver Detalle y Firmas</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* MODAL DETALLE DE REPORTE */}
+          {selectedReporteModal && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+              <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 shadow-2xl border border-zinc-200">
+                <div className="flex justify-between items-start border-b pb-3 border-zinc-100">
+                  <div>
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">EXPEDIENTE DE SALIDA</span>
+                    <h3 className="text-lg font-black text-zinc-900">
+                      {selectedReporteModal.tipo_vehiculo || 'Vehículo'} - {selectedReporteModal.camion_numero}
+                    </h3>
+                    <p className="text-xs text-zinc-500">{new Date(selectedReporteModal.creado_el).toLocaleString()}</p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedReporteModal(null)}
+                    className="p-1.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-600 font-black text-xs"
+                  >
+                    ✕ Cerrar
+                  </button>
+                </div>
+
+                {/* Odómetro y Combustible */}
+                <div className="bg-zinc-50 p-3.5 rounded-2xl border border-zinc-200 grid grid-cols-3 gap-2 text-center text-xs font-mono">
+                  <div>
+                    <span className="text-[10px] text-zinc-400 block uppercase">Km Inicial</span>
+                    <strong className="text-zinc-900">{selectedReporteModal.kilometraje_inicial || 0} KM</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-400 block uppercase">Tanque Inicio</span>
+                    <strong className="text-zinc-900">{selectedReporteModal.gasolina_inicio || 'N/A'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-400 block uppercase">Litros</span>
+                    <strong className="text-zinc-900">{selectedReporteModal.litros_cargados || 0} L</strong>
+                  </div>
+                </div>
+
+                {/* Comentarios */}
+                {selectedReporteModal.comentarios_vehiculo && (
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-black uppercase text-zinc-500">Observaciones y Dictamen</span>
+                    <p className="text-xs text-zinc-700 bg-zinc-50 p-3 rounded-xl border border-zinc-200">{selectedReporteModal.comentarios_vehiculo}</p>
+                  </div>
+                )}
+
+                {/* Foto Evidencia */}
+                {selectedReporteModal.foto_caseta_url && (
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-black uppercase text-zinc-500">Foto de Evidencia</span>
+                    <img src={selectedReporteModal.foto_caseta_url} alt="Evidencia" className="rounded-2xl max-h-48 w-full object-cover border border-zinc-200 shadow-xs" />
+                  </div>
+                )}
+
+                {/* Firmas Digitales y Sello de Recursos Humanos */}
+                <div className="space-y-2">
+                  <span className="text-[10px] font-black uppercase text-zinc-500">Firmas Digitales y Visto Bueno Oficial</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
+                    {selectedReporteModal.firma_chofer_url ? (
+                      <div className="p-2 border border-zinc-200 rounded-xl bg-zinc-50">
+                        <img src={selectedReporteModal.firma_chofer_url} alt="Firma Chofer" className="h-12 mx-auto object-contain" />
+                        <span className="text-[9px] font-bold text-zinc-600 block border-t pt-1 mt-1">Firma Chofer</span>
+                      </div>
+                    ) : (
+                      <div className="p-3 border border-dashed rounded-xl text-[10px] text-zinc-400 flex items-center justify-center">Sin Firma Chofer</div>
+                    )}
+
+                    {selectedReporteModal.firma_guardia_url ? (
+                      <div className="p-2 border border-zinc-200 rounded-xl bg-zinc-50">
+                        <img src={selectedReporteModal.firma_guardia_url} alt="Firma Guardia" className="h-12 mx-auto object-contain" />
+                        <span className="text-[9px] font-bold text-zinc-600 block border-t pt-1 mt-1">Firma Guardia</span>
+                      </div>
+                    ) : (
+                      <div className="p-3 border border-dashed rounded-xl text-[10px] text-zinc-400 flex items-center justify-center">Sin Firma Guardia</div>
+                    )}
+
+                    {/* Sello de RH */}
+                    <div className="p-2 border border-emerald-200 rounded-xl bg-emerald-50/50 flex flex-col justify-between items-center min-h-[70px]">
+                      {selectedReporteModal.firma_rh_url ? (
+                        <div className="my-auto space-y-0.5">
+                          <span className="text-xs font-black text-emerald-700 block">✓ AUTORIZADO RH</span>
+                          <span className="text-[9px] font-bold text-emerald-800 block">
+                            {selectedReporteModal.firma_rh_nombre || 'Recursos Humanos'}
+                          </span>
+                        </div>
+                      ) : isRHOrAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => handleAprobarRHEnModal(selectedReporteModal)}
+                          className="my-auto px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] rounded-lg shadow-sm transition-all"
+                        >
+                          + Estampar Sello RH
+                        </button>
+                      ) : (
+                        <span className="my-auto text-[10px] text-amber-700 font-bold">
+                          ⏳ Pendiente de RH
+                        </span>
+                      )}
+                      <span className="text-[9px] font-bold text-zinc-600 block border-t border-emerald-200 w-full pt-1 mt-1">V.B. Recursos Humanos</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setSelectedReporteModal(null)}
+                  className="w-full bg-zinc-900 text-white font-bold py-3 rounded-xl text-xs hover:bg-zinc-800 transition-all"
+                >
+                  Cerrar Ventana
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL ESCÁNER QR EN VIVO CON CÁMARA */}
+      {/* ============================================================ */}
+      {showQrScanner && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-zinc-900 rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-zinc-700 text-white space-y-4 p-5">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <QrCode className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-sm font-black uppercase">Escáner de Credenciales QR</h3>
+              </div>
+              <button
+                onClick={detenerCamaraQR}
+                className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold"
+              >
+                ✕ Cerrar
+              </button>
+            </div>
+
+            {/* Ventana de Video de Cámara */}
+            <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-black border-2 border-emerald-500/50 shadow-inner flex items-center justify-center">
+              <video ref={videoRef} className="w-full h-full object-cover" />
+              <canvas ref={canvasRef} className="hidden" />
+
+              {/* Mira de Escaneo */}
+              <div className="absolute inset-8 border-2 border-dashed border-emerald-400/80 rounded-2xl pointer-events-none animate-pulse flex items-center justify-center">
+                <span className="text-[11px] font-mono font-bold text-emerald-300 bg-black/60 px-2 py-0.5 rounded">
+                  Encuadre el QR aquí
+                </span>
+              </div>
+
+              {cameraLoading && (
+                <div className="absolute inset-0 bg-black/80 flex items-center justify-center text-xs font-bold text-zinc-400">
+                  Iniciando Cámara...
+                </div>
+              )}
+            </div>
+
+            {cameraError && (
+              <div className="p-3 bg-rose-950/80 border border-rose-800 text-rose-300 text-xs rounded-xl">
+                {cameraError}
+              </div>
+            )}
+
+            {scanMessage && (
+              <div className="p-3 bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-xs rounded-xl font-bold text-center animate-bounce">
+                {scanMessage}
+              </div>
+            )}
+
+            {/* Input Manual Rápido */}
+            <div className="flex gap-2 pt-2 border-t border-zinc-800">
+              <input
+                type="text"
+                value={manualIdInput}
+                onChange={e => setManualIdInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), agregarPasajero(manualIdInput, 'Manual'))}
+                placeholder="O escribe ID de empleado..."
+                className="flex-1 p-2.5 bg-zinc-800 border border-zinc-700 rounded-xl text-xs text-white font-bold placeholder-zinc-500"
+              />
+              <button
+                type="button"
+                onClick={() => agregarPasajero(manualIdInput, 'Manual')}
+                className="px-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl"
+              >
+                Agregar
+              </button>
+            </div>
+
+            <button
+              onClick={detenerCamaraQR}
+              className="w-full py-3 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-black rounded-xl"
+            >
+              Listo / Finalizar Escaneo ({pasajerosAbordados.length} a bordo)
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
