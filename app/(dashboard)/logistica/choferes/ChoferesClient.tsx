@@ -7,7 +7,8 @@ import {
   Bus, Camera, Car, CheckCircle, Droplet, FileSignature, FileText, Fuel, 
   Upload, User, Save, Download, Truck, Calendar, History, Clock, MapPin, 
   AlertTriangle, ShieldCheck, ShieldAlert, Ambulance, Sparkles, RefreshCw, 
-  QrCode, UserPlus, Trash2, StopCircle, Play, Volume2, VolumeX, CheckCircle2 
+  QrCode, UserPlus, Trash2, StopCircle, Play, Volume2, VolumeX, CheckCircle2,
+  Users, Eye, FileSpreadsheet
 } from 'lucide-react'
 import SignatureCanvas from 'react-signature-canvas'
 import { jsPDF } from 'jspdf'
@@ -45,6 +46,23 @@ interface PasajeroEscaneado {
   departamento?: string
   hora: string
   metodo: 'QR' | 'Manual'
+}
+
+interface ViajeRutaConcluido {
+  id_bitacora: string
+  id_chofer: string
+  chofer_nombre: string
+  punto_a: string
+  punto_b: string
+  hora_salida_a: string
+  hora_llegada_b?: string
+  pasajeros_subieron_a: number
+  pasajeros_bajaron_b?: number
+  pasajeros_lista?: PasajeroEscaneado[]
+  estatus: 'EN_CURSO' | 'CONCLUIDO'
+  fecha: string
+  comentarios?: string
+  creado_el: string
 }
 
 // 6 Choferes Oficiales Registrados
@@ -106,10 +124,15 @@ export default function ChoferesClient() {
   const [pasajerosB, setPasajerosB] = useState<number>(0)
   const [comentariosRuta, setComentariosRuta] = useState('')
   
-  const [viajeRutaActivo, setViajeRutaActivo] = useState<any | null>(null)
-  const [bitacoraRutasList, setBitacoraRutasList] = useState<any[]>([])
+  const [viajeRutaActivo, setViajeRutaActivo] = useState<ViajeRutaConcluido | null>(null)
+  const [bitacoraRutasList, setBitacoraRutasList] = useState<ViajeRutaConcluido[]>([])
+  const [rutasQrGlobal, setRutasQrGlobal] = useState<ViajeRutaConcluido[]>([])
   const [pasajerosAbordados, setPasajerosAbordados] = useState<PasajeroEscaneado[]>([])
   const [manualIdInput, setManualIdInput] = useState('')
+
+  // Sub-pestaña de Historial ('rutas_qr' | 'checklists')
+  const [subTabHistorial, setSubTabHistorial] = useState<'rutas_qr' | 'checklists'>('rutas_qr')
+  const [selectedViajeQrModal, setSelectedViajeQrModal] = useState<ViajeRutaConcluido | null>(null)
 
   // QR Scanner Modal State
   const [showQrScanner, setShowQrScanner] = useState(false)
@@ -254,7 +277,6 @@ export default function ChoferesClient() {
       // AUTO-VINCULACIÓN SEGÚN EL USUARIO LOGUEADO:
       if (profile) {
         const nombreLog = (profile.nombre_completo || '').toLowerCase()
-        // Si el usuario logueado es uno de los choferes
         const myDriver = list.find(c => nombreLog.includes(c.nombre.toLowerCase()) || c.id_empleado === profile.id)
 
         if (myDriver) {
@@ -262,7 +284,6 @@ export default function ChoferesClient() {
           setSelectedChoferObj(myDriver)
           if (!camion && myDriver.numero_economico) setCamion(myDriver.numero_economico)
         } else if (isRHOrAdmin && list.length > 0) {
-          // Si es Administrador o RH, selecciona el primer chofer para supervisar
           setSelectedChofer(list[0].id_empleado)
           setSelectedChoferObj(list[0])
           if (!camion && list[0].numero_economico) setCamion(list[0].numero_economico)
@@ -283,12 +304,11 @@ export default function ChoferesClient() {
     }
   }, [selectedChofer, choferes])
 
-  // 2. CARGA DE VIAJES Y HISTORIAL
+  // 2. CARGA DE VIAJES Y HISTORIAL (QR & CHECKLISTS)
   const fetchViajesYHistorial = async () => {
-    if (!selectedChofer) return
-
     try {
-      if (isUUID(selectedChofer)) {
+      // Cargar Viajes Programados si es UUID
+      if (selectedChofer && isUUID(selectedChofer)) {
         const { data: vData } = await supabase.from('logistica_viajes_programados')
           .select('*')
           .eq('id_empleado', selectedChofer)
@@ -297,8 +317,9 @@ export default function ChoferesClient() {
         setMisViajes(vData || [])
       }
 
+      // Cargar Checklists Mecánicos
       let loadedReports: any[] = []
-      if (isUUID(selectedChofer)) {
+      if (selectedChofer && isUUID(selectedChofer)) {
         const { data: directData } = await supabase.from('logistica_reportes_diarios')
           .select('*')
           .eq('id_empleado', selectedChofer)
@@ -326,8 +347,70 @@ export default function ChoferesClient() {
         a.findIndex(t => (t.id_reporte && t.id_reporte === v.id_reporte) || (t.creado_el && t.creado_el === v.creado_el)) === i
       )
       setMiHistorial(unique)
+
+      // Cargar Historial Global de Rutas y Pasajeros QR
+      cargarHistorialRutasQR()
     } catch (err) {
       console.error('Error loading history:', err)
+    }
+  }
+
+  const cargarHistorialRutasQR = () => {
+    let allRutas: ViajeRutaConcluido[] = []
+
+    try {
+      const globalRaw = localStorage.getItem('rh_rutas_qr_global_history')
+      if (globalRaw) allRutas = [...allRutas, ...JSON.parse(globalRaw)]
+    } catch (e) {}
+
+    if (selectedChofer) {
+      try {
+        const choferRaw = localStorage.getItem(`history_routes_${selectedChofer}`)
+        if (choferRaw) allRutas = [...allRutas, ...JSON.parse(choferRaw)]
+      } catch (e) {}
+    }
+
+    try {
+      const appRaw = localStorage.getItem('rh_viajes_locales_chofer')
+      if (appRaw) {
+        const appViajes = JSON.parse(appRaw)
+        appViajes.forEach((v: any) => {
+          allRutas.push({
+            id_bitacora: v.id_viaje_local || 'APP-' + Date.now(),
+            id_chofer: v.id_chofer || 'CHOFER',
+            chofer_nombre: v.chofer_nombre || 'Chofer Operador',
+            punto_a: v.ruta_origen || 'Origen',
+            punto_b: v.ruta_destino || 'Destino',
+            hora_salida_a: v.hora_inicio_real ? new Date(v.hora_inicio_real).toLocaleTimeString() : 'N/A',
+            hora_llegada_b: v.hora_fin_real ? new Date(v.hora_fin_real).toLocaleTimeString() : 'Completado',
+            pasajeros_subieron_a: v.pasajeros?.length || 0,
+            pasajeros_bajaron_b: v.pasajeros?.length || 0,
+            pasajeros_lista: (v.pasajeros || []).map((p: any) => ({
+              id: p.id_empleado || p.id_manual || 'ID',
+              nombre: p.nombre_completo || 'Trabajador',
+              puesto: p.puesto_depto || 'Personal',
+              hora: p.hora_subida ? new Date(p.hora_subida).toLocaleTimeString() : 'N/A',
+              metodo: p.metodo_registro || 'QR'
+            })),
+            estatus: 'CONCLUIDO',
+            fecha: v.creado_el ? new Date(v.creado_el).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            creado_el: v.creado_el || new Date().toISOString()
+          })
+        })
+      }
+    } catch (e) {}
+
+    // Deduplicar rutas
+    const uniqueRutas = allRutas.filter((v, i, a) => 
+      a.findIndex(t => t.id_bitacora === v.id_bitacora || (t.hora_salida_a === v.hora_salida_a && t.fecha === v.fecha && t.chofer_nombre === v.chofer_nombre)) === i
+    )
+
+    // Ordenar por fecha descendente
+    uniqueRutas.sort((a, b) => new Date(b.creado_el || b.fecha).getTime() - new Date(a.creado_el || a.fecha).getTime())
+
+    setRutasQrGlobal(uniqueRutas)
+    if (selectedChofer) {
+      setBitacoraRutasList(uniqueRutas.filter(r => r.id_chofer === selectedChofer || r.chofer_nombre.toLowerCase().includes((selectedChoferObj?.nombre || '').toLowerCase())))
     }
   }
 
@@ -349,11 +432,6 @@ export default function ChoferesClient() {
         setViajeRutaActivo(null)
       }
     } catch (e) {}
-
-    try {
-      const hist = localStorage.getItem(`history_routes_${selectedChofer}`)
-      if (hist) setBitacoraRutasList(JSON.parse(hist))
-    } catch (e) {}
   }, [selectedChofer])
 
   const handleIniciarRuta = async () => {
@@ -365,7 +443,7 @@ export default function ChoferesClient() {
     const horaActual = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
     const fechaActual = now.toISOString().split('T')[0]
 
-    const newTrip = {
+    const newTrip: ViajeRutaConcluido = {
       id_bitacora: 'RUT-' + Date.now(),
       id_chofer: selectedChofer,
       chofer_nombre: choferNombre,
@@ -384,20 +462,6 @@ export default function ChoferesClient() {
     setPasajerosB(newTrip.pasajeros_subieron_a)
     localStorage.setItem(`active_route_${selectedChofer}`, JSON.stringify(newTrip))
 
-    try {
-      await supabase.from('chofer_bitacora_rutas').insert([{
-        id_chofer: isUUID(selectedChofer) ? selectedChofer : null,
-        chofer_nombre: choferNombre,
-        punto_a: newTrip.punto_a,
-        punto_b: newTrip.punto_b,
-        hora_salida_a: horaActual,
-        pasajeros_subieron_a: newTrip.pasajeros_subieron_a,
-        estatus: 'EN_CURSO',
-        fecha: fechaActual,
-        comentarios: comentariosRuta
-      }])
-    } catch (e) {}
-
     playBeep(true)
     alert(`🟢 ¡Ruta Iniciada con Éxito!\n\nSalida: ${newTrip.punto_a} ➔ Destino: ${newTrip.punto_b}\nPasajeros a bordo: ${newTrip.pasajeros_subieron_a}`)
   }
@@ -408,7 +472,7 @@ export default function ChoferesClient() {
     const now = new Date()
     const horaActual = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
 
-    const completedTrip = {
+    const completedTrip: ViajeRutaConcluido = {
       ...viajeRutaActivo,
       hora_llegada_b: horaActual,
       pasajeros_bajaron_b: pasajerosB,
@@ -420,28 +484,40 @@ export default function ChoferesClient() {
     setPasajerosA(0)
     localStorage.removeItem(`active_route_${selectedChofer}`)
 
-    const updatedHistory = [completedTrip, ...bitacoraRutasList]
-    setBitacoraRutasList(updatedHistory)
-    localStorage.setItem(`history_routes_${selectedChofer}`, JSON.stringify(updatedHistory))
+    // Guardar en Historial Local Específico del Chofer
+    const updatedChoferHistory = [completedTrip, ...bitacoraRutasList]
+    setBitacoraRutasList(updatedChoferHistory)
+    localStorage.setItem(`history_routes_${selectedChofer}`, JSON.stringify(updatedChoferHistory))
 
+    // Guardar en Historial Global de Rutas QR (Accessible para todos)
+    const existingGlobal = JSON.parse(localStorage.getItem('rh_rutas_qr_global_history') || '[]')
+    const updatedGlobal = [completedTrip, ...existingGlobal]
+    localStorage.setItem('rh_rutas_qr_global_history', JSON.stringify(updatedGlobal))
+    setRutasQrGlobal(updatedGlobal)
+
+    // Respaldar también en Supabase dentro de logistica_reportes_diarios
     try {
-      await supabase.from('chofer_bitacora_rutas').insert([{
-        id_chofer: isUUID(selectedChofer) ? selectedChofer : null,
-        chofer_nombre: completedTrip.chofer_nombre,
-        punto_a: completedTrip.punto_a,
-        punto_b: completedTrip.punto_b,
-        hora_salida_a: completedTrip.hora_salida_a,
-        hora_llegada_b: horaActual,
-        pasajeros_subieron_a: completedTrip.pasajeros_subieron_a,
-        pasajeros_bajaron_b: pasajerosB,
-        estatus: 'CONCLUIDO',
-        fecha: completedTrip.fecha,
-        comentarios: completedTrip.comentarios
+      let validEmpleadoId: string | null = null
+      if (isUUID(selectedChofer)) validEmpleadoId = selectedChofer
+      else {
+        const { data: anyEmp } = await supabase.from('empleados').select('id_empleado').limit(1)
+        if (anyEmp && anyEmp.length > 0) validEmpleadoId = anyEmp[0].id_empleado
+      }
+
+      await supabase.from('logistica_reportes_diarios').insert([{
+        id_empleado: validEmpleadoId,
+        camion_numero: camion || 'UNIDAD',
+        comentarios_vehiculo: `[VIAJE_QR] Ruta: ${completedTrip.punto_a} a ${completedTrip.punto_b} | Chofer: ${completedTrip.chofer_nombre} | Pasajeros: ${completedTrip.pasajeros_subieron_a}`,
+        observaciones_recorrido: JSON.stringify(completedTrip.pasajeros_lista || []),
+        ubicacion_caseta: completedTrip.punto_b,
+        tipo_vehiculo: tipoVehiculo
       }])
     } catch (e) {}
 
     playBeep(true)
-    alert(`🏁 ¡Ruta Concluida en ${completedTrip.punto_b}!\n\n👥 Subieron en A: ${completedTrip.pasajeros_subieron_a}\n👥 Descendieron en B: ${pasajerosB}`)
+    alert(`🏁 ¡Ruta Concluida en ${completedTrip.punto_b}!\n\n👥 Subieron en A: ${completedTrip.pasajeros_subieron_a}\n👥 Descendieron en B: ${pasajerosB}\n\nPuedes consultar el manifiesto de pasajeros en la pestaña 4. Historial.`)
+    setActiveTab('historial')
+    setSubTabHistorial('rutas_qr')
   }
 
   // AGREGAR PASAJERO (QR O MANUAL)
@@ -481,7 +557,7 @@ export default function ChoferesClient() {
 
     // Si hay viaje activo, actualizar en localStorage
     if (viajeRutaActivo) {
-      const uTrip = { ...viajeRutaActivo, pasajeros_subieron_a: updated.length, pasajeros_lista: updated }
+      const uTrip: ViajeRutaConcluido = { ...viajeRutaActivo, pasajeros_subieron_a: updated.length, pasajeros_lista: updated }
       setViajeRutaActivo(uTrip)
       localStorage.setItem(`active_route_${selectedChofer}`, JSON.stringify(uTrip))
     }
@@ -492,7 +568,7 @@ export default function ChoferesClient() {
     setPasajerosAbordados(updated)
     setPasajerosA(updated.length)
     if (viajeRutaActivo) {
-      const uTrip = { ...viajeRutaActivo, pasajeros_subieron_a: updated.length, pasajeros_lista: updated }
+      const uTrip: ViajeRutaConcluido = { ...viajeRutaActivo, pasajeros_subieron_a: updated.length, pasajeros_lista: updated }
       setViajeRutaActivo(uTrip)
       localStorage.setItem(`active_route_${selectedChofer}`, JSON.stringify(uTrip))
     }
@@ -554,7 +630,6 @@ export default function ChoferesClient() {
             const rawVal = barcodes[0].rawValue
             if (rawVal) {
               agregarPasajero(rawVal, 'QR')
-              // Pequeña pausa para no escanear el mismo 20 veces por segundo
               await new Promise(r => setTimeout(r, 1200))
             }
           }
@@ -652,6 +727,7 @@ export default function ChoferesClient() {
 
       alert('✅ ¡Checklist de Inspección Minera y Reporte guardados exitosamente!\n\nPuedes consultarlo en la pestaña de Historial.')
       setActiveTab('historial')
+      setSubTabHistorial('checklists')
       sigChoferRef.current?.clear(); setFirmaChoferData(null)
       sigGuardiaRef.current?.clear(); setFirmaGuardiaData(null)
       setFotoBase64(null)
@@ -689,6 +765,56 @@ export default function ChoferesClient() {
     }
   }
 
+  // EXPORTAR MANIFIESTO DE PASAJEROS QR A PDF
+  const exportManifiestoPDF = (viaje: ViajeRutaConcluido) => {
+    const doc = new jsPDF()
+    doc.setFontSize(16)
+    doc.text("Manifiesto Oficial de Pasajeros y Control de Ruta", 105, 20, { align: 'center' })
+    
+    doc.setFontSize(10)
+    doc.text(`Ruta: ${viaje.punto_a} ➔ ${viaje.punto_b}`, 14, 32)
+    doc.text(`Chofer Operador: ${viaje.chofer_nombre}`, 14, 40)
+    doc.text(`Fecha: ${viaje.fecha} | Hora Salida: ${viaje.hora_salida_a} | Hora Llegada: ${viaje.hora_llegada_b || 'Completado'}`, 14, 48)
+    doc.text(`Total de Pasajeros que Abordaron: ${viaje.pasajeros_subieron_a}`, 14, 56)
+    doc.line(14, 62, 196, 62)
+
+    doc.setFontSize(11)
+    doc.text("Lista Detallada de Trabajadores a Bordo:", 14, 70)
+
+    let y = 80
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'bold')
+    doc.text("#", 14, y)
+    doc.text("Nombre Completo del Trabajador", 24, y)
+    doc.text("Puesto / Departamento", 105, y)
+    doc.text("Hora", 160, y)
+    doc.text("Método", 180, y)
+    doc.line(14, y + 2, 196, y + 2)
+    y += 8
+
+    doc.setFont('helvetica', 'normal')
+    const lista = viaje.pasajeros_lista || []
+    if (lista.length === 0) {
+      doc.text("Sin desglose individual de nombres (Conteo general registrado).", 14, y)
+    } else {
+      lista.forEach((p, idx) => {
+        if (y > 270) {
+          doc.addPage()
+          y = 20
+        }
+        doc.text(`${idx + 1}`, 14, y)
+        doc.text(`${p.nombre}`, 24, y)
+        doc.text(`${p.puesto || 'Personal'}`, 105, y)
+        doc.text(`${p.hora}`, 160, y)
+        doc.text(`${p.metodo || 'QR'}`, 180, y)
+        y += 7
+      })
+    }
+
+    doc.save(`Manifiesto_Pasajeros_${viaje.punto_a}_a_${viaje.punto_b}_${viaje.fecha}.pdf`)
+  }
+
+  // EXPORTAR DICTAMEN DE INSPECCIÓN A PDF
   const exportPDFReport = () => {
     const doc = new jsPDF()
     const choferNombre = selectedChoferObj?.nombre || profile?.nombre_completo || 'CHOFER OPERADOR'
@@ -775,7 +901,7 @@ export default function ChoferesClient() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 pb-20 font-sans">
+    <div className="max-w-4xl mx-auto space-y-6 pb-20 font-sans">
       
       {/* Header Principal */}
       <div className="bg-zinc-900 p-6 rounded-3xl text-white shadow-xl relative overflow-hidden">
@@ -793,7 +919,7 @@ export default function ChoferesClient() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Link
               href="/chofer-app"
               target="_blank"
@@ -903,8 +1029,8 @@ export default function ChoferesClient() {
         <button onClick={() => setActiveTab('programar')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'programar' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
           <Calendar className="w-4 h-4 text-indigo-600" /> 3. Programar Salida
         </button>
-        <button onClick={() => setActiveTab('historial')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'historial' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-700 hover:text-black'}`}>
-          <History className="w-4 h-4 text-amber-600" /> 4. Historial ({miHistorial.length})
+        <button onClick={() => setActiveTab('historial')} className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${activeTab === 'historial' ? 'bg-zinc-900 text-white shadow-md' : 'text-zinc-700 hover:text-black'}`}>
+          <History className="w-4 h-4 text-amber-400" /> 4. Historial ({rutasQrGlobal.length + miHistorial.length})
         </button>
       </div>
 
@@ -1126,24 +1252,43 @@ export default function ChoferesClient() {
             </div>
           )}
 
-          {/* HISTORIAL DE RUTAS CONCLUIDAS */}
+          {/* HISTORIAL DE RUTAS DEL CHOFER SELECCIONADO */}
           <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-4">
-            <h3 className="text-sm font-black text-zinc-900 uppercase flex items-center gap-2 border-b pb-3 border-zinc-100">
-              <History className="w-4 h-4 text-emerald-600" />
-              Rutas Recientes del Chofer ({bitacoraRutasList.length})
-            </h3>
+            <div className="flex justify-between items-center border-b pb-3 border-zinc-100">
+              <h3 className="text-sm font-black text-zinc-900 uppercase flex items-center gap-2">
+                <History className="w-4 h-4 text-emerald-600" />
+                Rutas Recientes del Chofer ({bitacoraRutasList.length})
+              </h3>
+              <button
+                onClick={() => { setActiveTab('historial'); setSubTabHistorial('rutas_qr') }}
+                className="text-xs font-bold text-emerald-700 hover:underline flex items-center gap-1"
+              >
+                <span>Ver Todas en Historial Global ➔</span>
+              </button>
+            </div>
+
             {bitacoraRutasList.length === 0 ? (
-              <div className="text-center p-8 text-zinc-400 font-bold text-xs">No se registran rutas concluidas previas.</div>
+              <div className="text-center p-8 text-zinc-400 font-bold text-xs">No se registran rutas concluidas para este chofer.</div>
             ) : (
               <div className="space-y-3">
                 {bitacoraRutasList.map((r, i) => (
-                  <div key={i} className="border border-zinc-200 rounded-2xl p-4 bg-zinc-50 flex justify-between items-center text-xs">
+                  <div key={i} className="border border-zinc-200 rounded-2xl p-4 bg-zinc-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs">
                     <div>
-                      <div className="font-black text-zinc-900">{r.punto_a} ➔ {r.punto_b}</div>
-                      <div className="text-[10px] text-zinc-500">{r.fecha} • Salida: {r.hora_salida_a} | Llegada: {r.hora_llegada_b || 'Completado'}</div>
+                      <div className="font-black text-zinc-900 text-sm">{r.punto_a} ➔ {r.punto_b}</div>
+                      <div className="text-[11px] text-zinc-500 mt-0.5">
+                        📅 {r.fecha} • Salida: {r.hora_salida_a} | Llegada: {r.hora_llegada_b || 'Completado'}
+                      </div>
                     </div>
-                    <div className="bg-white px-3 py-1.5 rounded-xl border border-zinc-200 font-mono font-bold text-xs text-indigo-700">
-                      👥 {r.pasajeros_subieron_a || 0} Pasajeros
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      <span className="bg-emerald-100 text-emerald-900 font-bold px-3 py-1.5 rounded-xl border border-emerald-200">
+                        👥 {r.pasajeros_subieron_a || 0} Pasajeros
+                      </span>
+                      <button
+                        onClick={() => setSelectedViajeQrModal(r)}
+                        className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold rounded-xl flex items-center gap-1"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-amber-400" /> Ver Nombres
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1437,82 +1582,274 @@ export default function ChoferesClient() {
       )}
 
       {/* ============================================================ */}
-      {/* TAB 4: HISTORIAL DE INSPECCIONES Y MODAL DETALLADO */}
+      {/* TAB 4: HISTORIAL GLOBAL DE VIAJES QR Y CHECKLISTS */}
       {/* ============================================================ */}
       {activeTab === 'historial' && (
-        <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-5 animate-in fade-in">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b pb-4 border-zinc-100">
+        <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 p-6 space-y-6 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b pb-4 border-zinc-100">
             <div>
-              <h2 className="text-base font-black text-zinc-900 flex items-center gap-2">
-                <History className="w-5 h-5 text-amber-600" /> Bitácora de Inspecciones y Salidas ({miHistorial.length})
+              <h2 className="text-lg font-black text-zinc-900 flex items-center gap-2">
+                <History className="w-5 h-5 text-amber-600" /> Bitácora e Historial Oficial
               </h2>
-              <p className="text-xs text-zinc-500 mt-0.5">Expediente oficial de revisiones mecánicas y autorizaciones</p>
+              <p className="text-xs text-zinc-500 mt-0.5">Consulta de viajes con pasaje QR y dictámenes mecánicos</p>
             </div>
             <button
               type="button"
               onClick={fetchViajesYHistorial}
-              className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all"
+              className="px-3.5 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
             >
-              <RefreshCw className="w-3.5 h-3.5" /> Actualizar
+              <RefreshCw className="w-3.5 h-3.5" /> Actualizar Lista
             </button>
           </div>
 
-          {miHistorial.length === 0 ? (
-            <div className="text-center p-12 text-zinc-400 font-bold text-xs space-y-2">
-              <FileText className="w-8 h-8 mx-auto text-zinc-300" />
-              <div>No se registran checklists o salidas previas para este chofer.</div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {miHistorial.map(h => (
-                <div 
-                  key={h.id_reporte || h.creado_el} 
-                  className="border border-zinc-200 rounded-2xl p-4 bg-zinc-50/80 hover:bg-zinc-50 hover:border-zinc-300 transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs shadow-xs"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-black text-zinc-900 text-sm">
-                        {h.tipo_vehiculo || 'Vehículo'} Eco: {h.camion_numero}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded-full font-black text-[9px] uppercase tracking-wider ${
-                        h.frenos_ok ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
-                      }`}>
-                        {h.frenos_ok ? '🟢 Apto Salida' : '🔴 Con Falla'}
-                      </span>
-                      {h.firma_rh_url && (
-                        <span className="px-2 py-0.5 rounded-full font-black text-[9px] uppercase bg-emerald-50 text-emerald-700 border border-emerald-300">
-                          ✓ V.B. RH
-                        </span>
-                      )}
-                    </div>
-                    
-                    <div className="text-[11px] text-zinc-500 flex flex-wrap items-center gap-2">
-                      <span>📅 {new Date(h.creado_el).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
-                      <span>•</span>
-                      <span>📍 {h.ubicacion_caseta || 'Caseta Principal'}</span>
-                      {h.kilometraje_inicial && (
-                        <>
-                          <span>•</span>
-                          <span className="font-mono font-bold text-zinc-600">Odómetro: {h.kilometraje_inicial} KM</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
+          {/* Sub-selector de Pestañas de Historial */}
+          <div className="grid grid-cols-2 gap-2 p-1.5 bg-zinc-100 rounded-2xl">
+            <button
+              onClick={() => setSubTabHistorial('rutas_qr')}
+              className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all ${
+                subTabHistorial === 'rutas_qr'
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : 'text-zinc-700 hover:text-zinc-950'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>👥 Rutas y Pasajeros QR ({rutasQrGlobal.length})</span>
+            </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setSelectedReporteModal(h)}
-                    className="px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all self-end sm:self-center"
-                  >
-                    <FileText className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Ver Detalle y Firmas</span>
-                  </button>
+            <button
+              onClick={() => setSubTabHistorial('checklists')}
+              className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all ${
+                subTabHistorial === 'checklists'
+                  ? 'bg-zinc-900 text-white shadow-md'
+                  : 'text-zinc-700 hover:text-zinc-950'
+              }`}
+            >
+              <FileSignature className="w-4 h-4" />
+              <span>🔧 Checklists Mecánicos ({miHistorial.length})</span>
+            </button>
+          </div>
+
+          {/* VISTA 1: HISTORIAL DE RUTAS Y PASAJEROS QR */}
+          {subTabHistorial === 'rutas_qr' && (
+            <div className="space-y-4">
+              {rutasQrGlobal.length === 0 ? (
+                <div className="text-center p-12 text-zinc-400 font-bold text-xs space-y-2 border-2 border-dashed rounded-2xl">
+                  <Users className="w-8 h-8 mx-auto text-zinc-300" />
+                  <div>No se han registrado viajes con escaneo de QR aún.</div>
+                  <p className="text-[11px] text-zinc-400">
+                    Ve a la pestaña <strong>"1. Ruta y Pasaje QR"</strong> o abre la <strong>App Choferes Móvil</strong> para iniciar y finalizar un viaje.
+                  </p>
                 </div>
-              ))}
+              ) : (
+                <div className="space-y-3">
+                  {rutasQrGlobal.map((r, i) => (
+                    <div 
+                      key={r.id_bitacora || i} 
+                      className="border border-zinc-200 rounded-2xl p-4 bg-zinc-50 hover:bg-white hover:border-emerald-300 transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs shadow-xs"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-zinc-900 text-sm">
+                            🚌 {r.punto_a} ➔ {r.punto_b}
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase bg-emerald-100 text-emerald-900 border border-emerald-200">
+                            {r.estatus || 'CONCLUIDO'}
+                          </span>
+                        </div>
+
+                        <div className="text-[11px] text-zinc-500 flex flex-wrap items-center gap-2">
+                          <span>👤 Chofer: <strong>{r.chofer_nombre}</strong></span>
+                          <span>•</span>
+                          <span>📅 {r.fecha}</span>
+                          <span>•</span>
+                          <span>🕒 {r.hora_salida_a} ➔ {r.hora_llegada_b || 'Fin'}</span>
+                        </div>
+
+                        <div className="text-[11px] text-emerald-800 font-bold">
+                          👥 Total a Bordo: {r.pasajeros_subieron_a || 0} trabajadores
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-center">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedViajeQrModal(r)}
+                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all"
+                        >
+                          <Users className="w-3.5 h-3.5" />
+                          <span>Ver Pasajeros ({r.pasajeros_lista?.length || r.pasajeros_subieron_a || 0})</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => exportManifiestoPDF(r)}
+                          className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl border border-zinc-200"
+                          title="Descargar Manifiesto PDF"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          {/* MODAL DETALLE DE REPORTE */}
+          {/* VISTA 2: HISTORIAL DE CHECKLISTS MECÁNICOS */}
+          {subTabHistorial === 'checklists' && (
+            <div className="space-y-4">
+              {miHistorial.length === 0 ? (
+                <div className="text-center p-12 text-zinc-400 font-bold text-xs space-y-2 border-2 border-dashed rounded-2xl">
+                  <FileText className="w-8 h-8 mx-auto text-zinc-300" />
+                  <div>No se registran checklists o salidas previas para este chofer.</div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {miHistorial.map(h => (
+                    <div 
+                      key={h.id_reporte || h.creado_el} 
+                      className="border border-zinc-200 rounded-2xl p-4 bg-zinc-50/80 hover:bg-zinc-50 hover:border-zinc-300 transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs shadow-xs"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-zinc-900 text-sm">
+                            {h.tipo_vehiculo || 'Vehículo'} Eco: {h.camion_numero}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-full font-black text-[9px] uppercase tracking-wider ${
+                            h.frenos_ok ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                          }`}>
+                            {h.frenos_ok ? '🟢 Apto Salida' : '🔴 Con Falla'}
+                          </span>
+                          {h.firma_rh_url && (
+                            <span className="px-2 py-0.5 rounded-full font-black text-[9px] uppercase bg-emerald-50 text-emerald-700 border border-emerald-300">
+                              ✓ V.B. RH
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="text-[11px] text-zinc-500 flex flex-wrap items-center gap-2">
+                          <span>📅 {new Date(h.creado_el).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                          <span>•</span>
+                          <span>📍 {h.ubicacion_caseta || 'Caseta Principal'}</span>
+                          {h.kilometraje_inicial && (
+                            <>
+                              <span>•</span>
+                              <span className="font-mono font-bold text-zinc-600">Odómetro: {h.kilometraje_inicial} KM</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedReporteModal(h)}
+                        className="px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all self-end sm:self-center"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Ver Detalle y Firmas</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* MODAL DETALLE DE PASAJEROS ESCANEADOS CON QR */}
+          {selectedViajeQrModal && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+              <div className="bg-white rounded-3xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 shadow-2xl border border-zinc-200">
+                <div className="flex justify-between items-start border-b pb-3 border-zinc-100">
+                  <div>
+                    <span className="text-[10px] text-emerald-600 font-black uppercase tracking-wider flex items-center gap-1">
+                      <Users className="w-3.5 h-3.5" /> MANIFIESTO DE PASAJE QR
+                    </span>
+                    <h3 className="text-lg font-black text-zinc-900">
+                      {selectedViajeQrModal.punto_a} ➔ {selectedViajeQrModal.punto_b}
+                    </h3>
+                    <p className="text-xs text-zinc-500">
+                      Chofer: <strong>{selectedViajeQrModal.chofer_nombre}</strong> • Fecha: {selectedViajeQrModal.fecha}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedViajeQrModal(null)}
+                    className="p-1.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-600 font-black text-xs"
+                  >
+                    ✕ Cerrar
+                  </button>
+                </div>
+
+                {/* Resumen del Viaje */}
+                <div className="bg-zinc-50 p-4 rounded-2xl border border-zinc-200 grid grid-cols-3 gap-2 text-center text-xs">
+                  <div>
+                    <span className="text-[10px] text-zinc-400 block uppercase">Salida A</span>
+                    <strong className="text-zinc-900">{selectedViajeQrModal.hora_salida_a}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-400 block uppercase">Llegada B</span>
+                    <strong className="text-zinc-900">{selectedViajeQrModal.hora_llegada_b || 'Completado'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-400 block uppercase">Pasajeros</span>
+                    <strong className="text-emerald-700">{selectedViajeQrModal.pasajeros_subieron_a || 0} Abordaron</strong>
+                  </div>
+                </div>
+
+                {/* Tabla de Trabajadores que Abordaron */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-xs font-black uppercase text-zinc-700 tracking-wider">
+                      Lista de Personal Registrado ({selectedViajeQrModal.pasajeros_lista?.length || 0})
+                    </h4>
+                    <button
+                      onClick={() => exportManifiestoPDF(selectedViajeQrModal)}
+                      className="px-3 py-1 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-lg flex items-center gap-1"
+                    >
+                      <Download className="w-3.5 h-3.5" /> Descargar PDF
+                    </button>
+                  </div>
+
+                  {(!selectedViajeQrModal.pasajeros_lista || selectedViajeQrModal.pasajeros_lista.length === 0) ? (
+                    <div className="p-4 bg-zinc-50 rounded-xl text-center text-xs text-zinc-400">
+                      Este viaje se registró con conteo manual directo sin desglose de nombres.
+                    </div>
+                  ) : (
+                    <div className="border border-zinc-200 rounded-2xl overflow-hidden divide-y divide-zinc-100 max-h-64 overflow-y-auto">
+                      {selectedViajeQrModal.pasajeros_lista.map((p, idx) => (
+                        <div key={idx} className="p-3 bg-white flex justify-between items-center text-xs hover:bg-zinc-50">
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 font-black text-xs flex items-center justify-center shrink-0">
+                              {idx + 1}
+                            </span>
+                            <div>
+                              <div className="font-black text-zinc-900">{p.nombre}</div>
+                              <div className="text-[10px] text-zinc-500">
+                                {p.puesto || 'Personal'} • ID: {p.id.slice(0, 8)}...
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right font-mono text-[11px]">
+                            <span className="font-bold text-zinc-700">{p.hora}</span>
+                            <span className="block text-[9px] font-bold text-emerald-600 uppercase tracking-wider">{p.metodo || 'QR'}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => setSelectedViajeQrModal(null)}
+                  className="w-full bg-zinc-900 text-white font-bold py-3 rounded-xl text-xs hover:bg-zinc-800 transition-all"
+                >
+                  Cerrar Manifiesto
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL DETALLE DE CHECKLIST */}
           {selectedReporteModal && (
             <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
               <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 shadow-2xl border border-zinc-200">

@@ -95,6 +95,7 @@ const navigationGroups = [
             { name: 'Viajes Programados', href: '/transporte', icon: Bus, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Logística', href: '/logistica', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Portal Choferes', href: '/logistica/choferes', icon: Car, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Chofer'] },
+            { name: 'Bitácora Pasajeros QR', href: '/logistica/choferes/bitacora', icon: Users, roles: ['Recursos Humanos', 'Administrativo', 'Superintendente', 'Jefe de Departamento', 'Chofer'] },
             { name: 'Supervisión', href: '/logistica/reportes', icon: ClipboardList, roles: ['Recursos Humanos', 'Administrativo', 'Superintendente', 'Jefe de Departamento', 'Sistemas'] }
         ]
     },
