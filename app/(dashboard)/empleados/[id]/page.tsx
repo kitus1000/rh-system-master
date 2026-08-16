@@ -9,6 +9,7 @@ import { AdscripcionesManager } from '@/components/AdscripcionesManager'
 import { TurnoRolManager } from '@/components/TurnoRolManager'
 import { IncidenciasManager } from '@/components/IncidenciasManager'
 import { VacationBalanceManager } from '@/components/VacationBalanceManager'
+import CapturaFotoEmpleado from '@/components/CapturaFotoEmpleado'
 
 export default function EmpleadoDetallePage() {
     const params = useParams()
@@ -462,6 +463,19 @@ export default function EmpleadoDetallePage() {
             {activeTab === 'perfil' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-300">
                     <div className="space-y-6">
+                        {/* 📸 FOTO PARA RECONOCIMIENTO FACIAL */}
+                        <div className="bg-white p-6 rounded-lg shadow-sm border border-indigo-200 col-span-2">
+                            <h3 className="font-bold text-zinc-900 mb-4 flex items-center gap-2">
+                                <span className="text-lg">📸</span> Foto para Reconocimiento Facial
+                                <span className="text-xs font-normal text-zinc-400 ml-2">(Necesaria para identificar al empleado en el camión)</span>
+                            </h3>
+                            <CapturaFotoEmpleado
+                                idEmpleado={id}
+                                nombreEmpleado={`${empleado.nombre} ${empleado.apellido_paterno} ${empleado.apellido_materno || ''}`}
+                                fotoActual={empleado.foto_url}
+                                onFotoGuardada={(url) => setEmpleado((prev: any) => ({ ...prev, foto_url: url }))}
+                            />
+                        </div>
                         {/* Información Personal */}
                         <div className="bg-white p-6 rounded-lg shadow-sm border border-zinc-200">
                             <h3 className="font-bold text-zinc-900 mb-4 flex items-center">

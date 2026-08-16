@@ -492,6 +492,21 @@ export default function TransporteReserva() {
         )
     }
 
+    const renderCombiLayout = () => {
+        return (
+            <div className="relative max-w-xs mx-auto my-8">
+                <div className="w-56 bg-zinc-800 h-10 rounded-t-2xl mx-auto border-b-4 border-zinc-600 relative flex items-center justify-center z-10">
+                    <span className="text-[10px] font-black text-zinc-400 tracking-widest uppercase">Frente / Chofer</span>
+                </div>
+                <div className="w-56 bg-zinc-50 border-4 border-t-0 border-zinc-300 rounded-b-3xl px-6 py-6 mx-auto shadow-inner relative z-0">
+                    <div className="grid grid-cols-3 gap-3">
+                        {asientosList.map((num) => renderSeatButton(num))}
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
     if (loading) return <div className="p-12 text-center font-bold text-zinc-500 animate-pulse">Cargando mapa de asientos...</div>
     if (!viaje) return <div className="p-12 text-center font-bold text-rose-500">Viaje no encontrado</div>
 
@@ -613,6 +628,7 @@ export default function TransporteReserva() {
                         {viaje.tipo_vehiculo === 'Autobús' && renderAutobusLayout()}
                         {viaje.tipo_vehiculo === 'Avioneta' && renderAvionetaLayout()}
                         {viaje.tipo_vehiculo === 'Camioneta' && renderCamionetaLayout()}
+                        {(viaje.tipo_vehiculo === 'Combi' || (viaje.tipo_vehiculo !== 'Autobús' && viaje.tipo_vehiculo !== 'Avioneta' && viaje.tipo_vehiculo !== 'Camioneta')) && renderCombiLayout()}
                     </div>
                 </div>
             </div>
