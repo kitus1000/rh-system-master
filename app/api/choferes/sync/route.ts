@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://levyoflvpcbuueefqhtk.supabase.co";
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxldnlvZmx2cGNidXVlZWZxaHRrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDAwMDcxOCwiZXhwIjoyMDg1NTc2NzE4fQ.2i3RS1llduOqFVmoKWFWoQSme7nQjtPiv1u8__D0Jhc";
 const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: { persistSession: false }
 });
@@ -80,17 +80,18 @@ export async function POST(request: Request) {
 
       const comentarioTexto = `[VIAJE_QR] Ruta: ${v.ruta_origen} a ${v.ruta_destino} | Chofer: ${v.chofer_nombre} | Pasajeros: ${totalPasajeros} | Salida: ${horaSalida} | Llegada: ${horaLlegada}`;
 
-      // Verificar si ya existe este viaje para no duplicar
+      // Verificar si ya existe exactamente este mismo viaje (misma fecha, chofer, ruta y hora de salida)
       const { data: existing } = await supabase
         .from("logistica_reportes_diarios")
         .select("id_reporte, observaciones_recorrido")
         .eq("fecha", fechaViaje)
         .like("comentarios_vehiculo", `%Ruta: ${v.ruta_origen} a ${v.ruta_destino}%`)
         .like("comentarios_vehiculo", `%Chofer: ${v.chofer_nombre}%`)
+        .like("comentarios_vehiculo", `%Salida: ${horaSalida}%`)
         .limit(1);
 
       if (existing && existing.length > 0) {
-        // Actualizar el existente con los pasajeros más recientes
+        // Actualizar el existente si se volvió a sincronizar el mismo viaje
         await supabase
           .from("logistica_reportes_diarios")
           .update({
@@ -104,7 +105,7 @@ export async function POST(request: Request) {
 
         totalGuardados++;
       } else {
-        // Insertar nuevo registro
+        // Insertar nuevo registro de viaje
         const { error: errInsert } = await supabase
           .from("logistica_reportes_diarios")
           .insert([{
