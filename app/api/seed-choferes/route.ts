@@ -2,12 +2,12 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 const CHOFERES_LIST = [
-  { nombre_completo: 'Adalberto Pinales (Chofer)', email: 'adalberto.pinales@bacis.com', password: 'Bacis2026!' },
-  { nombre_completo: 'Ramon Yañez (Chofer)', email: 'ramon.yanez@bacis.com', password: 'Bacis2026!' },
-  { nombre_completo: 'Oscar Vazquez (Chofer)', email: 'oscar.vazquez@bacis.com', password: 'Bacis2026!' },
-  { nombre_completo: 'Enrique Linares (Chofer)', email: 'enrique.linares@bacis.com', password: 'Bacis2026!' },
-  { nombre_completo: 'Samuel Madriles (Chofer)', email: 'samuel.madriles@bacis.com', password: 'Bacis2026!' },
-  { nombre_completo: 'Jesus Saucedo (Chofer)', email: 'jesus.saucedo@bacis.com', password: 'Bacis2026!' },
+  { nombre_completo: 'Adalberto Pinales', email: 'adalberto.pinales@bacis.com', password: 'Bacis2026!' },
+  { nombre_completo: 'Ramon Yañez', email: 'ramon.yanez@bacis.com', password: 'Bacis2026!' },
+  { nombre_completo: 'Oscar Vazquez', email: 'oscar.vazquez@bacis.com', password: 'Bacis2026!' },
+  { nombre_completo: 'Enrique Linares', email: 'enrique.linares@bacis.com', password: 'Bacis2026!' },
+  { nombre_completo: 'Samuel Madriles', email: 'samuel.madriles@bacis.com', password: 'Bacis2026!' },
+  { nombre_completo: 'Jesus Saucedo', email: 'jesus.saucedo@bacis.com', password: 'Bacis2026!' },
 ]
 
 export async function GET() {
@@ -39,6 +39,7 @@ async function handleSeed() {
       let status = 'creado'
 
       if (isServiceRole) {
+        // 1. Intentar crear usuario con confirmación de correo
         const { data: authData, error: authErr } = await supabaseClient.auth.admin.createUser({
           email: c.email,
           password: c.password,
@@ -46,15 +47,18 @@ async function handleSeed() {
         })
 
         if (authErr) {
-          if (authErr.message.includes('already registered') || authErr.message.includes('already exists')) {
-            // Find existing user
+          if (authErr.message.includes('already registered') || authErr.message.includes('already exists') || authErr.message.includes('unique')) {
+            // Buscar usuario existente en la lista de auth
             const { data: usersData } = await supabaseClient.auth.admin.listUsers()
             const existing = usersData?.users?.find(u => u.email?.toLowerCase() === c.email.toLowerCase())
             if (existing) {
               userId = existing.id
-              status = 'ya_existia'
-              // Update password to ensure it works
-              await supabaseClient.auth.admin.updateUserById(userId, { password: c.password })
+              status = 'actualizado'
+              // Forzar actualización de contraseña
+              await supabaseClient.auth.admin.updateUserById(userId, { 
+                password: c.password,
+                email_confirm: true
+              })
             }
           } else {
             results.push({ email: c.email, status: 'error', message: authErr.message })
@@ -80,10 +84,10 @@ async function handleSeed() {
       }
 
       if (userId) {
-        // Upsert in perfiles
+        // Upsert en la tabla perfiles con rol EXACTO 'Chofer'
         await supabaseClient.from('perfiles').upsert([{
           id: userId,
-          nombre_completo: c.nombre_completo,
+          nombre_completo: `${c.nombre_completo} (Chofer)`,
           rol: 'Chofer'
         }])
 
@@ -91,6 +95,7 @@ async function handleSeed() {
           nombre: c.nombre_completo,
           email: c.email,
           password: c.password,
+          rol: 'Chofer',
           status,
           userId
         })
@@ -99,7 +104,7 @@ async function handleSeed() {
 
     return NextResponse.json({
       success: true,
-      message: 'Creación de choferes completada',
+      message: 'Cuentas oficiales de choferes sincronizadas y listas para login con rol Chofer',
       choferes: results
     })
   } catch (err: any) {

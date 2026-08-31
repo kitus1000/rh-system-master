@@ -13,7 +13,9 @@ import {
   Stethoscope,
   Users,
   ClipboardList,
-  ChevronLeft
+  ChevronLeft,
+  Eye,
+  EyeOff
 } from 'lucide-react'
 
 export default function LandingHub() {
@@ -21,6 +23,7 @@ export default function LandingHub() {
     const [view, setView] = useState<'hub' | 'login'>('hub')
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
+    const [showPassword, setShowPassword] = useState(false)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [loginTarget, setLoginTarget] = useState<'rh' | 'medico' | 'jefes' | 'chofer'>('rh')
@@ -276,17 +279,35 @@ export default function LandingHub() {
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest ml-1">Contraseña</label>
+                                    <div className="flex justify-between items-center px-1">
+                                        <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Contraseña</label>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="text-[10px] text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 transition-colors"
+                                        >
+                                            {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                            <span>{showPassword ? 'Ocultar' : 'Ver contraseña'}</span>
+                                        </button>
+                                    </div>
                                     <div className="relative group">
                                         <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 group-focus-within:text-white transition-colors" />
                                         <input
-                                            type="password"
+                                            type={showPassword ? 'text' : 'password'}
                                             required
                                             value={password}
                                             onChange={(e) => setPassword(e.target.value)}
                                             placeholder="••••••••••••"
-                                            className="w-full bg-black/60 border border-zinc-800 rounded-xl py-3 pl-11 pr-4 text-white text-xs focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all placeholder:text-zinc-600 font-mono"
+                                            className="w-full bg-black/60 border border-zinc-800 rounded-xl py-3 pl-11 pr-11 text-white text-xs focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all placeholder:text-zinc-600 font-mono"
                                         />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                                            title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                                        >
+                                            {showPassword ? <EyeOff className="w-4 h-4 text-amber-400" /> : <Eye className="w-4 h-4" />}
+                                        </button>
                                     </div>
                                 </div>
 
