@@ -58,51 +58,82 @@ export async function POST(request: Request) {
       }
 
       // Pasajeros de este viaje
-      let listaPasajeros = [];
+      let rawPasajeros = [];
       if (Array.isArray(v.pasajeros) && v.pasajeros.length > 0) {
-        listaPasajeros = v.pasajeros;
+        rawPasajeros = v.pasajeros;
       } else if (Array.isArray(pasajeros) && pasajeros.length > 0) {
-        listaPasajeros = pasajeros.filter((p: any) => p.id_viaje_local === v.id_viaje_local);
+        rawPasajeros = pasajeros.filter((p: any) => p.id_viaje_local === v.id_viaje_local);
       }
+
+      const listaPasajeros = rawPasajeros.map((p: any) => ({
+        id: p.id_empleado || p.id || p.id_manual || p.id_registro_local || 'ID',
+        nombre: p.nombre_completo || p.nombre || `Trabajador #${p.id || ''}`,
+        puesto: p.puesto_depto || p.puesto || 'Personal Mina Bacis',
+        hora: p.hora || (p.hora_subida ? new Date(p.hora_subida).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'N/A'),
+        metodo: p.metodo_registro || p.metodo || 'QR'
+      }));
 
       const totalPasajeros = listaPasajeros.length;
       const fechaViaje = v.hora_inicio_real ? v.hora_inicio_real.split('T')[0] : new Date().toISOString().split('T')[0];
       const horaSalida = v.hora_inicio_real ? new Date(v.hora_inicio_real).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'N/A';
       const horaLlegada = v.hora_fin_real ? new Date(v.hora_fin_real).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'Completado';
 
-      // Insertar en logistica_reportes_diarios
-      const { error: errInsert } = await supabase
-        .from("logistica_reportes_diarios")
-        .insert([{
-          id_empleado: validChoferUUID,
-          fecha: fechaViaje,
-          camion_numero: v.numero_economico || 'CAM-01',
-          tipo_vehiculo: v.tipo_vehiculo || 'Camioneta',
-          ubicacion_caseta: v.ruta_destino || 'Parajes',
-          comentarios_vehiculo: `[VIAJE_QR] Ruta: ${v.ruta_origen} a ${v.ruta_destino} | Chofer: ${v.chofer_nombre} | Pasajeros: ${totalPasajeros} | Salida: ${horaSalida} | Llegada: ${horaLlegada}`,
-          observaciones_recorrido: JSON.stringify(listaPasajeros),
-          frenos_ok: true,
-          luces_ok: true,
-          llantas_ok: true,
-          niveles_aceite_ok: true,
-          carroceria_ok: true,
-          extintor_ok: true,
-          botiquin_ok: true
-        }]);
+      const comentarioTexto = `[VIAJE_QR] Ruta: ${v.ruta_origen} a ${v.ruta_destino} | Chofer: ${v.chofer_nombre} | Pasajeros: ${totalPasajeros} | Salida: ${horaSalida} | Llegada: ${horaLlegada}`;
 
-      if (!errInsert) {
+      // Verificar si ya existe este viaje para no duplicar
+      const { data: existing } = await supabase
+        .from("logistica_reportes_diarios")
+        .select("id_reporte, observaciones_recorrido")
+        .eq("fecha", fechaViaje)
+        .like("comentarios_vehiculo", `%Ruta: ${v.ruta_origen} a ${v.ruta_destino}%`)
+        .like("comentarios_vehiculo", `%Chofer: ${v.chofer_nombre}%`)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        // Actualizar el existente con los pasajeros más recientes
+        await supabase
+          .from("logistica_reportes_diarios")
+          .update({
+            comentarios_vehiculo: comentarioTexto,
+            observaciones_recorrido: JSON.stringify(listaPasajeros),
+            ubicacion_caseta: v.ruta_destino || 'Parajes',
+            tipo_vehiculo: v.tipo_vehiculo || 'Camioneta',
+            camion_numero: v.numero_economico || 'CAM-01'
+          })
+          .eq("id_reporte", existing[0].id_reporte);
+
         totalGuardados++;
       } else {
-        console.error("Error insertando en logistica_reportes_diarios:", errInsert);
+        // Insertar nuevo registro
+        const { error: errInsert } = await supabase
+          .from("logistica_reportes_diarios")
+          .insert([{
+            id_empleado: validChoferUUID,
+            fecha: fechaViaje,
+            camion_numero: v.numero_economico || 'CAM-01',
+            tipo_vehiculo: v.tipo_vehiculo || 'Camioneta',
+            ubicacion_caseta: v.ruta_destino || 'Parajes',
+            comentarios_vehiculo: comentarioTexto,
+            observaciones_recorrido: JSON.stringify(listaPasajeros),
+            frenos_ok: true,
+            luces_ok: true,
+            llantas_ok: true,
+            niveles_aceite_ok: true,
+            carroceria_ok: true,
+            extintor_ok: true,
+            botiquin_ok: true
+          }]);
+
+        if (!errInsert) totalGuardados++;
       }
 
       // Guardar también en chofer_bitacora_pasajeros
       if (listaPasajeros.length > 0) {
         try {
           const pasajerosRows = listaPasajeros.map((p: any) => ({
-            id_empleado: isUUID(p.id_empleado) ? p.id_empleado : null,
-            nombre_empleado: p.nombre_completo || p.nombre || `Trabajador #${p.id || ''}`,
-            puesto: p.puesto_depto || p.puesto || 'Personal Mina Bacis',
+            id_empleado: isUUID(p.id) ? p.id : null,
+            nombre_empleado: p.nombre,
+            puesto: p.puesto,
             punto: v.ruta_destino || 'Parajes'
           }));
           await supabase.from("chofer_bitacora_pasajeros").insert(pasajerosRows);

@@ -241,51 +241,13 @@ export default function ChoferesClient() {
 
   const handleSyncPortal = async () => {
     setSyncPortalLoading(true)
-    setSyncPortalMsg('Sincronizando viajes con la oficina central...')
+    setSyncPortalMsg('Consultando viajes actualizados desde la oficina central...')
     try {
-      const localHistory = JSON.parse(localStorage.getItem(`history_routes_${selectedChofer}`) || '[]')
-      const globalHistory = JSON.parse(localStorage.getItem('rh_rutas_qr_global_history') || '[]')
-      const appHistory = JSON.parse(localStorage.getItem('rh_chofer_viajes') || '[]')
-
-      const combined = [...localHistory, ...globalHistory, ...appHistory]
-      if (combined.length === 0) {
-        setSyncPortalMsg('No hay viajes locales guardados para subir.')
-        setTimeout(() => setSyncPortalMsg(''), 3500)
-        setSyncPortalLoading(false)
-        return
-      }
-
-      const choferActualNombre = selectedChoferObj?.nombre || profile?.nombre_completo || 'Chofer Operador'
-
-      const res = await fetch('/api/choferes/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          viajes: combined.map(v => ({
-            id_viaje_local: v.id_bitacora || v.id_viaje_local || `web_${Date.now()}_${Math.random()}`,
-            id_chofer: v.id_chofer || selectedChofer,
-            chofer_nombre: v.chofer_nombre || choferActualNombre,
-            tipo_vehiculo: tipoVehiculo || 'Camioneta',
-            numero_economico: camion || 'CAM-01',
-            ruta_origen: v.punto_a || v.ruta_origen || 'Mina Bacis',
-            ruta_destino: v.punto_b || v.ruta_destino || 'Parajes',
-            hora_inicio_real: v.creado_el || new Date().toISOString(),
-            hora_fin_real: v.hora_llegada_b ? new Date().toISOString() : undefined,
-            estado: 'Finalizado',
-            pasajeros: v.pasajeros_lista || v.pasajeros || []
-          }))
-        })
-      })
-
-      if (res.ok) {
-        setSyncPortalMsg(`✅ ¡${combined.length} viajes sincronizados con éxito con la oficina central!`)
-        setTimeout(() => setSyncPortalMsg(''), 4000)
-        fetchViajesYHistorial()
-      } else {
-        setSyncPortalMsg('Error al conectar con la base de datos.')
-      }
+      await fetchViajesYHistorial()
+      setSyncPortalMsg('✅ Bitácora e historial actualizados con éxito con la base central.')
+      setTimeout(() => setSyncPortalMsg(''), 4000)
     } catch (e: any) {
-      setSyncPortalMsg('Error de red al intentar sincronizar.')
+      setSyncPortalMsg('Error al conectar con la base de datos.')
     } finally {
       setSyncPortalLoading(false)
     }

@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/utils/supabase/client'
@@ -273,7 +273,7 @@ export default function ChoferApp() {
     } catch (_) {}
   }
 
-  // SincronizaciÃ³n Manual y AutomÃ¡tica con la Oficina
+  // Sincronización Manual y Automática con la Oficina
   const autoSyncData = async () => {
     if (!navigator.onLine) return
     try {
@@ -321,18 +321,10 @@ export default function ChoferApp() {
     setSyncStatusMsg('Sincronizando viajes con la oficina...')
     try {
       const saved: ViajeLocal[] = JSON.parse(localStorage.getItem('rh_chofer_viajes') || '[]')
-      const globalRutas = JSON.parse(localStorage.getItem('rh_rutas_qr_global_history') || '[]')
+      const viajesASubir = saved.filter(v => v.estado === 'Finalizado' || (v.pasajeros && v.pasajeros.length > 0))
 
-      // Unir todos los viajes disponibles
-      const todosLosViajes = [...saved, ...globalRutas]
-      
-      // Si no hay viajes pero hay un viaje activo en curso
-      if (!todosLosViajes.length && viajeActivoRef.current) {
-        todosLosViajes.push(viajeActivoRef.current)
-      }
-
-      if (!todosLosViajes.length) {
-        setSyncStatusMsg('No hay viajes locales guardados para subir.')
+      if (!viajesASubir.length) {
+        setSyncStatusMsg('No hay viajes concluidos con pasajeros para subir.')
         setTimeout(() => setSyncStatusMsg(''), 3500)
         setIsSyncing(false)
         return
@@ -342,8 +334,8 @@ export default function ChoferApp() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          viajes: todosLosViajes.map(v => ({
-            id_viaje_local: v.id_viaje_local || `app_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          viajes: viajesASubir.map(v => ({
+            id_viaje_local: v.id_viaje_local,
             id_chofer: v.id_chofer ?? null,
             chofer_nombre: v.chofer_nombre || choferNombre || 'Chofer Operador',
             tipo_vehiculo: v.tipo_vehiculo || tipoVehiculo || 'Camioneta',
@@ -352,14 +344,19 @@ export default function ChoferApp() {
             ruta_destino: v.ruta_destino || destino || 'Parajes',
             hora_inicio_real: v.hora_inicio_real || v.creado_el || new Date().toISOString(), 
             hora_fin_real: v.hora_fin_real || new Date().toISOString(),
-            estado: v.estado || 'Finalizado',
+            estado: 'Finalizado',
             pasajeros: (v.pasajeros || []).map((p: any) => ({
+              id: p.id_empleado || p.id_manual || p.id_registro_local,
               id_registro_local: p.id_registro_local || `pas_${Date.now()}`,
               id_empleado: p.id_empleado ?? null,
               id_manual: p.id_manual ?? null,
+              nombre: p.nombre_completo || p.nombre || 'Trabajador',
               nombre_completo: p.nombre_completo || p.nombre || 'Trabajador',
+              puesto: p.puesto_depto || p.puesto || 'Personal Mina Bacis',
               puesto_depto: p.puesto_depto || p.puesto || 'Personal Mina Bacis',
+              metodo: p.metodo_registro || 'QR',
               metodo_registro: p.metodo_registro || 'QR',
+              hora: p.hora_subida ? new Date(p.hora_subida).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'N/A',
               hora_subida: p.hora_subida || new Date().toISOString()
             }))
           }))
@@ -367,19 +364,26 @@ export default function ChoferApp() {
       })
 
       if (res.ok) {
-        setSyncStatusMsg(`âœ… Â¡${todosLosViajes.length} viajes sincronizados con Ã©xito con la oficina!`)
-        setTimeout(() => setSyncStatusMsg(''), 4000)
+        // Marcar todos como sincronizados
+        const actualizados = saved.map(v => ({ ...v, sincronizado: true }))
+        setHistorialViajes(actualizados)
+        historialRef.current = actualizados
+        try { localStorage.setItem('rh_chofer_viajes', JSON.stringify(actualizados)) } catch (_) {}
+
+        const totalPasajeros = viajesASubir.reduce((acc, v) => acc + (v.pasajeros?.length || 0), 0)
+        setSyncStatusMsg(`✅ ¡${viajesASubir.length} viajes (${totalPasajeros} pasajeros) enviados a la oficina!`)
+        setTimeout(() => setSyncStatusMsg(''), 5000)
       } else {
-        setSyncStatusMsg('Error al conectar con la base de datos.')
+        setSyncStatusMsg('Error al conectar con la base de datos central.')
       }
     } catch (e: any) {
-      setSyncStatusMsg('Sin seÃ±al de internet en este momento.')
+      setSyncStatusMsg('Sin señal de internet en este momento.')
     } finally {
       setIsSyncing(false)
     }
   }
 
-  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• Flujo de viaje â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+  /* ─────────────────────────── Flujo de viaje ─────────────────────────── */
   const handleIniciarChecklist = () => {
     try {
       localStorage.setItem('rh_chofer_nombre_guardado', choferNombre)
@@ -414,8 +418,6 @@ export default function ChoferApp() {
 
     try {
       localStorage.setItem('rh_chofer_viajes', JSON.stringify(lista))
-      const globalHistory = JSON.parse(localStorage.getItem('rh_rutas_qr_global_history') || '[]')
-      localStorage.setItem('rh_rutas_qr_global_history', JSON.stringify([nuevoViaje, ...globalHistory]))
     } catch (_) {}
 
     playBeep(true)
@@ -423,7 +425,7 @@ export default function ChoferApp() {
     setTimeout(iniciarCamara, 350)
   }
 
-  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• CÃ¡mara & Escaneo RÃ¡pido a 60 FPS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+  /* ─────────────────────────── Cámara & Escaneo Rápido a 60 FPS ─────────────────────────── */
   const iniciarCamara = async () => {
     setCameraActive(true)
     setCameraError('')
@@ -431,8 +433,8 @@ export default function ChoferApp() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { 
           facingMode: { ideal: 'environment' }, 
-          width: { ideal: 640 }, 
-          height: { ideal: 480 } 
+          width: { ideal: 1280 }, 
+          height: { ideal: 720 } 
         },
         audio: false
       })
@@ -444,7 +446,7 @@ export default function ChoferApp() {
       }
       iniciarBucleEscaneo()
     } catch (_) {
-      setCameraError('CÃ¡mara no disponible o bloqueada. Puedes escribir el nÃºmero de nÃ³mina abajo.')
+      setCameraError('Cámara no disponible o bloqueada. Puedes escribir el número de nómina abajo.')
     }
   }
 
@@ -462,7 +464,7 @@ export default function ChoferApp() {
     let nativeDetector: any = null
     if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
       try {
-        nativeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] })
+        nativeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'data_matrix'] })
       } catch (_) {}
     }
 
