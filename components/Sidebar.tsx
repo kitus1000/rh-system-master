@@ -94,6 +94,7 @@ const navigationGroups = [
         isCollapsible: true,
         defaultExpanded: true,
         items: [
+            { name: '📱 App Choferes (Móvil/Offline)', href: '/chofer-app', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas', 'Encargado de Campamento y Comedor'] },
             { name: 'Viajes Programados', href: '/transporte', icon: Bus, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Logística', href: '/logistica', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Portal Choferes', href: '/logistica/choferes', icon: Car, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Chofer'] },

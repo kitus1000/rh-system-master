@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '@/utils/supabase/client'
+import jsQR from 'jsqr'
 import {
   Truck, Clock, Camera, Wifi, WifiOff,
   Play, StopCircle, HardHat, ChevronRight,
-  Trash2, ArrowLeft, ShieldAlert, X
+  Trash2, ArrowLeft, ShieldAlert, X, Sparkles, Check
 } from 'lucide-react'
 
 /* ─────────────────────────── Tipos ─────────────────────────── */
@@ -79,7 +80,9 @@ function playBeep(success = true) {
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12)
     osc.connect(gain); gain.connect(ctx.destination)
     osc.start(); osc.stop(ctx.currentTime + 0.12)
-    if (navigator.vibrate) navigator.vibrate(success ? [70, 40, 70] : [180])
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(success ? [70, 40, 70] : [180])
+    }
   } catch (_) {}
 }
 
@@ -113,53 +116,54 @@ export default function ChoferApp() {
   const [tiempoTranscurrido, setTiempoTranscurrido] = useState('00:00:00')
   const [historialViajes, setHistorialViajes] = useState<ViajeLocal[]>([])
 
-  /*
-   * ════════════════════════════════════════════════════════════════
-   *  PASAJEROS – se guarda TAMBIÉN en ref para que el loop de scan
-   *  siempre lea el valor más reciente sin closures viejos.
-   * ════════════════════════════════════════════════════════════════
-   */
+  /* ── PASAJEROS (State + Ref sincronizados para evitar stale closure) ── */
   const [pasajerosEnRuta, setPasajerosEnRuta] = useState<PasajeroBordo[]>([])
-  const pasajerosRef = useRef<PasajeroBordo[]>([])          // ← la clave del fix
-  const viajeActivoRef = useRef<ViajeLocal | null>(null)     // ← igual para viaje
+  const pasajerosRef = useRef<PasajeroBordo[]>([])
+  const viajeActivoRef = useRef<ViajeLocal | null>(null)
   const historialRef = useRef<ViajeLocal[]>([])
+  const empleadosCacheRef = useRef<EmpleadoCache[]>(DEFAULT_CHOFERES)
 
-  /* ── Cámara ── */
+  /* ── Cámara y Canvas para jsQR ── */
   const [cameraActive, setCameraActive] = useState(false)
   const [cameraError, setCameraError] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const scanLoopRef = useRef<number | null>(null)
-  const cooldownRef = useRef(false)                          // ref en vez de state para no re-render
+  const cooldownRef = useRef(false)
 
   /* ── Notificación de scan ── */
-  const [scanNotice, setScanNotice] = useState<{ tipo: 'exito' | 'duplicado'; nombre: string } | null>(null)
+  const [scanNotice, setScanNotice] = useState<{ tipo: 'exito' | 'duplicado'; nombre: string; hora?: string } | null>(null)
   const noticeTimerRef = useRef<any>(null)
 
   /* ── Manual ID ── */
   const [manualIdInput, setManualIdInput] = useState('')
 
-  /* ═══════════════════ Sincronizar refs cuando cambia state ═══════════════════ */
+  /* Sincronizar refs */
   useEffect(() => { pasajerosRef.current = pasajerosEnRuta }, [pasajerosEnRuta])
   useEffect(() => { viajeActivoRef.current = viajeActivo }, [viajeActivo])
   useEffect(() => { historialRef.current = historialViajes }, [historialViajes])
+  useEffect(() => { empleadosCacheRef.current = empleadosCache }, [empleadosCache])
 
   /* ═══════════════════ Init ═══════════════════ */
   useEffect(() => {
-    setIsOnline(navigator.onLine)
+    setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true)
 
-    // Service Worker PWA
-    if ('serviceWorker' in navigator) {
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {})
     }
 
-    // Botón de instalar nativo (Chrome Android)
-    const onBeforeInstall = (e: any) => { e.preventDefault(); setDeferredPrompt(e) }
+    const onBeforeInstall = (e: any) => {
+      e.preventDefault()
+      setDeferredPrompt(e)
+    }
     window.addEventListener('beforeinstallprompt', onBeforeInstall)
 
-    if (window.matchMedia('(display-mode: standalone)').matches) setIsInstalled(true)
+    if (typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstalled(true)
+    }
 
-    const onOnline  = () => { setIsOnline(true);  autoSyncData() }
+    const onOnline  = () => { setIsOnline(true); autoSyncData() }
     const onOffline = () => setIsOnline(false)
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
@@ -173,7 +177,6 @@ export default function ChoferApp() {
       window.removeEventListener('offline', onOffline)
       detenerCamara()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /* ═══════════════════ Reloj de viaje ═══════════════════ */
@@ -211,6 +214,7 @@ export default function ChoferApp() {
         const emps: EmpleadoCache[] = JSON.parse(rawEmps)
         if (emps?.length) {
           setEmpleadosCache(emps)
+          empleadosCacheRef.current = emps
           const ch = emps.filter(e =>
             (e.puesto || '').toLowerCase().includes('chofer') ||
             (e.puesto || '').toLowerCase().includes('conductor') ||
@@ -231,6 +235,7 @@ export default function ChoferApp() {
         .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado')
       if (data?.length) {
         setEmpleadosCache(data)
+        empleadosCacheRef.current = data
         localStorage.setItem('rh_chofer_empleados_cache', JSON.stringify(data))
         const ch = data.filter(e =>
           (e.puesto || '').toLowerCase().includes('chofer') ||
@@ -282,6 +287,7 @@ export default function ChoferApp() {
             : v
         )
         setHistorialViajes(updated)
+        historialRef.current = updated
         localStorage.setItem('rh_chofer_viajes', JSON.stringify(updated))
       }
     } catch (_) {}
@@ -318,12 +324,16 @@ export default function ChoferApp() {
     pasajerosRef.current = []
     localStorage.setItem('rh_chofer_viajes', JSON.stringify(lista))
 
+    // Guardar en bitácora local global
+    const globalHistory = JSON.parse(localStorage.getItem('rh_rutas_qr_global_history') || '[]')
+    localStorage.setItem('rh_rutas_qr_global_history', JSON.stringify([nuevoViaje, ...globalHistory]))
+
     playBeep(true)
     setView('en_ruta')
-    setTimeout(iniciarCamara, 400)
+    setTimeout(iniciarCamara, 350)
   }
 
-  /* ═══════════════════ Cámara ═══════════════════ */
+  /* ═══════════════════ Cámara & Escáner Híbrido (Native + jsQR) ═══════════════════ */
   const iniciarCamara = async () => {
     setCameraActive(true)
     setCameraError('')
@@ -345,50 +355,95 @@ export default function ChoferApp() {
   }
 
   const detenerCamara = () => {
-    if (scanLoopRef.current) { cancelAnimationFrame(scanLoopRef.current); scanLoopRef.current = null }
+    if (scanLoopRef.current) {
+      cancelAnimationFrame(scanLoopRef.current)
+      scanLoopRef.current = null
+    }
     streamRef.current?.getTracks().forEach(t => t.stop())
     streamRef.current = null
     setCameraActive(false)
   }
 
   const iniciarBucleEscaneo = () => {
-    let detector: any = null
-    if ('BarcodeDetector' in window) {
-      try { detector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] }) } catch (_) {}
+    let nativeDetector: any = null
+    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+      try {
+        nativeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] })
+      } catch (_) {}
     }
 
+    if (!canvasRef.current) {
+      canvasRef.current = document.createElement('canvas')
+    }
+    const canvas = canvasRef.current
+    const ctx = canvas ? canvas.getContext('2d', { willReadFrequently: true }) : null
+
     const tick = async () => {
-      if (videoRef.current && videoRef.current.readyState >= 2 && detector) {
-        try {
-          const codes = await detector.detect(videoRef.current)
-          if (codes?.length) procesarLecturaQR(codes[0].rawValue)
-        } catch (_) {}
+      if (videoRef.current && videoRef.current.readyState >= 2) {
+        const video = videoRef.current
+        let detectedCode: string | null = null
+
+        // 1. Intentar con BarcodeDetector nativo
+        if (nativeDetector) {
+          try {
+            const barcodes = await nativeDetector.detect(video)
+            if (barcodes?.length && barcodes[0].rawValue) {
+              detectedCode = barcodes[0].rawValue
+            }
+          } catch (_) {}
+        }
+
+        // 2. Fallback con jsQR (100% de efectividad en todos los dispositivos)
+        if (!detectedCode && ctx && canvas && video.videoWidth > 0 && video.videoHeight > 0) {
+          try {
+            if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+              canvas.width = video.videoWidth
+              canvas.height = video.videoHeight
+            }
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+            const code = jsQR(imgData.data, imgData.width, imgData.height, {
+              inversionAttempts: 'dontInvert'
+            })
+            if (code && code.data) {
+              detectedCode = code.data
+            }
+          } catch (_) {}
+        }
+
+        if (detectedCode) {
+          procesarLecturaQR(detectedCode)
+        }
       }
+
       scanLoopRef.current = requestAnimationFrame(tick)
     }
+
     scanLoopRef.current = requestAnimationFrame(tick)
   }
 
   /* ═══════════════════════════════════════════════════════════════════
-   *  procesarLecturaQR – usa refs para leer SIEMPRE la lista actual
-   *  sin closures viejos. Esto corrige el bug de "borra los 4 ya capturados".
+   *  procesarLecturaQR: Detección Instantánea + Anti-Duplicado
    * ═══════════════════════════════════════════════════════════════════ */
-  const procesarLecturaQR = useCallback((codigo: string) => {
+  const procesarLecturaQR = (codigo: string) => {
     if (cooldownRef.current) return
     const idLimpio = codigo.trim()
     if (!idLimpio) return
 
-    // Buscar empleado en caché
-    let match = empleadosCache.find(e =>
+    const cache = empleadosCacheRef.current
+
+    // 1. Buscar en catálogo precargado
+    let match = cache.find(e =>
       e.id_empleado === idLimpio ||
       String(e.numero_empleado) === idLimpio ||
       codigo.includes(e.id_empleado)
     )
+
     if (!match && idLimpio.startsWith('{')) {
       try {
         const p = JSON.parse(idLimpio)
         const sid = p.id || p.id_empleado || p.numero_empleado
-        if (sid) match = empleadosCache.find(e => e.id_empleado === sid || String(e.numero_empleado) === String(sid))
+        if (sid) match = cache.find(e => e.id_empleado === String(sid) || String(e.numero_empleado) === String(sid))
       } catch (_) {}
     }
 
@@ -396,23 +451,26 @@ export default function ChoferApp() {
       ? `${match.nombre} ${match.apellido_paterno}${match.apellido_materno ? ' ' + match.apellido_materno : ''}`.trim()
       : `Trabajador #${idLimpio}`
 
-    /* ── Leer lista ACTUAL desde ref (no desde el closure) ── */
+    /* ── Leer lista ACTUAL directamente de la Ref ── */
     const listaActual = pasajerosRef.current
 
+    // Verificar si ya está a bordo
     const duplicado = listaActual.find(p =>
-      (match && p.id_empleado === match?.id_empleado) ||
-      p.id_manual === idLimpio
+      (match && p.id_empleado === match.id_empleado) ||
+      p.id_manual === idLimpio ||
+      p.nombre_completo.toLowerCase() === nombreMostrar.toLowerCase()
     )
 
     if (duplicado) {
       playBeep(false)
-      mostrarAviso('duplicado', duplicado.nombre_completo)
+      const horaAbordaje = new Date(duplicado.hora_subida).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      mostrarAviso('duplicado', duplicado.nombre_completo, horaAbordaje)
       cooldownRef.current = true
-      setTimeout(() => { cooldownRef.current = false }, 1200)
+      setTimeout(() => { cooldownRef.current = false }, 1100)
       return
     }
 
-    // Nuevo pasajero
+    // ✅ REGISTRO AUTOMÁTICO DE NUEVO PASAJERO
     const nuevo: PasajeroBordo = {
       id_registro_local: `pas_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       id_empleado: match ? match.id_empleado : undefined,
@@ -423,12 +481,12 @@ export default function ChoferApp() {
       hora_subida: new Date().toISOString()
     }
 
-    /* ── Actualizar ref PRIMERO, luego state ── */
+    // Actualizar lista acumulada (¡NUNCA BORRA LOS ANTERIORES!)
     const listaActualizada = [nuevo, ...listaActual]
     pasajerosRef.current = listaActualizada
     setPasajerosEnRuta([...listaActualizada])
 
-    /* ── Guardar viaje actualizado ── */
+    // Actualizar viaje activo en memoria
     const viaje = viajeActivoRef.current
     if (viaje) {
       const viajeAct = { ...viaje, pasajeros: listaActualizada }
@@ -446,13 +504,12 @@ export default function ChoferApp() {
     mostrarAviso('exito', nombreMostrar)
     cooldownRef.current = true
     setTimeout(() => { cooldownRef.current = false }, 900)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [empleadosCache])
+  }
 
-  const mostrarAviso = (tipo: 'exito' | 'duplicado', nombre: string) => {
+  const mostrarAviso = (tipo: 'exito' | 'duplicado', nombre: string, hora?: string) => {
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
-    setScanNotice({ tipo, nombre })
-    noticeTimerRef.current = setTimeout(() => setScanNotice(null), 2200)
+    setScanNotice({ tipo, nombre, hora })
+    noticeTimerRef.current = setTimeout(() => setScanNotice(null), 2500)
   }
 
   /* ── Registro manual ── */
@@ -485,7 +542,7 @@ export default function ChoferApp() {
   /* ── Cerrar viaje ── */
   const handleCerrarViaje = () => {
     const total = pasajerosRef.current.length
-    if (!confirm(`¿Cerrar viaje de ${viajeActivoRef.current?.ruta_origen} a ${viajeActivoRef.current?.ruta_destino}?\n\n👥 Total de pasajeros: ${total}`)) return
+    if (!confirm(`¿Cerrar viaje de ${viajeActivoRef.current?.ruta_origen} a ${viajeActivoRef.current?.ruta_destino}?\n\n👥 Total de pasajeros a bordo: ${total}`)) return
 
     detenerCamara()
     const viaje = viajeActivoRef.current
@@ -509,7 +566,7 @@ export default function ChoferApp() {
       setPasajerosEnRuta([])
       playBeep(true)
       if (navigator.onLine) autoSyncData()
-      alert(`✅ ¡Viaje Finalizado!\n👥 Personas transportadas: ${total}\n\nQuedó guardado en el celular.`)
+      alert(`✅ ¡Viaje Finalizado Exitosamente!\n👥 Pasajeros transportados: ${total}\n\nQuedó guardado en la memoria del celular.`)
       setView('inicio')
     }
   }
@@ -522,13 +579,13 @@ export default function ChoferApp() {
       if (outcome === 'accepted') setIsInstalled(true)
       setDeferredPrompt(null)
     } else {
-      alert('📲 Para instalar la App:\n\n1. Toca los 3 puntos ⋮ de Chrome\n2. Elige "Agregar a pantalla de inicio"\n3. ¡Listo! Funciona sin internet.')
+      alert('📲 Para instalar la App en tu pantalla de inicio:\n\n1. En Chrome, toca los 3 puntos (⋮)\n2. Elige "Agregar a la pantalla principal" o "Instalar aplicación"\n3. ¡Listo! Abre como app directa sin internet.')
     }
   }
 
   /* ════════════════════════════════ RENDER ════════════════════════════════ */
   return (
-    <div className="min-h-screen bg-zinc-950 text-white flex flex-col">
+    <div className="min-h-screen bg-zinc-950 text-white flex flex-col justify-between selection:bg-emerald-600 font-sans">
 
       {/* Header */}
       <header className="bg-zinc-900 border-b border-zinc-800 px-4 py-3 sticky top-0 z-30 flex items-center justify-between shadow-md">
@@ -543,7 +600,7 @@ export default function ChoferApp() {
         </div>
         <div className="flex items-center gap-1.5">
           {!isInstalled && (
-            <button onClick={handleInstalarApp} className="flex items-center gap-1 bg-emerald-600 text-white px-2.5 py-1 rounded-full text-[11px] font-bold">
+            <button onClick={handleInstalarApp} className="flex items-center gap-1 bg-emerald-600 text-white px-2.5 py-1 rounded-full text-[11px] font-bold shadow-md active:scale-95 transition-all">
               📲 Instalar
             </button>
           )}
@@ -555,13 +612,13 @@ export default function ChoferApp() {
 
       {/* ══════════ VISTA: INICIO ══════════ */}
       {view === 'inicio' && (
-        <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-4">
+        <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-4 animate-in fade-in">
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 space-y-4 shadow-xl">
             <div className="border-b border-zinc-800 pb-3">
               <h2 className="text-base font-black text-white flex items-center gap-2">
                 <HardHat className="w-5 h-5 text-amber-400" /> Nuevo Recorrido
               </h2>
-              <p className="text-xs text-zinc-400 mt-0.5">Todo funciona sin internet 100%</p>
+              <p className="text-xs text-zinc-400 mt-0.5">Escaneo automático continuo y 100% offline</p>
             </div>
 
             {/* Chofer */}
@@ -639,7 +696,7 @@ export default function ChoferApp() {
 
       {/* ══════════ VISTA: CHECKLIST ══════════ */}
       {view === 'checklist' && (
-        <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-4">
+        <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-4 animate-in fade-in">
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 space-y-4 shadow-xl">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div className="flex items-center gap-2">
@@ -671,9 +728,9 @@ export default function ChoferApp() {
 
       {/* ══════════ VISTA: EN RUTA ══════════ */}
       {view === 'en_ruta' && viajeActivo && (
-        <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-3.5">
+        <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-3.5 animate-in fade-in">
 
-          {/* Tarjeta de conteo */}
+          {/* Tarjeta de Conteo de Pasajeros */}
           <div className="bg-gradient-to-r from-amber-600 to-yellow-600 text-black p-4 rounded-3xl shadow-xl space-y-1.5 border border-amber-300">
             <div className="flex justify-between items-center">
               <span className="text-[10px] font-black uppercase tracking-widest bg-black text-amber-300 px-2.5 py-0.5 rounded-full">
@@ -687,22 +744,28 @@ export default function ChoferApp() {
                 <strong className="text-sm font-black block truncate max-w-[160px]">{viajeActivo.chofer_nombre}</strong>
               </div>
               <div className="text-right">
-                <span className="text-[10px] uppercase text-black/70 block font-bold">A Bordo</span>
+                <span className="text-[10px] uppercase text-black/70 block font-bold">Pasajeros a Bordo</span>
                 <strong className="text-4xl font-black leading-none">{pasajerosEnRuta.length}</strong>
               </div>
             </div>
           </div>
 
-          {/* Banner automático de scan */}
+          {/* Banner Automático de Scan (Verde / Amarillo) */}
           {scanNotice && (
-            <div className={`p-3.5 rounded-2xl border flex items-center justify-between shadow-xl ${scanNotice.tipo === 'exito' ? 'bg-emerald-500 text-black border-emerald-300' : 'bg-amber-500 text-black border-amber-300'}`}>
+            <div className={`p-3.5 rounded-2xl border flex items-center justify-between shadow-2xl animate-in slide-in-from-top-2 duration-150 ${
+              scanNotice.tipo === 'exito' 
+                ? 'bg-emerald-500 text-black border-emerald-300' 
+                : 'bg-amber-400 text-black border-amber-300'
+            }`}>
               <div className="flex items-center gap-2.5">
                 <span className="text-2xl">{scanNotice.tipo === 'exito' ? '✅' : '⚠️'}</span>
                 <div>
                   <strong className="text-sm font-black block leading-tight">
-                    {scanNotice.tipo === 'exito' ? `¡Registrado! (#${pasajerosEnRuta.length})` : 'YA ESTÁ EN LA LISTA'}
+                    {scanNotice.tipo === 'exito' ? `¡Registrado a bordo! (#${pasajerosEnRuta.length})` : '⚠️ YA ESTÁ EN LA LISTA'}
                   </strong>
-                  <span className="text-xs font-bold block">{scanNotice.nombre}</span>
+                  <span className="text-xs font-bold block">
+                    {scanNotice.nombre} {scanNotice.hora ? `(Abordó: ${scanNotice.hora})` : ''}
+                  </span>
                 </div>
               </div>
               <button onClick={() => setScanNotice(null)} className="p-1 text-black/60 hover:text-black">
@@ -711,12 +774,14 @@ export default function ChoferApp() {
             </div>
           )}
 
-          {/* Visor cámara */}
+          {/* Visor de Cámara */}
           {cameraActive ? (
             <div className="relative aspect-video w-full rounded-3xl overflow-hidden bg-black border-2 border-emerald-500 shadow-2xl">
               <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
               <div className="absolute inset-6 border-2 border-dashed border-emerald-400 rounded-2xl pointer-events-none animate-pulse flex items-center justify-center">
-                <span className="text-[10px] font-mono font-bold text-emerald-300 bg-black/70 px-2.5 py-1 rounded-lg">Apunta la credencial al recuadro</span>
+                <span className="text-[10px] font-mono font-bold text-emerald-300 bg-black/70 px-2.5 py-1 rounded-lg">
+                  Escaneo automático continuo activo
+                </span>
               </div>
               {cameraError && (
                 <div className="absolute inset-0 bg-black/90 p-4 flex flex-col items-center justify-center text-center text-xs text-rose-300 space-y-2">
@@ -728,7 +793,7 @@ export default function ChoferApp() {
           ) : (
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 text-center space-y-2">
               <Camera className="w-10 h-10 text-zinc-500 mx-auto" />
-              <p className="text-xs text-zinc-500">Cámara en pausa. Presiona "Abrir Cámara QR" para reactivar.</p>
+              <p className="text-xs text-zinc-400 font-bold">Cámara en pausa.</p>
             </div>
           )}
 
@@ -754,7 +819,7 @@ export default function ChoferApp() {
             </button>
           </div>
 
-          {/* Lista de pasajeros */}
+          {/* Lista Acumulada de Pasajeros a Bordo */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-4 space-y-2">
             <div className="flex justify-between items-center text-xs font-black uppercase tracking-wider text-zinc-400">
               <span>Pasajeros a Bordo ({pasajerosEnRuta.length})</span>
@@ -765,7 +830,7 @@ export default function ChoferApp() {
             ) : (
               <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                 {pasajerosEnRuta.map((p, idx) => (
-                  <div key={p.id_registro_local} className="p-2.5 bg-zinc-800/90 rounded-xl flex justify-between items-center text-xs">
+                  <div key={p.id_registro_local || idx} className="p-2.5 bg-zinc-800/90 rounded-xl flex justify-between items-center text-xs">
                     <div className="flex items-center gap-2 overflow-hidden">
                       <span className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center justify-center shrink-0">
                         {pasajerosEnRuta.length - idx}

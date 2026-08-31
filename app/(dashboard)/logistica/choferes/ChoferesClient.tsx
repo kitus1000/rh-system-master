@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { useAuth } from '@/components/AuthProvider'
+import jsQR from 'jsqr'
 import { 
   Bus, Camera, Car, CheckCircle, Droplet, FileSignature, FileText, Fuel, 
   Upload, User, Save, Download, Truck, Calendar, History, Clock, MapPin, 
@@ -130,6 +131,12 @@ export default function ChoferesClient() {
   const [pasajerosAbordados, setPasajerosAbordados] = useState<PasajeroEscaneado[]>([])
   const [manualIdInput, setManualIdInput] = useState('')
 
+  // Refs de sincronización en tiempo real para evitar cierres obsoletos (Stale Closures)
+  const pasajerosAbordadosRef = useRef<PasajeroEscaneado[]>([])
+  const viajeRutaActivoRef = useRef<ViajeRutaConcluido | null>(null)
+  const empleadosCatalogRef = useRef<any[]>([])
+  const scanCooldownRef = useRef<boolean>(false)
+
   // Sub-pestaña de Historial ('rutas_qr' | 'checklists')
   const [subTabHistorial, setSubTabHistorial] = useState<'rutas_qr' | 'checklists'>('rutas_qr')
   const [selectedViajeQrModal, setSelectedViajeQrModal] = useState<ViajeRutaConcluido | null>(null)
@@ -144,6 +151,10 @@ export default function ChoferesClient() {
   const streamRef = useRef<MediaStream | null>(null)
   const scanLoopRef = useRef<number | null>(null)
   const [empleadosCatalog, setEmpleadosCatalog] = useState<any[]>([])
+
+  useEffect(() => { pasajerosAbordadosRef.current = pasajerosAbordados }, [pasajerosAbordados])
+  useEffect(() => { viajeRutaActivoRef.current = viajeRutaActivo }, [viajeRutaActivo])
+  useEffect(() => { empleadosCatalogRef.current = empleadosCatalog }, [empleadosCatalog])
 
   // Seed / Credenciales de Choferes
   const [showChoferesCredentials, setShowChoferesCredentials] = useState(false)
@@ -520,61 +531,90 @@ export default function ChoferesClient() {
     setSubTabHistorial('rutas_qr')
   }
 
-  // AGREGAR PASAJERO (QR O MANUAL)
+  // AGREGAR PASAJERO (QR O MANUAL - NUNCA SOBREESCRIBE LISTA PREVIA)
   const agregarPasajero = (idOrQr: string, metodo: 'QR' | 'Manual' = 'Manual') => {
     if (!idOrQr.trim()) return
 
     const cleanStr = idOrQr.trim()
-    const existe = pasajerosAbordados.some(p => p.id === cleanStr)
-    if (existe) {
-      playBeep(false)
-      setScanMessage(`⚠️ Ya registrado: ${cleanStr}`)
-      return
-    }
+    const catalog = empleadosCatalogRef.current
 
     // Buscar en catálogo de empleados
-    const emp = empleadosCatalog.find(e => 
+    let emp = catalog.find((e: any) => 
       e.id_empleado === cleanStr || 
+      String(e.numero_empleado) === cleanStr ||
       e.qr_token === cleanStr || 
       `${e.nombre} ${e.apellido_paterno}`.toLowerCase().includes(cleanStr.toLowerCase())
     )
 
+    if (!emp && cleanStr.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(cleanStr)
+        const sid = parsed.id || parsed.id_empleado || parsed.numero_empleado
+        if (sid) emp = catalog.find((e: any) => e.id_empleado === String(sid) || String(e.numero_empleado) === String(sid))
+      } catch (_) {}
+    }
+
+    const nombreCompleto = emp 
+      ? `${emp.nombre} ${emp.apellido_paterno} ${emp.apellido_materno || ''}`.trim() 
+      : `Trabajador #${cleanStr}`
+
+    // Leer lista ACTUAL directamente de la Ref
+    const listaActual = pasajerosAbordadosRef.current
+
+    const existe = listaActual.find(p => 
+      (emp && p.id === emp.id_empleado) || 
+      p.id === cleanStr || 
+      p.nombre.toLowerCase() === nombreCompleto.toLowerCase()
+    )
+
+    if (existe) {
+      playBeep(false)
+      setScanMessage(`⚠️ YA ESTÁ EN LA LISTA: ${existe.nombre}`)
+      return
+    }
+
     const nuevo: PasajeroEscaneado = {
       id: emp?.id_empleado || cleanStr,
-      nombre: emp ? `${emp.nombre} ${emp.apellido_paterno}` : `Trabajador ID: ${cleanStr}`,
+      nombre: nombreCompleto,
       puesto: emp?.puesto || 'Personal de Turno',
       departamento: emp?.departamento || 'Mina Bacis',
       hora: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
       metodo
     }
 
-    const updated = [nuevo, ...pasajerosAbordados]
-    setPasajerosAbordados(updated)
+    const updated = [nuevo, ...listaActual]
+    pasajerosAbordadosRef.current = updated
+    setPasajerosAbordados([...updated])
     setPasajerosA(updated.length)
     setManualIdInput('')
     playBeep(true)
-    setScanMessage(`✅ Pasajero agregado: ${nuevo.nombre}`)
+    setScanMessage(`✅ ¡REGISTRADO (#${updated.length})! ${nuevo.nombre}`)
 
     // Si hay viaje activo, actualizar en localStorage
-    if (viajeRutaActivo) {
-      const uTrip: ViajeRutaConcluido = { ...viajeRutaActivo, pasajeros_subieron_a: updated.length, pasajeros_lista: updated }
+    const currentTrip = viajeRutaActivoRef.current
+    if (currentTrip) {
+      const uTrip: ViajeRutaConcluido = { ...currentTrip, pasajeros_subieron_a: updated.length, pasajeros_lista: updated }
+      viajeRutaActivoRef.current = uTrip
       setViajeRutaActivo(uTrip)
       localStorage.setItem(`active_route_${selectedChofer}`, JSON.stringify(uTrip))
     }
   }
 
   const quitarPasajero = (id: string) => {
-    const updated = pasajerosAbordados.filter(p => p.id !== id)
-    setPasajerosAbordados(updated)
+    const updated = pasajerosAbordadosRef.current.filter(p => p.id !== id)
+    pasajerosAbordadosRef.current = updated
+    setPasajerosAbordados([...updated])
     setPasajerosA(updated.length)
-    if (viajeRutaActivo) {
-      const uTrip: ViajeRutaConcluido = { ...viajeRutaActivo, pasajeros_subieron_a: updated.length, pasajeros_lista: updated }
+    const currentTrip = viajeRutaActivoRef.current
+    if (currentTrip) {
+      const uTrip: ViajeRutaConcluido = { ...currentTrip, pasajeros_subieron_a: updated.length, pasajeros_lista: updated }
+      viajeRutaActivoRef.current = uTrip
       setViajeRutaActivo(uTrip)
       localStorage.setItem(`active_route_${selectedChofer}`, JSON.stringify(uTrip))
     }
   }
 
-  // 4. CÁMARA ESCÁNER QR
+  // 4. CÁMARA ESCÁNER QR HÍBRIDO (Native + jsQR)
   const iniciarCamaraQR = async () => {
     setShowQrScanner(true)
     setCameraLoading(true)
@@ -583,7 +623,7 @@ export default function ChoferesClient() {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false
       })
       streamRef.current = stream
@@ -610,12 +650,15 @@ export default function ChoferesClient() {
   }
 
   const iniciarBucleEscaneo = () => {
-    let detector: any = null
-    if ('BarcodeDetector' in window) {
+    let nativeDetector: any = null
+    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
       try {
-        detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] })
+        nativeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] })
       } catch (e) {}
     }
+
+    const tempCanvas = document.createElement('canvas')
+    const ctx = tempCanvas.getContext('2d', { willReadFrequently: true })
 
     const scan = async () => {
       if (!videoRef.current || videoRef.current.readyState < 2) {
@@ -623,18 +666,44 @@ export default function ChoferesClient() {
         return
       }
 
-      try {
-        if (detector) {
-          const barcodes = await detector.detect(videoRef.current)
-          if (barcodes.length > 0) {
-            const rawVal = barcodes[0].rawValue
-            if (rawVal) {
-              agregarPasajero(rawVal, 'QR')
-              await new Promise(r => setTimeout(r, 1200))
+      if (!scanCooldownRef.current) {
+        const video = videoRef.current
+        let detectedCode: string | null = null
+
+        // 1. Native BarcodeDetector
+        if (nativeDetector) {
+          try {
+            const barcodes = await nativeDetector.detect(video)
+            if (barcodes.length > 0 && barcodes[0].rawValue) {
+              detectedCode = barcodes[0].rawValue
             }
-          }
+          } catch (e) {}
         }
-      } catch (e) {}
+
+        // 2. jsQR Fallback (100% universal)
+        if (!detectedCode && ctx && video.videoWidth > 0 && video.videoHeight > 0) {
+          try {
+            if (tempCanvas.width !== video.videoWidth || tempCanvas.height !== video.videoHeight) {
+              tempCanvas.width = video.videoWidth
+              tempCanvas.height = video.videoHeight
+            }
+            ctx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height)
+            const imgData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height)
+            const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' })
+            if (code && code.data) {
+              detectedCode = code.data
+            }
+          } catch (e) {}
+        }
+
+        if (detectedCode) {
+          scanCooldownRef.current = true
+          agregarPasajero(detectedCode, 'QR')
+          setTimeout(() => {
+            scanCooldownRef.current = false
+          }, 950)
+        }
+      }
 
       scanLoopRef.current = requestAnimationFrame(scan)
     }
