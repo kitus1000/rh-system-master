@@ -578,6 +578,9 @@ export default function ChoferesClient() {
     const horaActual = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
     const fechaActual = now.toISOString().split('T')[0]
 
+    const listaPasajerosInicial = [...pasajerosAbordadosRef.current]
+    const conteoInicial = listaPasajerosInicial.length > 0 ? listaPasajerosInicial.length : (pasajerosA || 0)
+
     const newTrip: ViajeRutaConcluido = {
       id_bitacora: 'RUT-' + Date.now(),
       id_chofer: selectedChofer,
@@ -585,8 +588,8 @@ export default function ChoferesClient() {
       punto_a: puntoA.toUpperCase().trim(),
       punto_b: puntoB.toUpperCase().trim(),
       hora_salida_a: horaActual,
-      pasajeros_subieron_a: pasajerosAbordados.length > 0 ? pasajerosAbordados.length : pasajerosA,
-      pasajeros_lista: pasajerosAbordados,
+      pasajeros_subieron_a: conteoInicial,
+      pasajeros_lista: listaPasajerosInicial,
       estatus: 'EN_CURSO',
       fecha: fechaActual,
       comentarios: comentariosRuta,
@@ -594,11 +597,12 @@ export default function ChoferesClient() {
     }
 
     setViajeRutaActivo(newTrip)
-    setPasajerosB(newTrip.pasajeros_subieron_a)
+    viajeRutaActivoRef.current = newTrip
+    setPasajerosB(conteoInicial)
     localStorage.setItem(`active_route_${selectedChofer}`, JSON.stringify(newTrip))
 
     playBeep(true)
-    alert(`🟢 ¡Ruta Iniciada con Éxito!\n\nSalida: ${newTrip.punto_a} ➔ Destino: ${newTrip.punto_b}\nPasajeros a bordo: ${newTrip.pasajeros_subieron_a}`)
+    alert(`🟢 ¡Ruta Iniciada con Éxito!\n\nSalida: ${newTrip.punto_a} ➔ Destino: ${newTrip.punto_b}\nPasajeros a bordo: ${conteoInicial}`)
   }
 
   const handleFinalizarRuta = async () => {
@@ -607,52 +611,64 @@ export default function ChoferesClient() {
     const now = new Date()
     const horaActual = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
 
+    const listaFinal = pasajerosAbordadosRef.current.length > 0 
+      ? pasajerosAbordadosRef.current 
+      : (viajeRutaActivo.pasajeros_lista || [])
+
+    const totalFinal = listaFinal.length > 0 
+      ? listaFinal.length 
+      : (pasajerosB > 0 ? pasajerosB : (viajeRutaActivo.pasajeros_subieron_a || 0))
+
     const completedTrip: ViajeRutaConcluido = {
       ...viajeRutaActivo,
       hora_llegada_b: horaActual,
-      pasajeros_bajaron_b: pasajerosB,
+      pasajeros_subieron_a: totalFinal,
+      pasajeros_bajaron_b: pasajerosB || totalFinal,
+      pasajeros_lista: listaFinal,
       estatus: 'CONCLUIDO'
     }
 
     setViajeRutaActivo(null)
+    viajeRutaActivoRef.current = null
     setPasajerosAbordados([])
+    pasajerosAbordadosRef.current = []
     setPasajerosA(0)
+    setPasajerosB(0)
     localStorage.removeItem(`active_route_${selectedChofer}`)
 
-    // Guardar en Historial Local Específico del Chofer
+    // Guardar en Historial Local
     const updatedChoferHistory = [completedTrip, ...bitacoraRutasList]
     setBitacoraRutasList(updatedChoferHistory)
     localStorage.setItem(`history_routes_${selectedChofer}`, JSON.stringify(updatedChoferHistory))
 
-    // Guardar en Historial Global de Rutas QR (Accessible para todos)
-    const existingGlobal = JSON.parse(localStorage.getItem('rh_rutas_qr_global_history') || '[]')
-    const updatedGlobal = [completedTrip, ...existingGlobal]
-    localStorage.setItem('rh_rutas_qr_global_history', JSON.stringify(updatedGlobal))
-    setRutasQrGlobal(updatedGlobal)
-
-    // Respaldar también en Supabase dentro de logistica_reportes_diarios
+    // Guardar en Supabase a través del endpoint central de sincronización
     try {
-      let validEmpleadoId: string | null = null
-      if (isUUID(selectedChofer)) validEmpleadoId = selectedChofer
-      else {
-        const { data: anyEmp } = await supabase.from('empleados').select('id_empleado').limit(1)
-        if (anyEmp && anyEmp.length > 0) validEmpleadoId = anyEmp[0].id_empleado
-      }
-
-      await supabase.from('logistica_reportes_diarios').insert([{
-        id_empleado: validEmpleadoId,
-        camion_numero: camion || 'UNIDAD',
-        comentarios_vehiculo: `[VIAJE_QR] Ruta: ${completedTrip.punto_a} a ${completedTrip.punto_b} | Chofer: ${completedTrip.chofer_nombre} | Pasajeros: ${completedTrip.pasajeros_subieron_a}`,
-        observaciones_recorrido: JSON.stringify(completedTrip.pasajeros_lista || []),
-        ubicacion_caseta: completedTrip.punto_b,
-        tipo_vehiculo: tipoVehiculo
-      }])
+      await fetch('/api/choferes/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          viajes: [{
+            id_viaje_local: completedTrip.id_bitacora,
+            id_chofer: isUUID(selectedChofer) ? selectedChofer : null,
+            chofer_nombre: completedTrip.chofer_nombre,
+            tipo_vehiculo: tipoVehiculo || 'Camioneta',
+            numero_economico: camion || 'CAM-01',
+            ruta_origen: completedTrip.punto_a,
+            ruta_destino: completedTrip.punto_b,
+            hora_inicio_real: completedTrip.creado_el,
+            hora_fin_real: now.toISOString(),
+            estado: 'Finalizado',
+            pasajeros: listaFinal
+          }]
+        })
+      })
     } catch (e) {}
 
     playBeep(true)
-    alert(`🏁 ¡Ruta Concluida en ${completedTrip.punto_b}!\n\n👥 Subieron en A: ${completedTrip.pasajeros_subieron_a}\n👥 Descendieron en B: ${pasajerosB}\n\nPuedes consultar el manifiesto de pasajeros en la pestaña 4. Historial.`)
+    alert(`🏁 ¡Ruta Concluida en ${completedTrip.punto_b}!\n\n👥 Total de Personal a Bordo: ${totalFinal}\n\nLos datos fueron guardados y enviados a la oficina central.`)
     setActiveTab('historial')
     setSubTabHistorial('rutas_qr')
+    fetchViajesYHistorial()
   }
 
   // AGREGAR PASAJERO (QR O MANUAL - NUNCA SOBREESCRIBE LISTA PREVIA)

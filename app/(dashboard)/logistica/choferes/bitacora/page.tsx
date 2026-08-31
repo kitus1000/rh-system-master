@@ -194,7 +194,23 @@ export default function BitacoraChoferesPage() {
             }
           } catch (_) {}
 
-          const horaSalida = rep.creado_el ? new Date(rep.creado_el).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : "N/A";
+          let countFromComment = 0;
+          if (com.includes("Pasajeros:")) {
+            const pMatch = com.match(/Pasajeros:\s*(\d+)/i);
+            if (pMatch) countFromComment = parseInt(pMatch[1]) || 0;
+          }
+          const totalP = listaPasajeros.length > 0 ? listaPasajeros.length : countFromComment;
+
+          let horaSalida = rep.creado_el ? new Date(rep.creado_el).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : "N/A";
+          let horaLlegada = "Completado";
+          if (com.includes("Salida:")) {
+            const sPart = com.split("Salida:")[1]?.split("|")[0]?.trim();
+            if (sPart) horaSalida = sPart;
+          }
+          if (com.includes("Llegada:")) {
+            const lPart = com.split("Llegada:")[1]?.split("|")[0]?.trim();
+            if (lPart) horaLlegada = lPart;
+          }
 
           allRutas.push({
             id_bitacora: rep.id_reporte,
@@ -203,9 +219,9 @@ export default function BitacoraChoferesPage() {
             punto_a: puntoA,
             punto_b: puntoB,
             hora_salida_a: horaSalida,
-            hora_llegada_b: "Completado",
-            pasajeros_subieron_a: listaPasajeros.length,
-            pasajeros_bajaron_b: listaPasajeros.length,
+            hora_llegada_b: horaLlegada,
+            pasajeros_subieron_a: totalP,
+            pasajeros_bajaron_b: totalP,
             pasajeros_lista: listaPasajeros,
             estatus: "CONCLUIDO",
             fecha: rep.fecha ? rep.fecha.toString() : (rep.creado_el ? rep.creado_el.split('T')[0] : new Date().toISOString().split('T')[0]),

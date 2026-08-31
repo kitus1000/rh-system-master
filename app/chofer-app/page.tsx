@@ -318,13 +318,17 @@ export default function ChoferApp() {
 
   const handleManualSync = async () => {
     setIsSyncing(true)
-    setSyncStatusMsg('Sincronizando viajes con la oficina...')
+    setSyncStatusMsg('Sincronizando viajes con la oficina central...')
     try {
       const saved: ViajeLocal[] = JSON.parse(localStorage.getItem('rh_chofer_viajes') || '[]')
-      const viajesASubir = saved.filter(v => v.estado === 'Finalizado' || (v.pasajeros && v.pasajeros.length > 0))
+      let viajesASubir = [...saved]
+
+      if (viajeActivoRef.current && !viajesASubir.some(v => v.id_viaje_local === viajeActivoRef.current?.id_viaje_local)) {
+        viajesASubir.push(viajeActivoRef.current)
+      }
 
       if (!viajesASubir.length) {
-        setSyncStatusMsg('No hay viajes concluidos con pasajeros para subir.')
+        setSyncStatusMsg('No hay viajes registrados aún en el celular para subir.')
         setTimeout(() => setSyncStatusMsg(''), 3500)
         setIsSyncing(false)
         return
@@ -344,7 +348,7 @@ export default function ChoferApp() {
             ruta_destino: v.ruta_destino || destino || 'Parajes',
             hora_inicio_real: v.hora_inicio_real || v.creado_el || new Date().toISOString(), 
             hora_fin_real: v.hora_fin_real || new Date().toISOString(),
-            estado: 'Finalizado',
+            estado: v.estado || 'Finalizado',
             pasajeros: (v.pasajeros || []).map((p: any) => ({
               id: p.id_empleado || p.id_manual || p.id_registro_local,
               id_registro_local: p.id_registro_local || `pas_${Date.now()}`,
