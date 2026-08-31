@@ -1839,13 +1839,22 @@ export default function ChoferesClient() {
               </h2>
               <p className="text-xs text-zinc-500 mt-0.5">Consulta de viajes con pasaje QR y dictámenes mecánicos</p>
             </div>
-            <button
-              type="button"
-              onClick={fetchViajesYHistorial}
-              className="px-3.5 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
-            >
-              <RefreshCw className="w-3.5 h-3.5" /> Actualizar Lista
-            </button>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/logistica/choferes/bitacora"
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
+              >
+                <Bus className="w-3.5 h-3.5" />
+                <span>Ver Bitácora Central</span>
+              </Link>
+              <button
+                type="button"
+                onClick={fetchViajesYHistorial}
+                className="px-3.5 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Actualizar
+              </button>
+            </div>
           </div>
 
           {/* Sub-selector de Pestañas de Historial */}

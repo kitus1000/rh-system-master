@@ -6,9 +6,9 @@ import jsQR from 'jsqr'
 import {
   Truck, Clock, Camera, Wifi, WifiOff,
   Play, StopCircle, HardHat, ChevronRight,
-  Trash2, ArrowLeft, ShieldAlert, X, Sparkles, Check,
-  UserCheck, User, Users, Search, CloudUpload, RefreshCw,
-  CheckCircle2, Eye, FileText
+  Trash2, ArrowLeft, ShieldAlert, X,
+  User, Users, CloudUpload, RefreshCw,
+  CheckCircle2, MapPin
 } from 'lucide-react'
 
 /* ─────────────────────────── Tipos ─────────────────────────── */
@@ -68,6 +68,8 @@ const CHECKLIST_DEFAULT: Record<string, boolean> = {
   'Radio de mina encendido': true,
   'Extintor y botiquín a bordo': true,
 }
+
+const STORAGE_KEY = 'rh_bitacora_viajes_v2'
 
 /* ─────────────────────────── Sonido / Vibración ─────────────────────────── */
 let sharedAudioCtx: any = null
@@ -131,10 +133,10 @@ export default function ChoferApp() {
   const [tiempoTranscurrido, setTiempoTranscurrido] = useState('00:00:00')
   const [historialViajes, setHistorialViajes] = useState<ViajeLocal[]>([])
 
-  /* ── Manifiesto Modal en Celular ── */
+  /* ── Modal de Manifiesto en Celular ── */
   const [selectedManifestTrip, setSelectedManifestTrip] = useState<ViajeLocal | null>(null)
 
-  /* ── Pasajeros (State + Refs) ── */
+  /* ── Pasajeros en Ruta ── */
   const [pasajerosEnRuta, setPasajerosEnRuta] = useState<PasajeroBordo[]>([])
   const pasajerosRef = useRef<PasajeroBordo[]>([])
   const viajeActivoRef = useRef<ViajeLocal | null>(null)
@@ -217,7 +219,7 @@ export default function ChoferApp() {
   /* ═══════════════════ LocalStorage ═══════════════════ */
   const cargarDatosLocales = () => {
     try {
-      const raw = localStorage.getItem('rh_chofer_viajes')
+      const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('rh_chofer_viajes')
       if (raw) {
         const viajes: ViajeLocal[] = JSON.parse(raw)
         setHistorialViajes(viajes)
@@ -274,8 +276,8 @@ export default function ChoferApp() {
     } catch (_) {}
   }
 
-  /* ─────────────────────────── Motor de Subida Redundante ─────────────────────────── */
-  const subirViajeDirecto = async (v: ViajeLocal) => {
+  /* ─────────────────────────── Subida de Viaje a la Nube ─────────────────────────── */
+  const subirViajeDirecto = async (v: ViajeLocal): Promise<boolean> => {
     const listaPasajeros = (v.pasajeros || []).map(p => ({
       id: p.id_empleado || p.id_manual || p.id_registro_local,
       nombre: p.nombre_completo,
@@ -298,7 +300,7 @@ export default function ChoferApp() {
 
     let success = false
 
-    // Método 1: Endpoint de Servidor
+    // 1. Enviar al endpoint de sincronización
     try {
       const res = await fetch('/api/choferes/sync', {
         method: 'POST',
@@ -322,7 +324,7 @@ export default function ChoferApp() {
       if (res.ok) success = true
     } catch (_) {}
 
-    // Método 2: Inserción directa en Supabase (Respaldo por si la API route fallara)
+    // 2. Respaldo directo en Supabase si la API no respondió
     if (!success) {
       try {
         const { error } = await supabase.from('logistica_reportes_diarios').insert([{
@@ -350,17 +352,19 @@ export default function ChoferApp() {
       )
       historialRef.current = actualizados
       setHistorialViajes(actualizados)
-      try { localStorage.setItem('rh_chofer_viajes', JSON.stringify(actualizados)) } catch (_) {}
+      try { 
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(actualizados))
+        localStorage.setItem('rh_chofer_viajes', JSON.stringify(actualizados))
+      } catch (_) {}
     }
 
     return success
   }
 
-  // Sincronización Automática
   const autoSyncData = async () => {
     if (!navigator.onLine) return
     try {
-      const saved: ViajeLocal[] = JSON.parse(localStorage.getItem('rh_chofer_viajes') || '[]')
+      const saved: ViajeLocal[] = JSON.parse(localStorage.getItem(STORAGE_KEY) || localStorage.getItem('rh_chofer_viajes') || '[]')
       const pendientes = saved.filter(v => v.estado === 'Finalizado' && !v.sincronizado)
       for (const p of pendientes) {
         await subirViajeDirecto(p)
@@ -372,7 +376,7 @@ export default function ChoferApp() {
     setIsSyncing(true)
     setSyncStatusMsg('Sincronizando viajes con la oficina central...')
     try {
-      const saved: ViajeLocal[] = JSON.parse(localStorage.getItem('rh_chofer_viajes') || '[]')
+      const saved: ViajeLocal[] = JSON.parse(localStorage.getItem(STORAGE_KEY) || localStorage.getItem('rh_chofer_viajes') || '[]')
       let viajesASubir = [...saved]
 
       if (viajeActivoRef.current && !viajesASubir.some(v => v.id_viaje_local === viajeActivoRef.current?.id_viaje_local)) {
@@ -397,7 +401,7 @@ export default function ChoferApp() {
         playBeep(true)
         setSyncStatusMsg(`✅ ¡${subidos} viajes (${totalPasajeros} pasajeros) enviados a la oficina con éxito!`)
       } else {
-        setSyncStatusMsg('Sin señal de internet para enviar los viajes.')
+        setSyncStatusMsg('Sin conexión a internet en este momento.')
       }
       setTimeout(() => setSyncStatusMsg(''), 5000)
     } catch (e: any) {
@@ -441,6 +445,7 @@ export default function ChoferApp() {
     pasajerosRef.current = []
 
     try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(lista))
       localStorage.setItem('rh_chofer_viajes', JSON.stringify(lista))
     } catch (_) {}
 
@@ -449,7 +454,7 @@ export default function ChoferApp() {
     setTimeout(iniciarCamara, 350)
   }
 
-  /* ─────────────────────────── Cámara & Escaneo Rápido a 60 FPS ─────────────────────────── */
+  /* ─────────────────────────── Cámara & Escáner ─────────────────────────── */
   const iniciarCamara = async () => {
     setCameraActive(true)
     setCameraError('')
@@ -503,7 +508,7 @@ export default function ChoferApp() {
         const video = videoRef.current
         let detectedCode: string | null = null
 
-        // 1. Intentar con BarcodeDetector nativo
+        // 1. Intento nativo
         if (nativeDetector) {
           try {
             const barcodes = await nativeDetector.detect(video)
@@ -513,7 +518,7 @@ export default function ChoferApp() {
           } catch (_) {}
         }
 
-        // 2. Fallback con jsQR sin distorsión (Resolución real del video)
+        // 2. jsQR a resolución real
         if (!detectedCode && ctx && video.videoWidth > 0 && video.videoHeight > 0) {
           try {
             const vWidth = video.videoWidth
@@ -564,23 +569,23 @@ export default function ChoferApp() {
 
     const cache = empleadosCacheRef.current
 
-    // 1. Match por número de nómina / empleado
+    // Match por nómina / empleado
     let found = cache.find(e => 
       (e.numero_empleado && String(e.numero_empleado).trim() === clean) ||
       (soloDigitos && e.numero_empleado && String(e.numero_empleado).trim() === soloDigitos)
     )
 
-    // 2. Match por ID de empleado
+    // Match por ID
     if (!found) {
       found = cache.find(e => e.id_empleado.toLowerCase() === clean.toLowerCase())
     }
 
-    // 3. Match por qr_token
+    // Match por qr_token
     if (!found) {
       found = cache.find(e => e.qr_token && e.qr_token === clean)
     }
 
-    // 4. Match por nombre
+    // Match por nombre
     if (!found && clean.length >= 3) {
       found = cache.find(e => {
         const full = `${e.nombre} ${e.apellido_paterno}`.toLowerCase()
@@ -653,6 +658,7 @@ export default function ChoferApp() {
       historialRef.current = todos
       setHistorialViajes(todos)
       try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(todos))
         localStorage.setItem('rh_chofer_viajes', JSON.stringify(todos))
       } catch (_) {}
     }
@@ -690,6 +696,7 @@ export default function ChoferApp() {
       historialRef.current = todos
       setHistorialViajes(todos)
       try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(todos))
         localStorage.setItem('rh_chofer_viajes', JSON.stringify(todos))
       } catch (_) {}
     }
@@ -716,7 +723,10 @@ export default function ChoferApp() {
     )
     historialRef.current = todos
     setHistorialViajes(todos)
-    try { localStorage.setItem('rh_chofer_viajes', JSON.stringify(todos)) } catch (_) {}
+    try { 
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(todos))
+      localStorage.setItem('rh_chofer_viajes', JSON.stringify(todos))
+    } catch (_) {}
 
     viajeActivoRef.current = null
     setViajeActivo(null)
@@ -733,11 +743,11 @@ export default function ChoferApp() {
       if (ok) {
         setSyncStatusMsg(`✅ ¡Viaje con ${total} trabajadores enviado a la oficina con éxito!`)
       } else {
-        setSyncStatusMsg('⚠️ Guardado en celular. Pulsa "☁️ Subir Viajes" cuando tengas señal.')
+        setSyncStatusMsg('⚠️ Guardado en celular. Pulsa "☁️ Subir" cuando tengas señal.')
       }
       setTimeout(() => setSyncStatusMsg(''), 6000)
     } else {
-      setSyncStatusMsg('💾 Sin internet. Guardado en celular. Pulsa "☁️ Subir Viajes" al tener señal.')
+      setSyncStatusMsg('💾 Sin internet. Guardado en celular. Pulsa "☁️ Subir" al tener señal.')
       setTimeout(() => setSyncStatusMsg(''), 8000)
     }
 
@@ -1090,9 +1100,9 @@ export default function ChoferApp() {
       {selectedManifestTrip && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-sm w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="p-4 border-b border-zinc-800 flex justify-between items-center">
+            <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-900">
               <div>
-                <span className="text-[10px] text-zinc-400 font-bold uppercase">Manifiesto Oficial de Viaje</span>
+                <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">Manifiesto Oficial de Viaje</span>
                 <h3 className="font-black text-white text-sm">🚌 {selectedManifestTrip.ruta_origen} ➔ {selectedManifestTrip.ruta_destino}</h3>
               </div>
               <button onClick={() => setSelectedManifestTrip(null)} className="p-2 text-zinc-400 hover:text-white rounded-xl bg-zinc-800">
@@ -1102,12 +1112,12 @@ export default function ChoferApp() {
 
             <div className="p-3 bg-zinc-800/60 flex justify-between items-center text-xs border-b border-zinc-800">
               <div>
-                <span className="text-zinc-400 text-[10px] block">Chofer</span>
+                <span className="text-zinc-400 text-[10px] block">Chofer Operador</span>
                 <strong className="text-white font-bold">{selectedManifestTrip.chofer_nombre}</strong>
               </div>
               <div className="text-right">
-                <span className="text-zinc-400 text-[10px] block">Pasajeros Registrados</span>
-                <strong className="text-emerald-400 font-black text-sm">{selectedManifestTrip.pasajeros?.length || 0}</strong>
+                <span className="text-zinc-400 text-[10px] block">Personal Registrado</span>
+                <strong className="text-emerald-400 font-black text-sm">{selectedManifestTrip.pasajeros?.length || 0} trabajadores</strong>
               </div>
             </div>
 
@@ -1117,8 +1127,8 @@ export default function ChoferApp() {
               ) : (
                 selectedManifestTrip.pasajeros.map((p, idx) => (
                   <div key={idx} className="p-2.5 bg-zinc-800 rounded-xl flex items-center justify-between text-xs border border-zinc-700/40">
-                    <div className="flex items-center gap-2">
-                      <span className="w-5 h-5 rounded-md bg-emerald-500/20 text-emerald-400 text-[10px] font-bold flex items-center justify-center">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-5 h-5 rounded-md bg-emerald-500/20 text-emerald-400 text-[10px] font-bold flex items-center justify-center shrink-0">
                         {idx + 1}
                       </span>
                       <div>
@@ -1126,7 +1136,7 @@ export default function ChoferApp() {
                         <div className="text-[10px] text-zinc-400">{p.puesto_depto}</div>
                       </div>
                     </div>
-                    <span className="text-[10px] text-zinc-500 font-mono">{new Date(p.hora_subida).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="text-[10px] text-zinc-400 font-mono shrink-0">{new Date(p.hora_subida).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
                 ))
               )}
@@ -1148,7 +1158,7 @@ export default function ChoferApp() {
                       alert('⚠️ Sin conexión a internet en este momento.')
                     }
                   }}
-                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1"
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1 shadow-md"
                 >
                   <CloudUpload className="w-4 h-4" />
                   <span>Enviar a Oficina</span>

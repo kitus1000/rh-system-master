@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://levyoflvpcbuueefqhtk.supabase.co";
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxldnlvZmx2cGNidXVlZWZxaHRrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDAwMDcxOCwiZXhwIjoyMDg1NTc2NzE4fQ.2i3RS1llduOqFVmoKWFWoQSme7nQjtPiv1u8__D0Jhc";
+
 const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: { persistSession: false }
 });
@@ -12,7 +13,7 @@ const isUUID = (str?: string) => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
 };
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const { data: empleados } = await supabase
       .from("empleados")
@@ -34,11 +35,11 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { viajes, pasajeros } = body;
 
-    if (!viajes || viajes.length === 0) {
+    if (!viajes || !Array.isArray(viajes) || viajes.length === 0) {
       return NextResponse.json({ success: true, message: "Sin viajes para sincronizar." });
     }
 
-    // Obtener catálogo de empleados para mapear UUIDs de choferes
+    // Obtener catálogo de empleados para relacionar choferes
     const { data: empleadosDb } = await supabase
       .from("empleados")
       .select("id_empleado, nombre, apellido_paterno, apellido_materno");
@@ -57,8 +58,8 @@ export async function POST(request: Request) {
         if (matchChofer) validChoferUUID = matchChofer.id_empleado;
       }
 
-      // Pasajeros de este viaje
-      let rawPasajeros = [];
+      // Normalizar lista de pasajeros
+      let rawPasajeros: any[] = [];
       if (Array.isArray(v.pasajeros) && v.pasajeros.length > 0) {
         rawPasajeros = v.pasajeros;
       } else if (Array.isArray(pasajeros) && pasajeros.length > 0) {
@@ -80,10 +81,10 @@ export async function POST(request: Request) {
 
       const comentarioTexto = `[VIAJE_QR] Ruta: ${v.ruta_origen} a ${v.ruta_destino} | Chofer: ${v.chofer_nombre} | Pasajeros: ${totalPasajeros} | Salida: ${horaSalida} | Llegada: ${horaLlegada}`;
 
-      // Verificar si ya existe exactamente este mismo viaje (misma fecha, chofer, ruta y hora de salida)
+      // Verificar si ya existe este viaje exacto
       const { data: existing } = await supabase
         .from("logistica_reportes_diarios")
-        .select("id_reporte, observaciones_recorrido")
+        .select("id_reporte")
         .eq("fecha", fechaViaje)
         .like("comentarios_vehiculo", `%Ruta: ${v.ruta_origen} a ${v.ruta_destino}%`)
         .like("comentarios_vehiculo", `%Chofer: ${v.chofer_nombre}%`)
@@ -91,7 +92,6 @@ export async function POST(request: Request) {
         .limit(1);
 
       if (existing && existing.length > 0) {
-        // Actualizar el existente si se volvió a sincronizar el mismo viaje
         await supabase
           .from("logistica_reportes_diarios")
           .update({
@@ -105,7 +105,6 @@ export async function POST(request: Request) {
 
         totalGuardados++;
       } else {
-        // Insertar nuevo registro de viaje
         const { error: errInsert } = await supabase
           .from("logistica_reportes_diarios")
           .insert([{
@@ -145,7 +144,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ 
       success: true, 
       guardados: totalGuardados,
-      message: `Se sincronizaron ${totalGuardados} viajes exitosamente con la oficina.` 
+      message: `Se sincronizaron ${totalGuardados} viajes exitosamente con la oficina central.` 
     });
   } catch (error: any) {
     console.error("Sync POST error:", error);
