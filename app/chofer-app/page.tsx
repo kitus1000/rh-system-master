@@ -6,7 +6,8 @@ import jsQR from 'jsqr'
 import {
   Truck, Clock, Camera, Wifi, WifiOff,
   Play, StopCircle, HardHat, ChevronRight,
-  Trash2, ArrowLeft, ShieldAlert, X, Sparkles, Check, RefreshCw
+  Trash2, ArrowLeft, ShieldAlert, X, Sparkles, Check,
+  UserCheck, User, Users, Search
 } from 'lucide-react'
 
 /* ─────────────────────────── Tipos ─────────────────────────── */
@@ -18,6 +19,7 @@ interface EmpleadoCache {
   puesto?: string
   departamento?: string
   numero_empleado?: string
+  qr_token?: string
 }
 
 interface PasajeroBordo {
@@ -26,6 +28,7 @@ interface PasajeroBordo {
   id_manual?: string
   nombre_completo: string
   puesto_depto?: string
+  numero_nomina?: string
   metodo_registro: 'QR' | 'Manual'
   hora_subida: string
 }
@@ -47,7 +50,7 @@ interface ViajeLocal {
   creado_el: string
 }
 
-/* ─────────────────────────── Constantes ─────────────────────── */
+/* ─────────────────────────── Choferes Oficiales ───────────────── */
 const DEFAULT_CHOFERES: EmpleadoCache[] = [
   { id_empleado: 'CHOFER-1', nombre: 'Adalberto', apellido_paterno: 'Pinales', puesto: 'Chofer', departamento: 'Logística', numero_empleado: '101' },
   { id_empleado: 'CHOFER-2', nombre: 'Ramon',     apellido_paterno: 'Yañez',   puesto: 'Chofer', departamento: 'Logística', numero_empleado: '102' },
@@ -145,10 +148,10 @@ export default function ChoferApp() {
   const lastScannedCodeRef = useRef<string>('')
 
   /* ── Notificación de scan ── */
-  const [scanNotice, setScanNotice] = useState<{ tipo: 'exito' | 'duplicado'; nombre: string; hora?: string } | null>(null)
+  const [scanNotice, setScanNotice] = useState<{ tipo: 'exito' | 'duplicado'; nombre: string; depto?: string; hora?: string } | null>(null)
   const noticeTimerRef = useRef<any>(null)
 
-  /* ── Manual ID ── */
+  /* ── Manual ID / Nómina ── */
   const [manualIdInput, setManualIdInput] = useState('')
 
   /* Sincronizar refs */
@@ -161,7 +164,7 @@ export default function ChoferApp() {
   useEffect(() => {
     setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true)
 
-    // Forzar actualización inmediata del Service Worker
+    // Registrar y actualizar Service Worker
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').then((reg) => {
         reg.update().catch(() => {})
@@ -178,13 +181,13 @@ export default function ChoferApp() {
       setIsInstalled(true)
     }
 
-    const onOnline  = () => { setIsOnline(true); autoSyncData() }
+    const onOnline  = () => { setIsOnline(true); autoSyncData(); descargarCatalogoFondo() }
     const onOffline = () => setIsOnline(false)
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
 
     cargarDatosLocales()
-    if (navigator.onLine) descargarCatalogoFondo()
+    descargarCatalogoFondo()
 
     return () => {
       window.removeEventListener('beforeinstallprompt', onBeforeInstall)
@@ -231,7 +234,7 @@ export default function ChoferApp() {
           setEmpleadosCache(emps)
           empleadosCacheRef.current = emps
           const ch = emps.filter(e =>
-            (e.puesto || '').toLowerCase().includes('chofer') ||
+            (e.puesto || '').toLowerCase().includes('chofer') || 
             (e.puesto || '').toLowerCase().includes('conductor') ||
             (e.departamento || '').toLowerCase().includes('transporte') ||
             (e.departamento || '').toLowerCase().includes('logistica')
@@ -244,16 +247,21 @@ export default function ChoferApp() {
     } catch (_) {}
   }
 
+  // Descarga y cachea TODOS los empleados de la base de datos de Minas de Bacis
   const descargarCatalogoFondo = async () => {
     try {
       const { data } = await supabase.from('empleados')
-        .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado')
+        .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado, qr_token')
+      
       if (data?.length) {
         setEmpleadosCache(data)
         empleadosCacheRef.current = data
-        localStorage.setItem('rh_chofer_empleados_cache', JSON.stringify(data))
+        try {
+          localStorage.setItem('rh_chofer_empleados_cache', JSON.stringify(data))
+        } catch (_) {}
+        
         const ch = data.filter(e =>
-          (e.puesto || '').toLowerCase().includes('chofer') ||
+          (e.puesto || '').toLowerCase().includes('chofer') || 
           (e.puesto || '').toLowerCase().includes('conductor') ||
           (e.departamento || '').toLowerCase().includes('transporte') ||
           (e.departamento || '').toLowerCase().includes('logistica')
@@ -263,6 +271,7 @@ export default function ChoferApp() {
     } catch (_) {}
   }
 
+  // Sincroniza viajes y pasajeros completos con el servidor
   const autoSyncData = async () => {
     if (!navigator.onLine) return
     try {
@@ -277,8 +286,11 @@ export default function ChoferApp() {
           viajes: pendientes.map(v => ({
             id_viaje_local: v.id_viaje_local,
             id_chofer: v.id_chofer ?? null,
-            ruta_origen: v.ruta_origen, ruta_destino: v.ruta_destino,
-            hora_inicio_real: v.hora_inicio_real, hora_fin_real: v.hora_fin_real,
+            chofer_nombre: v.chofer_nombre,
+            ruta_origen: v.ruta_origen, 
+            ruta_destino: v.ruta_destino,
+            hora_inicio_real: v.hora_inicio_real, 
+            hora_fin_real: v.hora_fin_real,
             estado: v.estado
           })),
           pasajeros: pendientes.flatMap(v => v.pasajeros.map(p => ({
@@ -286,6 +298,8 @@ export default function ChoferApp() {
             id_viaje_local: v.id_viaje_local,
             id_empleado: p.id_empleado ?? null,
             id_manual: p.id_manual ?? null,
+            nombre_completo: p.nombre_completo,
+            puesto_depto: p.puesto_depto,
             metodo_registro: p.metodo_registro,
             hora_subida: p.hora_subida
           }))),
@@ -295,6 +309,7 @@ export default function ChoferApp() {
           }))
         })
       })
+
       if (res.ok) {
         const updated = saved.map(v =>
           pendientes.some(p => p.id_viaje_local === v.id_viaje_local)
@@ -303,14 +318,18 @@ export default function ChoferApp() {
         )
         setHistorialViajes(updated)
         historialRef.current = updated
-        localStorage.setItem('rh_chofer_viajes', JSON.stringify(updated))
+        try {
+          localStorage.setItem('rh_chofer_viajes', JSON.stringify(updated))
+        } catch (_) {}
       }
     } catch (_) {}
   }
 
   /* ═══════════════════ Flujo de viaje ═══════════════════ */
   const handleIniciarChecklist = () => {
-    localStorage.setItem('rh_chofer_nombre_guardado', choferNombre)
+    try {
+      localStorage.setItem('rh_chofer_nombre_guardado', choferNombre)
+    } catch (_) {}
     setView('checklist')
   }
 
@@ -330,6 +349,7 @@ export default function ChoferApp() {
       sincronizado: false,
       creado_el: new Date().toISOString()
     }
+
     const lista = [nuevoViaje, ...historialRef.current]
     setHistorialViajes(lista)
     historialRef.current = lista
@@ -337,6 +357,7 @@ export default function ChoferApp() {
     viajeActivoRef.current = nuevoViaje
     setPasajerosEnRuta([])
     pasajerosRef.current = []
+
     try {
       localStorage.setItem('rh_chofer_viajes', JSON.stringify(lista))
       const globalHistory = JSON.parse(localStorage.getItem('rh_rutas_qr_global_history') || '[]')
@@ -348,7 +369,7 @@ export default function ChoferApp() {
     setTimeout(iniciarCamara, 350)
   }
 
-  /* ═══════════════════ Cámara & Escaneo Rápido de Alto Rendimiento ═══════════════════ */
+  /* ═══════════════════ Cámara & Escaneo Rápido a 60 FPS ═══════════════════ */
   const iniciarCamara = async () => {
     setCameraActive(true)
     setCameraError('')
@@ -369,7 +390,7 @@ export default function ChoferApp() {
       }
       iniciarBucleEscaneo()
     } catch (_) {
-      setCameraError('Cámara no disponible o sin permiso. Puedes teclear el número de nómina abajo.')
+      setCameraError('Cámara no disponible o bloqueada. Puedes escribir el número de nómina abajo.')
     }
   }
 
@@ -397,7 +418,6 @@ export default function ChoferApp() {
     const canvas = canvasRef.current
     const ctx = canvas ? canvas.getContext('2d', { willReadFrequently: true }) : null
 
-    // Optimizado para móviles: Resolución fija de escaneo rápida (400x400)
     const scanWidth = 400
     const scanHeight = 400
     if (canvas) {
@@ -420,7 +440,7 @@ export default function ChoferApp() {
           } catch (_) {}
         }
 
-        // 2. Fallback ultrarrápido con jsQR
+        // 2. Fallback ultrarrápido con jsQR (Universal en todos los teléfonos)
         if (!detectedCode && ctx && video.videoWidth > 0 && video.videoHeight > 0) {
           try {
             ctx.drawImage(video, 0, 0, scanWidth, scanHeight)
@@ -446,74 +466,104 @@ export default function ChoferApp() {
   }
 
   /* ═══════════════════════════════════════════════════════════════════
-   *  procesarLecturaQR: Detección Instantánea + Prevención de Bloqueos
+   *  MOTOR DE RESOLUCIÓN DE NOMBRES Y ABORDAJE
    * ═══════════════════════════════════════════════════════════════════ */
+  const encontrarEmpleado = (codigo: string): { match: EmpleadoCache | null, idLimpio: string } => {
+    let clean = codigo.trim()
+    if (!clean) return { match: null, idLimpio: '' }
+
+    // Si viene en formato JSON
+    if (clean.startsWith('{') || clean.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(clean)
+        const possible = parsed.numero_empleado || parsed.id_empleado || parsed.id || parsed.nomina || parsed.token
+        if (possible) clean = String(possible).trim()
+      } catch (_) {}
+    }
+
+    // Extraer dígitos si viene como "Trabajador #14235" o "ID: 14235"
+    const numMatch = clean.match(/\d+/)
+    const soloDigitos = numMatch ? numMatch[0] : ''
+
+    const cache = empleadosCacheRef.current
+
+    // 1. Match por número de nómina / empleado
+    let found = cache.find(e => 
+      (e.numero_empleado && String(e.numero_empleado).trim() === clean) ||
+      (soloDigitos && e.numero_empleado && String(e.numero_empleado).trim() === soloDigitos)
+    )
+
+    // 2. Match por ID de empleado
+    if (!found) {
+      found = cache.find(e => e.id_empleado.toLowerCase() === clean.toLowerCase())
+    }
+
+    // 3. Match por qr_token
+    if (!found) {
+      found = cache.find(e => e.qr_token && e.qr_token === clean)
+    }
+
+    // 4. Match por nombre si el código contiene texto del nombre
+    if (!found && clean.length >= 3) {
+      found = cache.find(e => {
+        const full = `${e.nombre} ${e.apellido_paterno}`.toLowerCase()
+        return full.includes(clean.toLowerCase()) || clean.toLowerCase().includes(full)
+      })
+    }
+
+    return { match: found || null, idLimpio: soloDigitos || clean }
+  }
+
   const procesarLecturaQR = (codigo: string) => {
-    const idLimpio = codigo.trim()
-    if (!idLimpio) return
+    const { match, idLimpio } = encontrarEmpleado(codigo)
+    if (!idLimpio && !match) return
 
     const now = Date.now()
     const esMismoCodigo = idLimpio === lastScannedCodeRef.current
     const tiempoMinimo = esMismoCodigo ? 2000 : 750
 
-    // Control de intervalo no bloqueante por timestamp
-    if (now - lastScanTimestampRef.current < tiempoMinimo) {
-      return
-    }
+    if (now - lastScanTimestampRef.current < tiempoMinimo) return
 
     lastScanTimestampRef.current = now
     lastScannedCodeRef.current = idLimpio
 
-    const cache = empleadosCacheRef.current
-
-    // 1. Buscar en catálogo de empleados
-    let match = cache.find(e =>
-      e.id_empleado === idLimpio ||
-      String(e.numero_empleado) === idLimpio ||
-      codigo.includes(e.id_empleado)
-    )
-
-    if (!match && idLimpio.startsWith('{')) {
-      try {
-        const p = JSON.parse(idLimpio)
-        const sid = p.id || p.id_empleado || p.numero_empleado
-        if (sid) match = cache.find(e => e.id_empleado === String(sid) || String(e.numero_empleado) === String(sid))
-      } catch (_) {}
-    }
-
-    const nombreMostrar = match
+    // Construcción del Nombre Real y Puesto
+    const nombreCompleto = match
       ? `${match.nombre} ${match.apellido_paterno}${match.apellido_materno ? ' ' + match.apellido_materno : ''}`.trim()
-      : `Trabajador #${idLimpio}`
+      : `Trabajador Nómina #${idLimpio}`
 
-    /* ── Leer lista ACTUAL directamente de la Ref ── */
+    const puestoDepto = match
+      ? `${match.puesto || 'Operativo'} • ${match.departamento || 'Mina Bacis'}`
+      : 'Credencial QR'
+
+    /* ── Verificar si ya está a bordo ── */
     const listaActual = pasajerosRef.current
 
-    // Verificar si ya está a bordo
     const duplicado = listaActual.find(p =>
       (match && p.id_empleado === match.id_empleado) ||
       p.id_manual === idLimpio ||
-      p.nombre_completo.toLowerCase() === nombreMostrar.toLowerCase()
+      p.nombre_completo.toLowerCase() === nombreCompleto.toLowerCase()
     )
 
     if (duplicado) {
       playBeep(false)
-      const horaAbordaje = new Date(duplicado.hora_subida).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      mostrarAviso('duplicado', duplicado.nombre_completo, horaAbordaje)
+      const horaAbordaje = new Date(duplicado.hora_subida).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+      mostrarAviso('duplicado', duplicado.nombre_completo, duplicado.puesto_depto, horaAbordaje)
       return
     }
 
-    // ✅ REGISTRO AUTOMÁTICO DE NUEVO PASAJERO
+    // ✅ REGISTRO DE NUEVO PASAJERO A BORDO
     const nuevo: PasajeroBordo = {
       id_registro_local: `pas_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       id_empleado: match ? match.id_empleado : undefined,
       id_manual: match ? undefined : idLimpio,
-      nombre_completo: nombreMostrar,
-      puesto_depto: match ? `${match.puesto || ''} • ${match.departamento || ''}` : 'Credencial QR',
+      nombre_completo: nombreCompleto,
+      puesto_depto: puestoDepto,
+      numero_nomina: match?.numero_empleado || idLimpio,
       metodo_registro: 'QR',
       hora_subida: new Date().toISOString()
     }
 
-    // Actualizar lista acumulada (¡NUNCA BORRA LOS ANTERIORES!)
     const listaActualizada = [nuevo, ...listaActual]
     pasajerosRef.current = listaActualizada
     setPasajerosEnRuta([...listaActualizada])
@@ -535,16 +585,16 @@ export default function ChoferApp() {
     }
 
     playBeep(true)
-    mostrarAviso('exito', nombreMostrar)
+    mostrarAviso('exito', nombreCompleto, puestoDepto)
   }
 
-  const mostrarAviso = (tipo: 'exito' | 'duplicado', nombre: string, hora?: string) => {
+  const mostrarAviso = (tipo: 'exito' | 'duplicado', nombre: string, depto?: string, hora?: string) => {
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
-    setScanNotice({ tipo, nombre, hora })
+    setScanNotice({ tipo, nombre, depto, hora })
     noticeTimerRef.current = setTimeout(() => setScanNotice(null), 2500)
   }
 
-  /* ── Registro manual ── */
+  /* ── Registro Manual por Número de Nómina / ID ── */
   const handleRegistroManual = (e: React.FormEvent) => {
     e.preventDefault()
     const id = manualIdInput.trim()
@@ -573,10 +623,10 @@ export default function ChoferApp() {
     }
   }
 
-  /* ── Cerrar viaje ── */
+  /* ── Cerrar y Finalizar Viaje (Guarda en teléfono y manda a RH) ── */
   const handleCerrarViaje = () => {
     const total = pasajerosRef.current.length
-    if (!confirm(`¿Cerrar viaje de ${viajeActivoRef.current?.ruta_origen} a ${viajeActivoRef.current?.ruta_destino}?\n\n👥 Total de pasajeros a bordo: ${total}`)) return
+    if (!confirm(`¿Llegaste a tu destino (${viajeActivoRef.current?.ruta_destino})?\n\nSe cerrará el viaje con ${total} trabajadores a bordo.`)) return
 
     detenerCamara()
     const viaje = viajeActivoRef.current
@@ -602,7 +652,7 @@ export default function ChoferApp() {
       setPasajerosEnRuta([])
       playBeep(true)
       if (navigator.onLine) autoSyncData()
-      alert(`✅ ¡Viaje Finalizado Exitosamente!\n👥 Pasajeros transportados: ${total}\n\nQuedó guardado en la memoria del celular.`)
+      alert(`✅ ¡Viaje Finalizado Exitosamente!\n👥 Total de trabajadores transportados: ${total}\n\nLa información quedó guardada y el manifiesto está listo.`)
       setView('inicio')
     }
   }
@@ -646,7 +696,7 @@ export default function ChoferApp() {
         </div>
       </header>
 
-      {/* ══════════ VISTA: INICIO ══════════ */}
+      {/* ══════════ VISTA 1: INICIO (NUEVO RECORRIDO) ══════════ */}
       {view === 'inicio' && (
         <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-4 animate-in fade-in">
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 space-y-4 shadow-xl">
@@ -654,7 +704,7 @@ export default function ChoferApp() {
               <h2 className="text-base font-black text-white flex items-center gap-2">
                 <HardHat className="w-5 h-5 text-amber-400" /> Nuevo Recorrido
               </h2>
-              <p className="text-xs text-zinc-400 mt-0.5">Escaneo automático continuo y 100% offline</p>
+              <p className="text-xs text-zinc-400 mt-0.5">Selecciona chofer y ruta para iniciar el abordaje</p>
             </div>
 
             {/* Chofer */}
@@ -700,16 +750,17 @@ export default function ChoferApp() {
               ))}
             </div>
 
-            <button onClick={handleIniciarChecklist} className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm rounded-2xl shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all uppercase">
-              Continuar al Checklist <ChevronRight className="w-5 h-5" />
+            <button onClick={handleIniciarChecklist} className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm rounded-2xl shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all uppercase tracking-wider mt-2">
+              <span>Continuar al Checklist</span>
+              <ChevronRight className="w-5 h-5" />
             </button>
           </div>
 
-          {/* Historial */}
+          {/* Historial Reciente */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-4 space-y-2.5">
             <h3 className="text-xs font-black uppercase text-zinc-400 tracking-wider flex items-center justify-between">
-              <span className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-amber-400" /> Viajes guardados ({historialViajes.length})</span>
-              <span className="text-[10px] text-emerald-400">100% en este celular</span>
+              <span className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-amber-400" /> Viajes guardados en celular ({historialViajes.length})</span>
+              <span className="text-[10px] text-emerald-400">100% Offline</span>
             </h3>
             {historialViajes.length === 0 ? (
               <p className="text-xs text-zinc-500 text-center py-3">Sin viajes previos.</p>
@@ -719,7 +770,7 @@ export default function ChoferApp() {
                   <div key={i} className="p-2.5 bg-zinc-800/90 rounded-xl flex justify-between items-center text-xs">
                     <div>
                       <span className="font-bold text-white">{v.ruta_origen} ➔ {v.ruta_destino}</span>
-                      <div className="text-[10px] text-zinc-400">👥 {v.pasajeros?.length || 0} personas • {new Date(v.hora_inicio_real).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                      <div className="text-[10px] text-zinc-400">👥 {v.pasajeros?.length || 0} trabajadores • {new Date(v.hora_inicio_real).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
                     <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-zinc-700 text-zinc-300">{v.estado}</span>
                   </div>
@@ -730,7 +781,7 @@ export default function ChoferApp() {
         </main>
       )}
 
-      {/* ══════════ VISTA: CHECKLIST ══════════ */}
+      {/* ══════════ VISTA 2: CHECKLIST PRE-SALIDA ══════════ */}
       {view === 'checklist' && (
         <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-4 animate-in fade-in">
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 space-y-4 shadow-xl">
@@ -755,14 +806,15 @@ export default function ChoferApp() {
                 </button>
               ))}
             </div>
-            <button onClick={handleConfirmarInicioRuta} className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm rounded-2xl shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-all uppercase">
-              <Play className="w-5 h-5 fill-current" /> 🟢 Iniciar Viaje y Abrir QR
+            <button onClick={handleConfirmarInicioRuta} className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm rounded-2xl shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-all uppercase tracking-wider mt-2">
+              <Play className="w-5 h-5 fill-current" />
+              <span>🟢 Iniciar Viaje y Abrir Escáner QR</span>
             </button>
           </div>
         </main>
       )}
 
-      {/* ══════════ VISTA: EN RUTA ══════════ */}
+      {/* ══════════ VISTA 3: EN RUTA (ABORDAJE & ESCANEO LIMPIO) ══════════ */}
       {view === 'en_ruta' && viajeActivo && (
         <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-3.5 animate-in fade-in">
 
@@ -776,7 +828,7 @@ export default function ChoferApp() {
             </div>
             <div className="flex justify-between items-center pt-1">
               <div>
-                <span className="text-[10px] uppercase text-black/70 block font-bold">Chofer</span>
+                <span className="text-[10px] uppercase text-black/70 block font-bold">Chofer Asignado</span>
                 <strong className="text-sm font-black block truncate max-w-[160px]">{viajeActivo.chofer_nombre}</strong>
               </div>
               <div className="text-right">
@@ -786,7 +838,7 @@ export default function ChoferApp() {
             </div>
           </div>
 
-          {/* Banner Automático de Scan (Verde / Amarillo) */}
+          {/* Banner Automático de Scan con Nombre Real del Trabajador */}
           {scanNotice && (
             <div className={`p-3.5 rounded-2xl border flex items-center justify-between shadow-2xl animate-in slide-in-from-top-2 duration-150 ${
               scanNotice.tipo === 'exito' 
@@ -799,9 +851,8 @@ export default function ChoferApp() {
                   <strong className="text-sm font-black block leading-tight">
                     {scanNotice.tipo === 'exito' ? `¡Registrado a bordo! (#${pasajerosEnRuta.length})` : '⚠️ YA ESTÁ EN LA LISTA'}
                   </strong>
-                  <span className="text-xs font-bold block">
-                    {scanNotice.nombre} {scanNotice.hora ? `(Abordó: ${scanNotice.hora})` : ''}
-                  </span>
+                  <span className="text-xs font-black block">{scanNotice.nombre}</span>
+                  {scanNotice.depto && <span className="text-[10px] font-bold block opacity-80">{scanNotice.depto}</span>}
                 </div>
               </div>
               <button onClick={() => setScanNotice(null)} className="p-1 text-black/60 hover:text-black">
@@ -810,13 +861,13 @@ export default function ChoferApp() {
             </div>
           )}
 
-          {/* Visor de Cámara */}
+          {/* Visor de Cámara de Escaneo Continuo */}
           {cameraActive ? (
             <div className="relative aspect-video w-full rounded-3xl overflow-hidden bg-black border-2 border-emerald-500 shadow-2xl">
               <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
               <div className="absolute inset-6 border-2 border-dashed border-emerald-400 rounded-2xl pointer-events-none animate-pulse flex items-center justify-center">
                 <span className="text-[10px] font-mono font-bold text-emerald-300 bg-black/70 px-2.5 py-1 rounded-lg">
-                  Escaneo automático continuo activo
+                  Apunta a la credencial con código QR
                 </span>
               </div>
               {cameraError && (
@@ -833,15 +884,15 @@ export default function ChoferApp() {
             </div>
           )}
 
-          {/* Manual ID */}
+          {/* Registro Manual si el trabajador olvidó su gafete */}
           <form onSubmit={handleRegistroManual} className="flex gap-2">
             <input type="text" value={manualIdInput} onChange={e => setManualIdInput(e.target.value)}
-              placeholder="# Nómina si no trae credencial QR..."
+              placeholder="Escribe # de Nómina si olvidó su QR..."
               className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-3.5 py-2.5 text-xs font-bold text-white focus:outline-none focus:border-emerald-500" />
-            <button type="submit" className="px-4 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-2xl border border-zinc-700 shrink-0">+ Agregar</button>
+            <button type="submit" className="px-4 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-2xl border border-zinc-700 shrink-0">+ Registrar</button>
           </form>
 
-          {/* LOS 2 BOTONES PRINCIPALES */}
+          {/* LOS 2 BOTONES PRINCIPALES DE ACCIÓN */}
           <div className="grid grid-cols-2 gap-3">
             <button type="button" onClick={() => cameraActive ? detenerCamara() : iniciarCamara()}
               className={`py-4 px-3 rounded-2xl font-black text-xs flex items-center justify-center gap-1.5 shadow-lg transition-all active:scale-95 uppercase ${cameraActive ? 'bg-zinc-800 text-amber-400 border border-zinc-700' : 'bg-emerald-600 text-white shadow-emerald-600/30'}`}>
@@ -851,33 +902,33 @@ export default function ChoferApp() {
             <button type="button" onClick={handleCerrarViaje}
               className="py-4 px-3 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-2xl shadow-lg shadow-rose-600/30 flex items-center justify-center gap-1.5 transition-all active:scale-95 uppercase">
               <StopCircle className="w-4 h-4" />
-              🏁 Cerrar ({pasajerosEnRuta.length})
+              🏁 Finalizar Viaje ({pasajerosEnRuta.length})
             </button>
           </div>
 
-          {/* Lista Acumulada de Pasajeros a Bordo */}
+          {/* Lista Nominal de Trabajadores a Bordo */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-4 space-y-2">
             <div className="flex justify-between items-center text-xs font-black uppercase tracking-wider text-zinc-400">
-              <span>Pasajeros a Bordo ({pasajerosEnRuta.length})</span>
+              <span>Trabajadores a Bordo ({pasajerosEnRuta.length})</span>
               <span className="text-emerald-400 text-[10px]">Guardado Automático ✓</span>
             </div>
             {pasajerosEnRuta.length === 0 ? (
-              <p className="text-xs text-zinc-500 text-center py-3">Escanea las credenciales QR con la cámara.</p>
+              <p className="text-xs text-zinc-500 text-center py-4 font-bold">Pasa los gafetes frente a la cámara al subir.</p>
             ) : (
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                 {pasajerosEnRuta.map((p, idx) => (
-                  <div key={p.id_registro_local || idx} className="p-2.5 bg-zinc-800/90 rounded-xl flex justify-between items-center text-xs">
-                    <div className="flex items-center gap-2 overflow-hidden">
-                      <span className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center justify-center shrink-0">
+                  <div key={p.id_registro_local || idx} className="p-3 bg-zinc-800/90 rounded-2xl flex justify-between items-center text-xs border border-zinc-700/50 shadow-sm">
+                    <div className="flex items-center gap-2.5 overflow-hidden">
+                      <span className="w-7 h-7 rounded-xl bg-emerald-500/20 text-emerald-400 font-black text-xs flex items-center justify-center shrink-0">
                         {pasajerosEnRuta.length - idx}
                       </span>
                       <div className="overflow-hidden">
-                        <div className="font-bold text-white truncate">{p.nombre_completo}</div>
-                        <div className="text-[10px] text-zinc-400">{new Date(p.hora_subida).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {p.metodo_registro}</div>
+                        <div className="font-black text-white truncate text-xs">{p.nombre_completo}</div>
+                        <div className="text-[11px] text-zinc-400">{p.puesto_depto} • {new Date(p.hora_subida).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                       </div>
                     </div>
-                    <button onClick={() => eliminarPasajero(p.id_registro_local)} className="text-zinc-500 hover:text-rose-400 p-1 shrink-0">
-                      <Trash2 className="w-3.5 h-3.5" />
+                    <button onClick={() => eliminarPasajero(p.id_registro_local)} className="text-zinc-500 hover:text-rose-400 p-1 shrink-0" title="Remover del viaje">
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 ))}
@@ -888,7 +939,7 @@ export default function ChoferApp() {
       )}
 
       <footer className="bg-zinc-900 border-t border-zinc-800 p-2 text-center text-[10px] text-zinc-500">
-        Minas de Bacis • 100% Offline • Almacenamiento Local Activo
+        Minas de Bacis • 100% Offline • Almacenamiento en Memoria Local Activo
       </footer>
     </div>
   )

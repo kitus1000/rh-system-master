@@ -251,7 +251,7 @@ export default function ChoferesClient() {
   const cargarEmpleadosCatalogo = async () => {
     try {
       const { data } = await supabase.from('empleados')
-        .select('id_empleado, nombre, apellido_paterno, puesto, departamento, qr_token')
+        .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado, qr_token')
         .order('nombre')
       if (data) setEmpleadosCatalog(data)
     } catch (e) {}
