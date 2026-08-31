@@ -526,27 +526,8 @@ export default function ChoferesClient() {
     // Ordenar por fecha descendente
     uniqueRutas.sort((a, b) => new Date(b.creado_el || b.fecha).getTime() - new Date(a.creado_el || a.fecha).getTime())
 
-    // Si es un Chofer autenticado, mostrar únicamente sus viajes en la lista
-    if (!isRHOrAdmin && profile) {
-      const nombreUsuario = (profile.nombre_completo || '').toLowerCase()
-      const misRutas = uniqueRutas.filter(r => 
-        (r.id_chofer && r.id_chofer === profile.id) ||
-        r.chofer_nombre.toLowerCase().includes(nombreUsuario) ||
-        nombreUsuario.includes(r.chofer_nombre.toLowerCase())
-      )
-      setRutasQrGlobal(misRutas)
-      setBitacoraRutasList(misRutas)
-    } else {
-      setRutasQrGlobal(uniqueRutas)
-      if (selectedChofer && selectedChoferObj) {
-        setBitacoraRutasList(uniqueRutas.filter(r => 
-          r.id_chofer === selectedChofer || 
-          r.chofer_nombre.toLowerCase().includes(selectedChoferObj.nombre.toLowerCase())
-        ))
-      } else {
-        setBitacoraRutasList(uniqueRutas)
-      }
-    }
+    setRutasQrGlobal(uniqueRutas)
+    setBitacoraRutasList(uniqueRutas)
   }
 
   useEffect(() => {
@@ -573,7 +554,9 @@ export default function ChoferesClient() {
     if (!selectedChofer) return alert('Por favor selecciona un chofer')
     if (!puntoA.trim() || !puntoB.trim()) return alert('Define el Punto A y Punto B')
 
-    const choferNombre = selectedChoferObj?.nombre || profile?.nombre_completo || 'Chofer Operador'
+    const choferNombre = selectedChoferObj 
+      ? `${selectedChoferObj.nombre} ${selectedChoferObj.apellido_paterno || ''}`.trim() 
+      : (profile?.nombre_completo || 'Chofer Operador')
     const now = new Date()
     const horaActual = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
     const fechaActual = now.toISOString().split('T')[0]
@@ -662,6 +645,25 @@ export default function ChoferesClient() {
           }]
         })
       })
+    } catch (e) {}
+
+    // Respaldo directo en Supabase
+    try {
+      await supabase.from('logistica_reportes_diarios').insert([{
+        fecha: completedTrip.fecha,
+        camion_numero: camion || 'CAM-01',
+        tipo_vehiculo: tipoVehiculo || 'Camioneta',
+        ubicacion_caseta: completedTrip.punto_b,
+        comentarios_vehiculo: `[VIAJE_QR] Ruta: ${completedTrip.punto_a} a ${completedTrip.punto_b} | Chofer: ${completedTrip.chofer_nombre} | Pasajeros: ${totalFinal} | Salida: ${completedTrip.hora_salida_a} | Llegada: ${completedTrip.hora_llegada_b}`,
+        observaciones_recorrido: JSON.stringify(listaFinal),
+        frenos_ok: true,
+        luces_ok: true,
+        llantas_ok: true,
+        niveles_aceite_ok: true,
+        carroceria_ok: true,
+        extintor_ok: true,
+        botiquin_ok: true
+      }])
     } catch (e) {}
 
     playBeep(true)
