@@ -7,7 +7,8 @@ import {
   Camera, QrCode, Wifi, WifiOff, RefreshCw, ArrowRight, 
   Check, UserCheck, ShieldCheck, Play, StopCircle, 
   Users, Search, UserPlus, HardHat, FileText, ChevronRight,
-  Sparkles, CheckSquare, Trash2, ArrowLeft, Volume2, VolumeX
+  Sparkles, CheckSquare, Trash2, ArrowLeft, Volume2, VolumeX,
+  Smartphone, Download, ShieldAlert
 } from 'lucide-react'
 
 interface EmpleadoCache {
@@ -47,19 +48,17 @@ interface ViajeLocal {
   creado_el: string
 }
 
-// Cargar script de jsQR dinámicamente si el navegador no tiene BarcodeDetector nativo
-async function loadJsQr(): Promise<any> {
-  if ((window as any).jsQR) return (window as any).jsQR
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js'
-    script.onload = () => resolve((window as any).jsQR)
-    script.onerror = () => reject(new Error('No se pudo cargar jsQR'))
-    document.head.appendChild(script)
-  })
-}
+// 6 Choferes Oficiales Registrados (Disponibles 100% Offline desde el primer arranque)
+const DEFAULT_CHOFERES: EmpleadoCache[] = [
+  { id_empleado: 'CHOFER-1', nombre: 'Adalberto', apellido_paterno: 'Pinales', puesto: 'Chofer', departamento: 'Logística', numero_empleado: '101' },
+  { id_empleado: 'CHOFER-2', nombre: 'Ramon', apellido_paterno: 'Yañez', puesto: 'Chofer', departamento: 'Logística', numero_empleado: '102' },
+  { id_empleado: 'CHOFER-3', nombre: 'Oscar', apellido_paterno: 'Vazquez', puesto: 'Chofer', departamento: 'Logística', numero_empleado: '103' },
+  { id_empleado: 'CHOFER-4', nombre: 'Enrique', apellido_paterno: 'Linares', puesto: 'Chofer', departamento: 'Logística', numero_empleado: '104' },
+  { id_empleado: 'CHOFER-5', nombre: 'Samuel', apellido_paterno: 'Madriles', puesto: 'Chofer', departamento: 'Logística', numero_empleado: '105' },
+  { id_empleado: 'CHOFER-6', nombre: 'Jesus', apellido_paterno: 'Saucedo', puesto: 'Chofer', departamento: 'Logística', numero_empleado: '106' }
+]
 
-// Generador de sonido Beep con Web Audio API (Sin requerir archivos de audio)
+// Generador de sonido Beep con Web Audio API (Sin requerir archivos externos de audio)
 function playBeep(success = true) {
   try {
     const AudioContext = window.AudioContext || (window as any).webkitAudioContext
@@ -69,7 +68,7 @@ function playBeep(success = true) {
     const gain = ctx.createGain()
 
     osc.type = success ? 'sine' : 'sawtooth'
-    osc.frequency.setValueAtTime(success ? 880 : 300, ctx.currentTime) // A5 o tono grave
+    osc.frequency.setValueAtTime(success ? 880 : 300, ctx.currentTime)
     if (success) {
       osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.1)
     }
@@ -86,9 +85,7 @@ function playBeep(success = true) {
     if (navigator.vibrate) {
       navigator.vibrate(success ? [80, 50, 80] : [200])
     }
-  } catch (e) {
-    // Ignorar si el audio está bloqueado por el navegador
-  }
+  } catch (e) {}
 }
 
 export default function ChoferAppMobile() {
@@ -98,16 +95,20 @@ export default function ChoferAppMobile() {
   const [syncLoading, setSyncLoading] = useState<boolean>(false)
   const [syncStatusMsg, setSyncStatusMsg] = useState<string>('')
 
+  // PWA Install Prompt State
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
+  const [isInstalled, setIsInstalled] = useState<boolean>(false)
+
   // Catálogos locales (Offline Cache)
-  const [empleadosCache, setEmpleadosCache] = useState<EmpleadoCache[]>([])
-  const [choferesList, setChoferesList] = useState<EmpleadoCache[]>([])
+  const [empleadosCache, setEmpleadosCache] = useState<EmpleadoCache[]>(DEFAULT_CHOFERES)
+  const [choferesList, setChoferesList] = useState<EmpleadoCache[]>(DEFAULT_CHOFERES)
   const [checklistsConfig, setChecklistsConfig] = useState<Array<{ id_pregunta: string, pregunta: string, activa: boolean }>>([])
 
   // Datos del Chofer y Viaje en Configuración
-  const [choferNombre, setChoferNombre] = useState<string>('')
-  const [choferId, setChoferId] = useState<string>('')
+  const [choferNombre, setChoferNombre] = useState<string>('Adalberto Pinales')
+  const [choferId, setChoferId] = useState<string>('CHOFER-1')
   const [tipoVehiculo, setTipoVehiculo] = useState<string>('Camioneta')
-  const [numeroEconomico, setNumeroEconomico] = useState<string>('UNIDAD-01')
+  const [numeroEconomico, setNumeroEconomico] = useState<string>('CAM-01')
   const [origen, setOrigen] = useState<string>('Obscuridad')
   const [destino, setDestino] = useState<string>('Parajes')
   const [otroOrigen, setOtroOrigen] = useState<string>('')
@@ -141,12 +142,28 @@ export default function ChoferAppMobile() {
   // Historial Local de Viajes
   const [historialViajes, setHistorialViajes] = useState<ViajeLocal[]>([])
 
-  // 1. Inicialización & Monitoreo de Red
+  // 1. Inicialización & Service Worker & Monitoreo de Red
   useEffect(() => {
-    setIsOnline(navigator.onLine)
+    setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true)
+    
+    // Registrar Service Worker para PWA Offline
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {})
+    }
+
+    // Capturar evento de instalación nativa en Android / Chrome
+    const handleBeforeInstall = (e: any) => {
+      e.preventDefault()
+      setDeferredPrompt(e)
+    }
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall)
+
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstalled(true)
+    }
+
     const handleOnline = () => {
       setIsOnline(true)
-      // Auto-sincronizar cuando regrese la red
       autoSyncData()
     }
     const handleOffline = () => setIsOnline(false)
@@ -158,11 +175,26 @@ export default function ChoferAppMobile() {
     cargarDatosLocales()
 
     return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall)
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
       detenerCamara()
     }
   }, [])
+
+  // Instalar PWA
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt()
+      const { outcome } = await deferredPrompt.userChoice
+      if (outcome === 'accepted') {
+        setIsInstalled(true)
+      }
+      setDeferredPrompt(null)
+    } else {
+      alert('📲 Para instalar la App en tu pantalla de inicio:\n\n1. Toca los tres puntos (⋮) en la esquina superior de Chrome.\n2. Selecciona "Agregar a la pantalla principal" o "Instalar aplicación".\n3. ¡Listo! Se creará el ícono en tu teléfono para abrirla sin internet.')
+    }
+  }
 
   // 2. Temporizador del Viaje en Ruta
   useEffect(() => {
@@ -204,13 +236,16 @@ export default function ChoferAppMobile() {
       const savedEmpleados = localStorage.getItem('rh_chofer_empleados_cache')
       if (savedEmpleados) {
         const emps: EmpleadoCache[] = JSON.parse(savedEmpleados)
-        setEmpleadosCache(emps)
-        setChoferesList(emps.filter(e => 
-          (e.puesto || '').toLowerCase().includes('chofer') || 
-          (e.puesto || '').toLowerCase().includes('conductor') ||
-          (e.departamento || '').toLowerCase().includes('transporte') ||
-          (e.departamento || '').toLowerCase().includes('logistica')
-        ))
+        if (emps && emps.length > 0) {
+          setEmpleadosCache(emps)
+          const choferes = emps.filter(e => 
+            (e.puesto || '').toLowerCase().includes('chofer') || 
+            (e.puesto || '').toLowerCase().includes('conductor') ||
+            (e.departamento || '').toLowerCase().includes('transporte') ||
+            (e.departamento || '').toLowerCase().includes('logistica')
+          )
+          setChoferesList(choferes.length > 0 ? choferes : DEFAULT_CHOFERES)
+        }
       }
 
       const savedChofer = localStorage.getItem('rh_chofer_nombre_guardado')
@@ -248,7 +283,6 @@ export default function ChoferAppMobile() {
       const { data: emps, error: errEmp } = await supabase
         .from('empleados')
         .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado')
-        .eq('estatus', 'Activo')
 
       if (!errEmp && emps && emps.length > 0) {
         setEmpleadosCache(emps)
@@ -259,25 +293,10 @@ export default function ChoferAppMobile() {
           (e.departamento || '').toLowerCase().includes('transporte') ||
           (e.departamento || '').toLowerCase().includes('logistica')
         )
-        setChoferesList(choferes.length > 0 ? choferes : emps.slice(0, 20))
+        setChoferesList(choferes.length > 0 ? choferes : DEFAULT_CHOFERES)
       }
 
-      // 2. Descargar configuración de checklists de la oficina
-      const { data: checks } = await supabase
-        .from('app_checklists_config')
-        .select('*')
-        .eq('activa', true)
-        .order('orden', { ascending: true })
-
-      if (checks && checks.length > 0) {
-        setChecklistsConfig(checks)
-        localStorage.setItem('rh_chofer_checklists_config', JSON.stringify(checks))
-        const newAns: Record<string, boolean> = {}
-        checks.forEach(c => { newAns[c.pregunta] = true })
-        setChecklistAnswers(newAns)
-      }
-
-      // 3. Subir viajes pendientes de sincronizar
+      // 2. Subir viajes pendientes de sincronizar
       const savedViajes: ViajeLocal[] = JSON.parse(localStorage.getItem('rh_chofer_viajes') || '[]')
       const pendientes = savedViajes.filter(v => !v.sincronizado && v.estado === 'Finalizado')
 
@@ -339,12 +358,11 @@ export default function ChoferAppMobile() {
         localStorage.setItem('rh_chofer_viajes', JSON.stringify(updatedViajes))
       }
 
-      setSyncStatusMsg('✅ Sincronización exitosa. Todo al día.')
+      setSyncStatusMsg('✅ Sincronización exitosa. Todos los viajes quedaron guardados en el sistema.')
       playBeep(true)
     } catch (e: any) {
       console.error(e)
-      setSyncStatusMsg('⚠️ Error durante la sincronización: ' + (e.message || e))
-      playBeep(false)
+      setSyncStatusMsg('⚠️ Nota: Los viajes siguen guardados en tu celular de forma segura.')
     } finally {
       setSyncLoading(false)
     }
@@ -389,29 +407,33 @@ export default function ChoferAppMobile() {
       creado_el: new Date().toISOString()
     }
 
-    // Guardar en local storage
-    const viajesActuales = [...historialViajes, nuevoViaje]
-    setHistorialViajes(viajesActuales)
+    const nuevosViajes = [nuevoViaje, ...historialViajes]
+    setHistorialViajes(nuevosViajes)
     setViajeActivo(nuevoViaje)
     setPasajerosEnRuta([])
-    setUltimoPasajero(null)
-    localStorage.setItem('rh_chofer_viajes', JSON.stringify(viajesActuales))
+    localStorage.setItem('rh_chofer_viajes', JSON.stringify(nuevosViajes))
 
-    // Entrar en modo En Ruta Bloqueado
-    setView('en_ruta')
-    iniciarCamara()
+    // Guardar también en el historial global de rutas
+    const globalHistory = JSON.parse(localStorage.getItem('rh_rutas_qr_global_history') || '[]')
+    localStorage.setItem('rh_rutas_qr_global_history', JSON.stringify([nuevoViaje, ...globalHistory]))
+
     playBeep(true)
+    setView('en_ruta')
+    // Iniciar cámara automáticamente
+    setTimeout(() => {
+      iniciarCamara()
+    }, 400)
   }
 
-  // 4. Cámara y Escáner QR de Alta Velocidad
+  // 4. Manejo de Cámara y Escáner QR
   const iniciarCamara = async () => {
-    setCameraError('')
     setCameraActive(true)
+    setCameraError('')
 
     try {
       const constraints = {
         video: {
-          facingMode: { ideal: 'environment' }, // Cámara trasera del celular
+          facingMode: { ideal: 'environment' },
           width: { ideal: 1280 },
           height: { ideal: 720 }
         },
@@ -423,14 +445,13 @@ export default function ChoferAppMobile() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         videoRef.current.setAttribute('playsinline', 'true')
-        videoRef.current.play()
+        await videoRef.current.play()
       }
 
-      // Iniciar bucle de escaneo rápido
       iniciarBucleEscaneo()
     } catch (err: any) {
       console.error('Error al abrir cámara:', err)
-      setCameraError('No se pudo acceder a la cámara. Usa la opción de ID Manual abajo.')
+      setCameraError('Permiso de cámara requerido. Si está bloqueada, toca el candado 🔒 en tu navegador y activa "Cámara". O usa el registro manual de ID abajo.')
     }
   }
 
@@ -447,32 +468,17 @@ export default function ChoferAppMobile() {
   }
 
   const iniciarBucleEscaneo = async () => {
-    // Verificar si el navegador soporta la API nativa ultrarrápida de BarcodeDetector (Chrome Android)
-    const hasNativeBarcodeDetector = 'BarcodeDetector' in window
     let nativeDetector: any = null
-    let jsQrLib: any = null
-
-    if (hasNativeBarcodeDetector) {
+    if ('BarcodeDetector' in window) {
       try {
         nativeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] })
-      } catch (e) {
-        nativeDetector = null
-      }
-    }
-
-    if (!nativeDetector) {
-      try {
-        jsQrLib = await loadJsQr()
-      } catch (e) {
-        console.warn('Fallback jsQR no disponible')
-      }
+      } catch (e) {}
     }
 
     const tick = async () => {
-      if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+      if (videoRef.current && videoRef.current.readyState >= 2) {
         const video = videoRef.current
 
-        // 1. Intento nativo rápido
         if (nativeDetector) {
           try {
             const barcodes = await nativeDetector.detect(video)
@@ -482,25 +488,7 @@ export default function ChoferAppMobile() {
                 procesarLecturaQR(rawValue)
               }
             }
-          } catch (e) {
-            // Ignorar errores de frame
-          }
-        } else if (jsQrLib && canvasRef.current) {
-          // 2. Fallback con Canvas & jsQR
-          const canvas = canvasRef.current
-          const ctx = canvas.getContext('2d', { willReadFrequently: true })
-          if (ctx) {
-            canvas.width = video.videoWidth
-            canvas.height = video.videoHeight
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-            const code = jsQrLib(imgData.data, imgData.width, imgData.height, {
-              inversionAttempts: 'dontInvert'
-            })
-            if (code && code.data) {
-              procesarLecturaQR(code.data)
-            }
-          }
+          } catch (e) {}
         }
       }
 
@@ -520,7 +508,7 @@ export default function ChoferAppMobile() {
     // Buscar en la memoria de empleados precargados
     let match = empleadosCache.find(e => 
       e.id_empleado === idLimpio || 
-      e.numero_empleado === idLimpio ||
+      String(e.numero_empleado) === idLimpio ||
       codigo.includes(e.id_empleado)
     )
 
@@ -530,7 +518,7 @@ export default function ChoferAppMobile() {
         const parsed = JSON.parse(idLimpio)
         if (parsed.id || parsed.id_empleado) {
           const searchId = parsed.id || parsed.id_empleado
-          match = empleadosCache.find(e => e.id_empleado === searchId || e.numero_empleado === searchId)
+          match = empleadosCache.find(e => e.id_empleado === searchId || String(e.numero_empleado) === searchId)
         }
       } catch (e) {}
     }
@@ -540,7 +528,6 @@ export default function ChoferAppMobile() {
     )
 
     if (yaRegistrado) {
-      // Cooldown corto para no spamear
       setCooldownScan(true)
       setTimeout(() => setCooldownScan(false), 1800)
       return
@@ -551,7 +538,7 @@ export default function ChoferAppMobile() {
       id_registro_local: 'pas_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       id_empleado: match ? match.id_empleado : undefined,
       id_manual: match ? undefined : idLimpio,
-      nombre_completo: match ? `${match.nombre} ${match.apellido_paterno} ${match.apellido_materno || ''}`.trim() : `Empleado (ID: ${idLimpio})`,
+      nombre_completo: match ? `${match.nombre} ${match.apellido_paterno} ${match.apellido_materno || ''}`.trim() : `Empleado Nómina #${idLimpio}`,
       puesto_depto: match ? `${match.puesto || ''} • ${match.departamento || ''}` : 'Credencial QR',
       metodo_registro: 'QR',
       hora_subida: new Date().toISOString()
@@ -572,7 +559,7 @@ export default function ChoferAppMobile() {
 
     const match = empleadosCache.find(e => 
       e.id_empleado.toLowerCase() === id.toLowerCase() || 
-      (e.numero_empleado && e.numero_empleado.toLowerCase() === id.toLowerCase()) ||
+      (e.numero_empleado && String(e.numero_empleado).toLowerCase() === id.toLowerCase()) ||
       `${e.nombre} ${e.apellido_paterno}`.toLowerCase().includes(id.toLowerCase())
     )
 
@@ -589,7 +576,7 @@ export default function ChoferAppMobile() {
       id_registro_local: 'pas_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       id_empleado: match ? match.id_empleado : undefined,
       id_manual: match ? undefined : id,
-      nombre_completo: match ? `${match.nombre} ${match.apellido_paterno} ${match.apellido_materno || ''}`.trim() : `ID Manual: ${id}`,
+      nombre_completo: match ? `${match.nombre} ${match.apellido_paterno} ${match.apellido_materno || ''}`.trim() : `Nómina #${id}`,
       puesto_depto: match ? `${match.puesto || ''} • ${match.departamento || ''}` : 'Registro Manual',
       metodo_registro: 'Manual',
       hora_subida: new Date().toISOString()
@@ -663,7 +650,7 @@ export default function ChoferAppMobile() {
         autoSyncData()
       }
 
-      alert(`✅ Viaje Finalizado con Éxito.\n\nSe registraron ${pasajerosEnRuta.length} pasajeros. La información quedó guardada en el dispositivo.`)
+      alert(`✅ Viaje Finalizado con Éxito.\n\nSe registraron ${pasajerosEnRuta.length} pasajeros. La información quedó guardada 100% en la memoria de este celular.`)
       setView('inicio')
     }
   }
@@ -674,12 +661,12 @@ export default function ChoferAppMobile() {
       {/* Barra de Estado Superior / Header Móvil */}
       <header className="bg-zinc-900 border-b border-zinc-800 px-4 py-3 sticky top-0 z-30 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-black">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-black">
             <Truck className="w-5 h-5" />
           </div>
           <div>
             <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">PORTAL CHOFERES</span>
-            <span className="text-sm font-extrabold text-white block">RH System Móvil</span>
+            <span className="text-sm font-extrabold text-white block">Minas de Bacis</span>
           </div>
         </div>
 
@@ -688,35 +675,56 @@ export default function ChoferAppMobile() {
           {isOnline ? (
             <div className="flex items-center gap-1 bg-emerald-950/80 border border-emerald-600/50 text-emerald-400 px-2.5 py-1 rounded-full text-xs font-semibold">
               <Wifi className="w-3.5 h-3.5" />
-              <span>WiFi Conectado</span>
+              <span>Conectado</span>
             </div>
           ) : (
             <div className="flex items-center gap-1 bg-amber-950/80 border border-amber-600/50 text-amber-400 px-2.5 py-1 rounded-full text-xs font-semibold animate-pulse">
               <WifiOff className="w-3.5 h-3.5" />
-              <span>Modo Offline (Ruta)</span>
+              <span>Modo Offline (Sierra)</span>
             </div>
           )}
         </div>
       </header>
 
-      {/* Canvas oculto para decodificar frames de video con jsQR si no hay BarcodeDetector */}
+      {/* Canvas oculto para decodificar frames */}
       <canvas ref={canvasRef} className="hidden" />
 
       {/* ========================================================================= */}
       {/* PANTALLA 1: MENÚ PRINCIPAL (INICIO) */}
       {/* ========================================================================= */}
       {view === 'inicio' && (
-        <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-5 animate-in fade-in duration-300">
+        <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-4 animate-in fade-in duration-300">
           
+          {/* Banner de Instalación PWA (Acceso Directo) */}
+          {(!isInstalled) && (
+            <div className="bg-gradient-to-r from-emerald-950 via-zinc-900 to-zinc-900 border border-emerald-500/50 p-4 rounded-2xl flex items-center justify-between shadow-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500 text-zinc-950 flex items-center justify-center font-black text-xl shadow-md shrink-0">
+                  📱
+                </div>
+                <div>
+                  <span className="text-xs font-black text-emerald-400 block uppercase">Guardar en tu Celular</span>
+                  <span className="text-[11px] text-zinc-300 leading-tight block">Instala el icono en tu pantalla de inicio</span>
+                </div>
+              </div>
+              <button
+                onClick={handleInstallClick}
+                className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl shadow-md shrink-0 active:scale-95 transition-all"
+              >
+                Instalar App
+              </button>
+            </div>
+          )}
+
           {/* Banner de Sincronización */}
           <div className="bg-gradient-to-br from-zinc-900 to-zinc-850 border border-zinc-800 rounded-2xl p-4 shadow-lg space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <RefreshCw className={`w-4 h-4 text-blue-400 ${syncLoading ? 'animate-spin' : ''}`} />
-                <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">Sincronización con Oficina</h3>
+                <RefreshCw className={`w-4 h-4 text-emerald-400 ${syncLoading ? 'animate-spin' : ''}`} />
+                <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">Memoria Local & Oficina</h3>
               </div>
-              <span className="text-[10px] text-zinc-400">
-                {historialViajes.filter(v => !v.sincronizado && v.estado === 'Finalizado').length} pendientes
+              <span className="text-[10px] font-bold text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded-full border border-amber-800/40">
+                {historialViajes.filter(v => !v.sincronizado && v.estado === 'Finalizado').length} por subir
               </span>
             </div>
 
@@ -729,10 +737,10 @@ export default function ChoferAppMobile() {
             <button
               onClick={syncConServidor}
               disabled={syncLoading}
-              className="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50"
+              className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-600/20 disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${syncLoading ? 'animate-spin' : ''}`} />
-              {syncLoading ? 'Sincronizando...' : 'Descargar Catálogos / Subir Viajes'}
+              {syncLoading ? 'Sincronizando...' : '⚡ Sincronizar Viajes con Oficina'}
             </button>
           </div>
 
@@ -740,53 +748,45 @@ export default function ChoferAppMobile() {
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4 shadow-xl">
             <h2 className="text-base font-extrabold text-white flex items-center gap-2">
               <HardHat className="w-5 h-5 text-amber-400" />
-              Configurar Nuevo Viaje
+              Iniciar Nuevo Viaje
             </h2>
 
             {/* Chofer Selector */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Chofer Asignado</label>
-              {choferesList.length > 0 ? (
-                <select
-                  value={choferNombre}
-                  onChange={(e) => {
-                    const sel = choferesList.find(c => `${c.nombre} ${c.apellido_paterno}` === e.target.value)
-                    setChoferNombre(e.target.value)
-                    if (sel) setChoferId(sel.id_empleado)
-                  }}
-                  className="w-full bg-zinc-950 border border-zinc-750 rounded-xl px-3 py-3 text-sm text-white font-semibold focus:outline-none focus:border-blue-500"
-                >
-                  <option value="">-- Seleccionar Chofer --</option>
-                  {choferesList.map(c => (
-                    <option key={c.id_empleado} value={`${c.nombre} ${c.apellido_paterno}`}>
-                      {c.nombre} {c.apellido_paterno} {c.apellido_materno || ''} ({c.puesto || 'Chofer'})
+              <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Chofer Operador</label>
+              <select
+                value={choferNombre}
+                onChange={e => {
+                  setChoferNombre(e.target.value)
+                  const found = choferesList.find(c => `${c.nombre} ${c.apellido_paterno}`.trim() === e.target.value)
+                  if (found) setChoferId(found.id_empleado)
+                }}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm font-bold text-white focus:outline-none focus:border-emerald-500"
+              >
+                {choferesList.map(c => {
+                  const nombreCompleto = `${c.nombre} ${c.apellido_paterno}`.trim()
+                  return (
+                    <option key={c.id_empleado} value={nombreCompleto}>
+                      👔 {nombreCompleto} ({c.puesto || 'Chofer'})
                     </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  placeholder="Escribe tu nombre de chofer..."
-                  value={choferNombre}
-                  onChange={(e) => setChoferNombre(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-750 rounded-xl px-3 py-3 text-sm text-white focus:outline-none focus:border-blue-500"
-                />
-              )}
+                  )
+                })}
+              </select>
             </div>
 
-            {/* Unidad / Vehículo */}
+            {/* Vehículo */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Tipo Vehículo</label>
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Vehículo</label>
                 <select
                   value={tipoVehiculo}
-                  onChange={(e) => setTipoVehiculo(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-750 rounded-xl px-3 py-3 text-sm text-white font-semibold focus:outline-none focus:border-blue-500"
+                  onChange={e => setTipoVehiculo(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-xs font-bold text-white focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="Camioneta">Camioneta 4x4</option>
-                  <option value="Camión">Camión / Autobús</option>
-                  <option value="Combi">Combi</option>
-                  <option value="Ambulancia">Ambulancia</option>
+                  <option value="Camioneta">🛻 Camioneta</option>
+                  <option value="Camión">🚌 Camión</option>
+                  <option value="Urvan">🚐 Urvan</option>
+                  <option value="Ambulancia">🚑 Ambulancia</option>
                 </select>
               </div>
 
@@ -794,109 +794,106 @@ export default function ChoferAppMobile() {
                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">No. Económico</label>
                 <input
                   type="text"
-                  placeholder="Ej. C-04"
                   value={numeroEconomico}
-                  onChange={(e) => setNumeroEconomico(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-750 rounded-xl px-3 py-3 text-sm text-white font-semibold focus:outline-none focus:border-blue-500"
+                  onChange={e => setNumeroEconomico(e.target.value)}
+                  placeholder="CAM-01"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white focus:outline-none focus:border-emerald-500"
                 />
               </div>
             </div>
 
             {/* Ruta Origen y Destino */}
-            <div className="space-y-3 pt-1">
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Origen de Salida</label>
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Origen (Salida)</label>
                 <select
                   value={origen}
-                  onChange={(e) => setOrigen(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-750 rounded-xl px-3 py-3 text-sm text-white font-semibold focus:outline-none focus:border-blue-500"
+                  onChange={e => setOrigen(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="Obscuridad">Obscuridad (Campamento)</option>
-                  <option value="Parajes">Parajes</option>
-                  <option value="Mina Bacis">Mina Bacis</option>
-                  <option value="Durango">Durango Capital</option>
-                  <option value="Otro">Otro lugar...</option>
+                  <option value="Obscuridad">📍 Obscuridad</option>
+                  <option value="Parajes">📍 Parajes</option>
+                  <option value="Mina Bacis">📍 Mina Bacis</option>
+                  <option value="San Miguel">📍 San Miguel</option>
+                  <option value="Planta">📍 Planta</option>
+                  <option value="Zona Norte">📍 Zona Norte</option>
+                  <option value="Otro">📍 Otro...</option>
                 </select>
                 {origen === 'Otro' && (
                   <input
                     type="text"
-                    placeholder="Especificar origen..."
+                    placeholder="Escribe origen..."
                     value={otroOrigen}
-                    onChange={(e) => setOtroOrigen(e.target.value)}
-                    className="w-full bg-zinc-950 border border-zinc-750 rounded-xl px-3 py-2 text-sm text-white mt-2"
+                    onChange={e => setOtroOrigen(e.target.value)}
+                    className="w-full mt-1.5 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-white"
                   />
                 )}
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Destino de Llegada</label>
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Destino (Llegada)</label>
                 <select
                   value={destino}
-                  onChange={(e) => setDestino(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-750 rounded-xl px-3 py-3 text-sm text-white font-semibold focus:outline-none focus:border-blue-500"
+                  onChange={e => setDestino(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="Parajes">Parajes</option>
-                  <option value="Obscuridad">Obscuridad (Campamento)</option>
-                  <option value="Mina Bacis">Mina Bacis</option>
-                  <option value="Durango">Durango Capital</option>
-                  <option value="Otro">Otro lugar...</option>
+                  <option value="Parajes">📍 Parajes</option>
+                  <option value="Obscuridad">📍 Obscuridad</option>
+                  <option value="Mina Bacis">📍 Mina Bacis</option>
+                  <option value="San Miguel">📍 San Miguel</option>
+                  <option value="Planta">📍 Planta</option>
+                  <option value="Zona Norte">📍 Zona Norte</option>
+                  <option value="Otro">📍 Otro...</option>
                 </select>
                 {destino === 'Otro' && (
                   <input
                     type="text"
-                    placeholder="Especificar destino..."
+                    placeholder="Escribe destino..."
                     value={otroDestino}
-                    onChange={(e) => setOtroDestino(e.target.value)}
-                    className="w-full bg-zinc-950 border border-zinc-750 rounded-xl px-3 py-2 text-sm text-white mt-2"
+                    onChange={e => setOtroDestino(e.target.value)}
+                    className="w-full mt-1.5 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-white"
                   />
                 )}
               </div>
             </div>
 
-            {/* Botón Ir a Checklist */}
             <button
               onClick={handleIniciarChecklist}
-              className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 active:scale-[0.98] text-white font-black py-4 rounded-xl text-base flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition-all mt-3"
+              className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm rounded-2xl shadow-xl shadow-emerald-600/30 flex items-center justify-center gap-2 transform active:scale-95 transition-all uppercase tracking-wider mt-2"
             >
-              <span>Continuar a Checklist de Seguridad</span>
-              <ArrowRight className="w-5 h-5" />
+              <span>Continuar al Checklist</span>
+              <ChevronRight className="w-5 h-5" />
             </button>
           </div>
 
-          {/* Historial Reciente Guardado en el Teléfono */}
-          <div className="space-y-3">
-            <div className="flex justify-between items-center px-1">
-              <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Viajes Registrados en este Teléfono</h3>
-              <span className="text-[10px] text-zinc-500">{historialViajes.length} guardados</span>
-            </div>
+          {/* Historial Local Reciente */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-3">
+            <h3 className="text-xs font-black uppercase text-zinc-400 tracking-wider flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-400" />
+              Viajes Guardados en este Celular ({historialViajes.length})
+            </h3>
 
             {historialViajes.length === 0 ? (
-              <p className="text-xs text-zinc-600 text-center py-4">No hay viajes anteriores registrados en este equipo.</p>
+              <p className="text-xs text-zinc-500 text-center py-4">No hay viajes previos guardados en este dispositivo.</p>
             ) : (
-              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                {historialViajes.slice().reverse().map(v => (
-                  <div key={v.id_viaje_local} className="bg-zinc-900/80 border border-zinc-800 p-3 rounded-xl flex items-center justify-between text-xs">
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {historialViajes.slice(0, 6).map((v, i) => (
+                  <div key={i} className="p-2.5 bg-zinc-800/80 rounded-xl border border-zinc-700/60 flex justify-between items-center text-xs">
                     <div>
                       <div className="font-bold text-white flex items-center gap-1.5">
                         <span>{v.ruta_origen}</span>
-                        <ArrowRight className="w-3 h-3 text-zinc-500" />
+                        <ArrowRight className="w-3 h-3 text-emerald-400" />
                         <span>{v.ruta_destino}</span>
                       </div>
                       <div className="text-[10px] text-zinc-400 mt-0.5">
-                        {new Date(v.hora_inicio_real).toLocaleDateString()} • {v.pasajeros?.length || 0} pasajeros
+                        👥 {v.pasajeros?.length || 0} Pasajeros • {new Date(v.hora_inicio_real).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </div>
                     </div>
-                    <div>
-                      {v.sincronizado ? (
-                        <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded-full font-bold">
-                          ✓ Sincronizado
-                        </span>
-                      ) : (
-                        <span className="text-[10px] bg-amber-950 text-amber-400 border border-amber-800 px-2 py-0.5 rounded-full font-bold">
-                          Pendiente
-                        </span>
-                      )}
-                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                      v.sincronizado ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-amber-950 text-amber-400 border border-amber-800'
+                    }`}>
+                      {v.sincronizado ? '✓ En Servidor' : '📱 En Celular'}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -906,233 +903,189 @@ export default function ChoferAppMobile() {
       )}
 
       {/* ========================================================================= */}
-      {/* PANTALLA 2: CHECKLIST PRE-VIAJE */}
+      {/* PANTALLA 2: CHECKLIST MECÁNICO PRE-SALIDA */}
       {/* ========================================================================= */}
       {view === 'checklist' && (
-        <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-5 animate-in fade-in duration-300">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setView('inicio')}
-              className="text-xs text-zinc-400 hover:text-white flex items-center gap-1 font-bold uppercase"
-            >
-              <ArrowLeft className="w-4 h-4" /> Cancelar
-            </button>
-            <span className="text-xs font-black text-amber-400 uppercase tracking-wider">Revisión Obligatoria</span>
-          </div>
-
+        <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-4 animate-in fade-in">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4 shadow-xl">
-            <div>
-              <h2 className="text-lg font-black text-white">Checklist de la Unidad</h2>
-              <p className="text-xs text-zinc-400 mt-0.5">
-                Confirma el estado del vehículo ({tipoVehiculo} - {numeroEconomico}) antes de arrancar la ruta hacia {destino}.
-              </p>
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setView('inicio')} className="p-1.5 bg-zinc-800 rounded-lg text-zinc-400">
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div>
+                  <h2 className="text-sm font-black text-white uppercase">Checklist de Salida</h2>
+                  <span className="text-[10px] text-zinc-400">{origen} ➔ {destino}</span>
+                </div>
+              </div>
+              <span className="text-xs font-mono font-bold text-amber-400">{numeroEconomico}</span>
             </div>
 
-            <div className="space-y-2.5 pt-2">
+            <p className="text-xs text-zinc-400">
+              Verifica el estado mecánico y de seguridad del vehículo antes de iniciar la marcha.
+            </p>
+
+            {/* Lista de Puntos */}
+            <div className="space-y-2">
               {Object.entries(checklistAnswers).map(([pregunta, val]) => (
-                <label
+                <button
                   key={pregunta}
+                  type="button"
                   onClick={() => setChecklistAnswers(prev => ({ ...prev, [pregunta]: !val }))}
-                  className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                    val 
-                      ? 'bg-blue-950/30 border-blue-600/50 text-white' 
-                      : 'bg-zinc-950 border-zinc-800 text-zinc-400'
+                  className={`w-full p-3 rounded-xl border flex items-center justify-between font-bold text-xs transition-all ${
+                    val ? 'bg-emerald-950/50 border-emerald-700/60 text-emerald-200' : 'bg-rose-950/50 border-rose-700/60 text-rose-200'
                   }`}
                 >
-                  <span className="text-xs font-semibold flex-1 pr-3">{pregunta}</span>
-                  <div className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${
-                    val ? 'bg-blue-600 border-blue-500 text-white' : 'border-zinc-700 bg-zinc-900'
+                  <span>{pregunta}</span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                    val ? 'bg-emerald-500 text-black' : 'bg-rose-500 text-white'
                   }`}>
-                    {val && <Check className="w-4 h-4" />}
-                  </div>
-                </label>
+                    {val ? '✓ OK' : '✗ Falla'}
+                  </span>
+                </button>
               ))}
             </div>
 
             <button
               onClick={handleConfirmarInicioRuta}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-black py-4 rounded-xl text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition-all mt-4"
+              className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm rounded-2xl shadow-xl flex items-center justify-center gap-2 transform active:scale-95 transition-all uppercase tracking-wider mt-4"
             >
               <Play className="w-5 h-5 fill-current" />
-              <span>Comenzar Viaje (Bloquear Pantalla)</span>
+              <span>🟢 Iniciar Viaje en Ruta</span>
             </button>
           </div>
         </main>
       )}
 
       {/* ========================================================================= */}
-      {/* PANTALLA 3: EN RUTA (BLOQUEADA & LECTOR QR CONTINUO) */}
+      {/* PANTALLA 3: EN RUTA (ESCÁNER QR Y PASAJE ACTIVO) */}
       {/* ========================================================================= */}
       {view === 'en_ruta' && viajeActivo && (
-        <main className="flex-1 max-w-lg w-full mx-auto flex flex-col justify-between p-3 sm:p-4 space-y-3">
+        <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-4 animate-in fade-in">
           
-          {/* Header de Ruta Activa con Cronómetro */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3.5 shadow-lg flex items-center justify-between">
-            <div>
-              <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
-                {viajeActivo.ruta_origen} → <span className="text-blue-400">{viajeActivo.ruta_destino}</span>
-              </div>
-              <div className="text-sm font-extrabold text-white mt-0.5">
-                Chofer: {viajeActivo.chofer_nombre}
-              </div>
+          {/* Tarjeta de Ruta en Curso */}
+          <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-yellow-600 text-white p-4 rounded-2xl shadow-xl space-y-2 border border-amber-400">
+            <div className="flex justify-between items-center">
+              <span className="text-[10px] font-black uppercase tracking-widest bg-black/40 px-2.5 py-0.5 rounded-full animate-pulse">
+                🟡 EN RUTA • {viajeActivo.ruta_origen} ➔ {viajeActivo.ruta_destino}
+              </span>
+              <span className="text-xs font-mono font-bold bg-white/20 px-2 py-0.5 rounded-lg">
+                ⏱️ {tiempoTranscurrido}
+              </span>
             </div>
 
-            {/* Temporizador Digital */}
-            <div className="text-right">
-              <span className="text-[9px] text-zinc-400 uppercase font-mono block">TIEMPO EN RUTA</span>
-              <span className="text-lg font-black text-amber-400 font-mono tracking-wider">
-                {tiempoTranscurrido}
-              </span>
+            <div className="flex justify-between items-center pt-1">
+              <div>
+                <span className="text-[10px] uppercase text-amber-200 block font-bold">Chofer</span>
+                <strong className="text-sm block truncate max-w-[180px]">{viajeActivo.chofer_nombre}</strong>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] uppercase text-amber-200 block font-bold">A Bordo</span>
+                <strong className="text-2xl font-black">{pasajerosEnRuta.length}</strong>
+              </div>
             </div>
           </div>
 
-          {/* Visor de Cámara para Escaneo Continuo de QR */}
-          <div className="relative w-full aspect-video sm:aspect-[4/3] max-h-64 bg-black rounded-2xl overflow-hidden border-2 border-blue-500/50 shadow-2xl flex items-center justify-center">
-            {cameraActive ? (
-              <video
-                ref={videoRef}
-                className="w-full h-full object-cover"
-                autoPlay
-                playsInline
-                muted
-              />
-            ) : (
-              <div className="text-center p-4">
-                <Camera className="w-10 h-10 text-zinc-600 mx-auto mb-2" />
-                <p className="text-xs text-zinc-400">{cameraError || 'Cámara pausada'}</p>
+          {/* VISOR DE CÁMARA PARA ESCANEAR QR */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3 space-y-3 shadow-xl">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Camera className="w-4 h-4 text-emerald-400" /> Escáner de Credenciales QR
+              </span>
+              {!cameraActive && (
                 <button
                   onClick={iniciarCamara}
-                  className="mt-3 bg-blue-600 text-white font-bold px-4 py-1.5 rounded-lg text-xs"
+                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg"
                 >
                   Activar Cámara
                 </button>
-              </div>
-            )}
-
-            {/* Overlay de Guía de Escáner QR */}
-            {cameraActive && (
-              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="w-48 h-48 border-2 border-blue-400 rounded-2xl relative animate-pulse shadow-[0_0_20px_rgba(59,130,246,0.3)]">
-                  {/* Esquinas destacadas */}
-                  <div className="absolute -top-1 -left-1 w-5 h-5 border-t-4 border-l-4 border-cyan-400 rounded-tl-lg" />
-                  <div className="absolute -top-1 -right-1 w-5 h-5 border-t-4 border-r-4 border-cyan-400 rounded-tr-lg" />
-                  <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-4 border-l-4 border-cyan-400 rounded-bl-lg" />
-                  <div className="absolute -bottom-1 -right-1 w-5 h-5 border-b-4 border-r-4 border-cyan-400 rounded-br-lg" />
-                  <div className="absolute inset-x-2 top-1/2 h-0.5 bg-cyan-400/80 shadow-[0_0_8px_#22d3ee]" />
-                </div>
-                <span className="absolute bottom-2 bg-black/60 text-white text-[10px] font-bold px-3 py-1 rounded-full backdrop-blur-sm">
-                  Apunta la credencial QR aquí
-                </span>
-              </div>
-            )}
-
-            {/* Flash visual de confirmación de abordaje */}
-            {cooldownScan && (
-              <div className="absolute inset-0 bg-emerald-500/30 flex items-center justify-center backdrop-blur-[2px] transition-all">
-                <div className="bg-emerald-600 text-white font-black px-4 py-2 rounded-xl text-sm shadow-2xl flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5" /> ¡PASAJERO REGISTRADO!
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Último Pasajero Registrado (Banner Instantáneo) */}
-          {ultimoPasajero && (
-            <div className="bg-emerald-950/60 border border-emerald-600/60 p-2.5 rounded-xl flex items-center justify-between text-xs animate-in zoom-in-95 duration-200">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs">
-                  ✓
-                </div>
-                <div>
-                  <span className="font-bold text-white block leading-tight">{ultimoPasajero.nombre_completo}</span>
-                  <span className="text-[10px] text-emerald-400 block">{ultimoPasajero.puesto_depto}</span>
-                </div>
-              </div>
-              <span className="text-[10px] text-zinc-400 font-mono">
-                {new Date(ultimoPasajero.hora_subida).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </div>
-          )}
-
-          {/* Registro Manual por ID (Por si no trae credencial QR) */}
-          <form onSubmit={handleRegistroManual} className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Ingresar ID o Nombre manual..."
-              value={manualIdInput}
-              onChange={(e) => setManualIdInput(e.target.value)}
-              className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-            />
-            <button
-              type="submit"
-              disabled={!manualIdInput.trim()}
-              className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 disabled:opacity-40"
-            >
-              <UserPlus className="w-4 h-4" /> Agregar
-            </button>
-          </form>
-
-          {/* Lista de Pasajeros a Bordo (Conteo en Vivo) */}
-          <div className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl p-3.5 flex flex-col justify-between overflow-hidden min-h-[160px] shadow-lg">
-            <div className="flex justify-between items-center pb-2 border-b border-zinc-800">
-              <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
-                <Users className="w-4 h-4 text-blue-400" />
-                Pasajeros a Bordo
-              </h3>
-              <span className="text-xs font-black bg-blue-600 text-white px-2.5 py-0.5 rounded-full">
-                {pasajerosEnRuta.length} personas
-              </span>
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-1.5 py-2 pr-1 max-h-40">
-              {pasajerosEnRuta.length === 0 ? (
-                <div className="text-center py-6 text-zinc-500 text-xs">
-                  Escanea los códigos QR de los trabajadores que van subiendo al transporte.
-                </div>
-              ) : (
-                pasajerosEnRuta.map((p, idx) => (
-                  <div key={p.id_registro_local} className="bg-zinc-950/80 p-2 rounded-xl flex items-center justify-between text-xs border border-zinc-850">
-                    <div className="flex items-center gap-2">
-                      <span className="text-zinc-500 font-mono text-[10px]">#{pasajerosEnRuta.length - idx}</span>
-                      <div>
-                        <span className="font-bold text-white block text-xs leading-tight">{p.nombre_completo}</span>
-                        <span className="text-[9px] text-zinc-400 block">{p.puesto_depto}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[9px] text-zinc-500 font-mono">
-                        {new Date(p.hora_subida).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      <button
-                        onClick={() => eliminarPasajero(p.id_registro_local)}
-                        className="text-zinc-600 hover:text-red-400 p-1"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))
               )}
             </div>
+
+            {/* Ventana de Video */}
+            <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-black border-2 border-emerald-500/50 flex items-center justify-center">
+              <video ref={videoRef} className="w-full h-full object-cover" />
+              
+              {/* Mira de Escaneo */}
+              <div className="absolute inset-4 border-2 border-dashed border-emerald-400 rounded-xl pointer-events-none animate-pulse flex items-center justify-center">
+                <span className="text-[10px] font-mono font-bold text-emerald-300 bg-black/60 px-2 py-0.5 rounded">
+                  Coloca el QR de la credencial aquí
+                </span>
+              </div>
+
+              {cameraError && (
+                <div className="absolute inset-0 bg-black/90 p-3 flex flex-col items-center justify-center text-center text-xs text-rose-300 space-y-2">
+                  <ShieldAlert className="w-6 h-6 text-rose-400" />
+                  <p>{cameraError}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Captura Manual de Respaldo */}
+            <form onSubmit={handleRegistroManual} className="flex gap-2 pt-1">
+              <input
+                type="text"
+                value={manualIdInput}
+                onChange={e => setManualIdInput(e.target.value)}
+                placeholder="O escribe # Nómina o ID..."
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-emerald-500"
+              />
+              <button
+                type="submit"
+                className="px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shrink-0"
+              >
+                <UserPlus className="w-4 h-4" /> Agregar
+              </button>
+            </form>
           </div>
 
-          {/* Botón de Cierre de Viaje */}
+          {/* Lista de Pasajeros a Bordo */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-2.5">
+            <div className="flex justify-between items-center text-xs font-black uppercase tracking-wider text-zinc-400">
+              <span>Trabajadores a Bordo ({pasajerosEnRuta.length})</span>
+              <span className="text-emerald-400 text-[10px]">Auto-guardado en Celular</span>
+            </div>
+
+            {pasajerosEnRuta.length === 0 ? (
+              <p className="text-xs text-zinc-500 text-center py-4">Aún no se han escaneado credenciales en este viaje.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-44 overflow-y-auto">
+                {pasajerosEnRuta.map((p, idx) => (
+                  <div key={p.id_registro_local || idx} className="p-2.5 bg-zinc-800 rounded-xl border border-zinc-700 flex justify-between items-center text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center justify-center">
+                        {idx + 1}
+                      </span>
+                      <div>
+                        <div className="font-bold text-white">{p.nombre_completo}</div>
+                        <div className="text-[10px] text-zinc-400">{p.puesto_depto} • {new Date(p.hora_subida).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                      </div>
+                    </div>
+                    <button onClick={() => eliminarPasajero(p.id_registro_local)} className="text-zinc-500 hover:text-rose-400 p-1">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Botón Finalizar Viaje */}
           <button
             onClick={handleCerrarViaje}
-            className="w-full bg-red-600 hover:bg-red-500 active:scale-[0.98] text-white font-black py-4 rounded-xl text-base flex items-center justify-center gap-2 shadow-xl shadow-red-600/30 transition-all"
+            className="w-full py-4 bg-rose-600 hover:bg-rose-500 text-white font-black text-sm rounded-2xl shadow-xl flex items-center justify-center gap-2 transform active:scale-95 transition-all uppercase tracking-wider"
           >
-            <StopCircle className="w-5 h-5 fill-current" />
-            <span>Terminar / Cerrar Viaje</span>
+            <StopCircle className="w-5 h-5" />
+            <span>🏁 Finalizar Viaje en {viajeActivo.ruta_destino}</span>
           </button>
         </main>
       )}
 
-      {/* Footer Fijo */}
-      <footer className="bg-zinc-950 border-t border-zinc-900 py-2.5 px-4 text-center">
-        <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono">
-          SISTEMA DE TRANSPORTE Y CONTROL DE CHOFERES
-        </span>
+      {/* Footer de Estado y Respaldo */}
+      <footer className="bg-zinc-900 border-t border-zinc-800 p-2.5 text-center text-[10px] text-zinc-500">
+        <span>Minas de Bacis • Almacenamiento Local Offline Activo</span>
       </footer>
+
     </div>
   )
 }
