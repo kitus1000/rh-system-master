@@ -1,4 +1,4 @@
-const CACHE_NAME = 'choferes-bacis-v3';
+const CACHE_NAME = 'choferes-bacis-v4';
 const URLS_TO_CACHE = [
   '/chofer-app',
   '/logo-bacis.png',
