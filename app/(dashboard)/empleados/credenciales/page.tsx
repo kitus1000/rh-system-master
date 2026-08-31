@@ -3,13 +3,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { 
-  Printer, Download, Search, Filter, CheckSquare, Square, RefreshCw, 
+  Printer, Search, Filter, CheckSquare, Square, RefreshCw, 
   QrCode, User, ShieldCheck, Sparkles, Copy, Layers, Eye, FileText, 
-  CheckCircle2, ArrowLeft, Sliders, Palette, Heart, Phone, Award, Building2
+  CheckCircle2, ArrowLeft, Scissors, Sliders, Palette, Heart, Phone, Award, Building2
 } from 'lucide-react'
 import Link from 'next/link'
 import QRCode from 'qrcode'
-import { jsPDF } from 'jspdf'
 
 interface Empleado {
   id_empleado: string
@@ -28,10 +27,6 @@ interface Empleado {
   es_contratista?: boolean
 }
 
-interface CredencialItem extends Empleado {
-  qrDataUrl?: string
-}
-
 export default function CredencialesMasivasPage() {
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [loading, setLoading] = useState(true)
@@ -41,12 +36,12 @@ export default function CredencialesMasivasPage() {
   const [puestoFilter, setPuestoFilter] = useState('TODOS')
   const [soloActivos, setSoloActivos] = useState(true)
   
-  // Opciones de Impresión y Diseño
+  // Opciones de Impresión y Cuadrícula
   const [copiasPorEmpleado, setCopiasPorEmpleado] = useState<number>(1)
   const [orientacion, setOrientacion] = useState<'vertical' | 'horizontal'>('vertical')
   const [temaColor, setTemaColor] = useState<'dorado' | 'azul' | 'verde' | 'rojo'>('dorado')
   const [mostrarReverso, setMostrarReverso] = useState(false)
-  const [generandoPDF, setGenerandoPDF] = useState(false)
+  const [mostrarGuiasCorte, setMostrarGuiasCorte] = useState(true)
 
   // Cache de códigos QR generados (id -> dataUrl)
   const [qrCache, setQrCache] = useState<Record<string, string>>({})
@@ -66,9 +61,9 @@ export default function CredencialesMasivasPage() {
 
       if (!error && data) {
         setEmpleados(data)
-        // Por defecto seleccionar los primeros 8 para vista previa rápida
+        // Por defecto seleccionar los primeros 12 para llenar 1 hoja completa
         const initialSelected = new Set<string>()
-        data.slice(0, 8).forEach(e => initialSelected.add(e.id_empleado))
+        data.slice(0, 12).forEach(e => initialSelected.add(e.id_empleado))
         setSelectedIds(initialSelected)
 
         // Generar QRs para todos
@@ -150,7 +145,14 @@ export default function CredencialesMasivasPage() {
     }
   })
 
-  // Manejo de Impresión del Navegador
+  // Agrupación en páginas exactas (12 por hoja en vertical 4x3, 8 por hoja en horizontal 2x4)
+  const itemsPorHoja = orientacion === 'vertical' ? 12 : 8
+  const paginasCredenciales: Empleado[][] = []
+  for (let i = 0; i < credencialesAImprimir.length; i += itemsPorHoja) {
+    paginasCredenciales.push(credencialesAImprimir.slice(i, i + itemsPorHoja))
+  }
+
+  // Manejo de Impresión
   const handleImprimir = () => {
     window.print()
   }
@@ -190,9 +192,16 @@ export default function CredencialesMasivasPage() {
   return (
     <div className="space-y-6 pb-24 font-sans max-w-7xl mx-auto">
       
-      {/* Estilos de Impresión CSS (Oculta controles y ajusta la cuadrícula de credenciales para hoja carta) */}
+      {/* Estilos de Impresión CSS con separación perfecta y saltos de página */}
       <style jsx global>{`
         @media print {
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
           body * {
             visibility: hidden;
           }
@@ -203,21 +212,34 @@ export default function CredencialesMasivasPage() {
             position: absolute;
             left: 0;
             top: 0;
-            width: 100%;
-            margin: 0;
-            padding: 0;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
             background: white !important;
           }
           .no-print {
             display: none !important;
           }
-          .page-break {
-            page-break-after: always;
-            break-after: page;
+          .hoja-impresion {
+            width: 100% !important;
+            max-width: 215.9mm !important;
+            min-height: 279.4mm !important;
+            max-height: 279.4mm !important;
+            margin: 0 auto !important;
+            padding: 4mm !important;
+            page-break-after: always !important;
+            break-after: page !important;
+            box-sizing: border-box !important;
+            display: block !important;
+          }
+          .guia-corte {
+            border: 1px dashed #9ca3af !important;
+            padding: 1.5mm !important;
+            box-sizing: border-box !important;
           }
           @page {
             size: letter portrait;
-            margin: 8mm;
+            margin: 4mm;
           }
         }
       `}</style>
@@ -243,7 +265,7 @@ export default function CredencialesMasivasPage() {
               </span>
             </div>
             <p className="text-zinc-400 text-xs mt-0.5">
-              Diseño oficial tipo PVC para gafetes, abordaje de transporte y control de acceso.
+              Formato de impresión optimizado: {orientacion === 'vertical' ? '12 credenciales por hoja (4 x 3)' : '8 credenciales por hoja (2 x 4)'} con guías de corte.
             </p>
           </div>
         </div>
@@ -263,10 +285,10 @@ export default function CredencialesMasivasPage() {
             type="button"
             onClick={handleImprimir}
             disabled={credencialesAImprimir.length === 0}
-            className="flex-1 md:flex-initial px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all"
+            className="flex-1 md:flex-initial px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all active:scale-95"
           >
             <Printer className="w-4 h-4" />
-            <span>🖨️ Imprimir ({credencialesAImprimir.length} Credenciales)</span>
+            <span>🖨️ Imprimir ({credencialesAImprimir.length} Credenciales • {paginasCredenciales.length} {paginasCredenciales.length === 1 ? 'Hoja' : 'Hojas'})</span>
           </button>
         </div>
       </div>
@@ -340,24 +362,25 @@ export default function CredencialesMasivasPage() {
           </div>
         </div>
 
-        {/* Opciones de Diseño Visual */}
+        {/* Opciones de Diseño y Cuadrícula */}
         <div className="pt-3 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex flex-wrap items-center gap-3">
-            {/* Orientación */}
+            
+            {/* Formato y Cuadrícula */}
             <div className="flex items-center gap-1.5 bg-zinc-100 p-1 rounded-xl">
               <button
                 type="button"
                 onClick={() => setOrientacion('vertical')}
-                className={`px-3 py-1.5 rounded-lg font-black text-xs transition-all ${orientacion === 'vertical' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600'}`}
+                className={`px-3 py-1.5 rounded-lg font-black text-xs transition-all flex items-center gap-1.5 ${orientacion === 'vertical' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600'}`}
               >
-                🪪 Vertical (Gafete)
+                <span>🪪 Vertical: 12 por Hoja (4 x 3)</span>
               </button>
               <button
                 type="button"
                 onClick={() => setOrientacion('horizontal')}
-                className={`px-3 py-1.5 rounded-lg font-black text-xs transition-all ${orientacion === 'horizontal' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600'}`}
+                className={`px-3 py-1.5 rounded-lg font-black text-xs transition-all flex items-center gap-1.5 ${orientacion === 'horizontal' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600'}`}
               >
-                💳 Horizontal (Tarjeta)
+                <span>💳 Horizontal: 8 por Hoja (2 x 4)</span>
               </button>
             </div>
 
@@ -368,13 +391,13 @@ export default function CredencialesMasivasPage() {
                 type="button"
                 onClick={() => setTemaColor('dorado')}
                 className={`w-6 h-6 rounded-lg bg-amber-600 border-2 transition-all ${temaColor === 'dorado' ? 'border-zinc-900 scale-110' : 'border-transparent opacity-60'}`}
-                title="Dorado Minero"
+                title="Dorado Minero (Oficial Bacis)"
               />
               <button
                 type="button"
                 onClick={() => setTemaColor('azul')}
                 className={`w-6 h-6 rounded-lg bg-blue-800 border-2 transition-all ${temaColor === 'azul' ? 'border-zinc-900 scale-110' : 'border-transparent opacity-60'}`}
-                title="Azul Corporativo"
+                title="Azul Operaciones"
               />
               <button
                 type="button"
@@ -389,6 +412,16 @@ export default function CredencialesMasivasPage() {
                 title="Rojo Rescate / Brigada"
               />
             </div>
+
+            {/* Toggle Guías de Corte */}
+            <button
+              type="button"
+              onClick={() => setMostrarGuiasCorte(!mostrarGuiasCorte)}
+              className={`px-3 py-1.5 rounded-xl font-bold border transition-all flex items-center gap-1.5 ${mostrarGuiasCorte ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-zinc-50 border-zinc-200 text-zinc-600'}`}
+            >
+              <Scissors className="w-3.5 h-3.5" />
+              <span>{mostrarGuiasCorte ? '✓ Líneas de Corte Activas' : 'Sin Líneas de Corte'}</span>
+            </button>
 
             {/* Toggle Reverso */}
             <button
@@ -424,14 +457,14 @@ export default function CredencialesMasivasPage() {
       <div className="no-print bg-white p-4 rounded-2xl border border-zinc-200 shadow-xs space-y-2">
         <div className="flex justify-between items-center text-xs">
           <span className="font-black text-zinc-700 uppercase tracking-wider">
-            Lista de Personal ({empleadosSeleccionados.length} seleccionados de {filteredEmpleados.length})
+            Personal Seleccionado: <strong className="text-emerald-700">{empleadosSeleccionados.length}</strong> de {filteredEmpleados.length}
           </span>
-          <span className="text-[11px] font-bold text-emerald-600">
-            Total a Imprimir: {credencialesAImprimir.length} credenciales (~{Math.ceil(credencialesAImprimir.length / (orientacion === 'vertical' ? 8 : 6))} hojas carta)
+          <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200">
+            📄 Se generarán {paginasCredenciales.length} {paginasCredenciales.length === 1 ? 'hoja carta' : 'hojas carta'} ({credencialesAImprimir.length} credenciales totales)
           </span>
         </div>
 
-        <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1">
+        <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1">
           {filteredEmpleados.map(emp => {
             const isSelected = selectedIds.has(emp.id_empleado)
             return (
@@ -456,15 +489,15 @@ export default function CredencialesMasivasPage() {
       {/* ============================================================ */}
       {/* SECCIÓN DE VISTA PREVIA Y ÁREA IMPRIMIBLE                    */}
       {/* ============================================================ */}
-      <div id="seccion-impresion-credenciales" ref={printContainerRef} className="space-y-4">
+      <div id="seccion-impresion-credenciales" ref={printContainerRef} className="space-y-8">
         
         <div className="no-print flex justify-between items-center px-1">
           <h2 className="text-base font-black text-zinc-900 uppercase flex items-center gap-2">
             <Eye className="w-5 h-5 text-amber-600" />
-            Vista Previa de Impresión ({credencialesAImprimir.length} Credenciales)
+            Vista Previa de Impresión ({credencialesAImprimir.length} Credenciales • {paginasCredenciales.length} {paginasCredenciales.length === 1 ? 'Página' : 'Páginas'})
           </h2>
-          <span className="text-xs text-zinc-500">
-            Distribución optimizada para impresión en hojas tamaño Carta / A4 o Gafetes PVC
+          <span className="text-xs text-zinc-500 font-bold">
+            Distribución: {orientacion === 'vertical' ? '4 columnas × 3 filas (12 por hoja)' : '2 columnas × 4 filas (8 por hoja)'}
           </span>
         </div>
 
@@ -477,211 +510,213 @@ export default function CredencialesMasivasPage() {
             </p>
           </div>
         ) : (
-          /* CUADRÍCULA DE IMPRESIÓN */
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 print:grid-cols-4 print:gap-3">
-            {credencialesAImprimir.map((emp, index) => {
-              const qrUrl = qrCache[emp.id_empleado]
-              const numeroNomina = emp.numero_empleado ? `#${emp.numero_empleado}` : 'N/A'
-              const nombreCompleto = `${emp.nombre} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.trim()
-              const puesto = emp.puesto || 'Personal de Turno'
-              const departamento = emp.departamento || 'Mina Bacis'
+          /* RENDERIZADO POR HOJAS FÍSICAS */
+          paginasCredenciales.map((grupoPagina, numPagina) => (
+            <div 
+              key={`pagina-${numPagina}`}
+              className="hoja-impresion bg-white p-4 rounded-3xl border border-zinc-300 shadow-sm print:shadow-none print:border-none print:p-0 space-y-2"
+            >
+              {/* Encabezado de página en vista previa de pantalla */}
+              <div className="no-print flex justify-between items-center pb-2 border-b border-zinc-200 text-xs text-zinc-500 font-bold">
+                <span className="flex items-center gap-1.5">
+                  <Scissors className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Hoja de Impresión #{numPagina + 1} ({grupoPagina.length} credenciales)</span>
+                </span>
+                <span>Tamaño: Carta (8.5&quot; × 11&quot;)</span>
+              </div>
 
-              return (
-                <div key={`${emp.id_empleado}-${index}`} className="flex flex-col items-center justify-center">
-                  
-                  {/* CREDENCIAL VERTICAL (GAFETE CR-80) */}
-                  {orientacion === 'vertical' ? (
-                    <div className={`w-[250px] h-[385px] bg-white rounded-2xl overflow-hidden border-2 border-zinc-300 shadow-md flex flex-col justify-between relative print:shadow-none print:border-zinc-400 print:w-[65mm] print:h-[98mm] ${themeStyles.shadowColor}`}>
-                      
-                      {/* Cabecera Corporativa con Logo */}
-                      <div className={`${themeStyles.headerBg} p-2.5 text-white text-center relative overflow-hidden shrink-0`}>
-                        <div className="flex items-center justify-center gap-1.5">
-                          <img src="/logo-bacis.png" alt="Logo Bacis" className="h-6 object-contain filter brightness-0 invert drop-shadow-sm" onError={(e)=>{ (e.target as any).style.display='none' }} />
-                          <div className="text-left leading-none">
-                            <span className="text-[11px] font-black tracking-wider block uppercase">MINAS DE BACIS</span>
-                            <span className="text-[7px] text-amber-200 font-bold uppercase tracking-widest block">GRUPO MINERO BACIS</span>
-                          </div>
-                        </div>
-                        <div className="mt-1">
-                          <span className="text-[7.5px] font-black tracking-widest uppercase bg-black/30 px-2 py-0.5 rounded-full inline-block border border-white/20">
-                            CREDENCIAL OFICIAL DE PERSONAL
-                          </span>
-                        </div>
-                      </div>
+              {/* CUADRÍCULA SEGÚN ORIENTACIÓN */}
+              {orientacion === 'vertical' ? (
+                /* CUADRÍCULA 4 COLUMNAS X 3 FILAS = 12 CREDENCIALES */
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 print:grid-cols-4 gap-2.5 print:gap-1.5">
+                  {grupoPagina.map((emp, idx) => {
+                    const qrUrl = qrCache[emp.id_empleado]
+                    const numeroNomina = emp.numero_empleado ? `#${emp.numero_empleado}` : 'N/A'
+                    const nombreCompleto = `${emp.nombre} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.trim()
+                    const puesto = emp.puesto || 'Personal'
+                    const departamento = emp.departamento || 'Mina Bacis'
 
-                      {/* Cuerpo: Foto y Datos Principales */}
-                      <div className="p-2.5 flex flex-col items-center text-center space-y-1.5 grow justify-center">
-                        
-                        {/* Foto del Trabajador */}
-                        <div className="relative">
-                          <div className={`w-16 h-16 rounded-full overflow-hidden border-2 ${themeStyles.borderAccent} bg-zinc-100 shadow-sm flex items-center justify-center`}>
-                            {emp.foto_url ? (
-                              <img src={emp.foto_url} alt={nombreCompleto} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-950 text-amber-400 flex items-center justify-center font-black text-xl">
-                                {emp.nombre.charAt(0)}{emp.apellido_paterno ? emp.apellido_paterno.charAt(0) : ''}
-                              </div>
-                            )}
-                          </div>
-                          <span className="absolute -bottom-1 -right-1 bg-emerald-500 text-white p-0.5 rounded-full border border-white" title="Activo">
-                            <CheckCircle2 className="w-3 h-3" />
-                          </span>
-                        </div>
-
-                        {/* Nombre del Trabajador */}
-                        <div>
-                          <h3 className="text-xs font-black text-zinc-900 leading-tight uppercase line-clamp-2 px-1">
-                            {nombreCompleto}
-                          </h3>
-                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md inline-block mt-0.5 border ${themeStyles.badgeBg}`}>
-                            {puesto}
-                          </span>
-                        </div>
-
-                        {/* Departamento y Nómina */}
-                        <div className="text-[9px] text-zinc-500 font-medium leading-tight">
-                          <div className="truncate font-bold text-zinc-700">{departamento}</div>
-                          <div className="font-mono font-black text-zinc-900 mt-0.5">
-                            Nómina: <span className={themeStyles.accentText}>{numeroNomina}</span>
-                          </div>
-                        </div>
-
-                        {/* Código QR de Alta Definición */}
-                        <div className="pt-1 border-t border-zinc-100 flex flex-col items-center">
-                          {qrUrl ? (
-                            <img src={qrUrl} alt="QR" className="w-20 h-20 object-contain" />
-                          ) : (
-                            <div className="w-20 h-20 bg-zinc-100 flex items-center justify-center text-[8px] text-zinc-400 font-mono">
-                              Generando...
+                    return (
+                      <div 
+                        key={`${emp.id_empleado}-${idx}`} 
+                        className={`${mostrarGuiasCorte ? 'guia-corte rounded-xl p-1 border border-dashed border-zinc-400 bg-zinc-50/40' : 'p-0.5'} flex items-center justify-center`}
+                      >
+                        {/* CREDENCIAL VERTICAL COMPACTA (4X3) */}
+                        <div className={`w-[175px] h-[255px] print:w-[48mm] print:h-[84mm] bg-white rounded-xl overflow-hidden border border-zinc-400 shadow-xs flex flex-col justify-between relative print:shadow-none print:border-zinc-500`}>
+                          
+                          {/* Cabecera */}
+                          <div className={`${themeStyles.headerBg} p-1 text-white text-center shrink-0`}>
+                            <div className="flex items-center justify-center gap-1">
+                              <img src="/logo-bacis.png" alt="Bacis" className="h-4 object-contain filter brightness-0 invert" onError={(e)=>{ (e.target as any).style.display='none' }} />
+                              <span className="text-[9px] font-black uppercase tracking-wider">MINAS DE BACIS</span>
                             </div>
-                          )}
-                          <span className="text-[7.5px] font-mono font-bold text-zinc-700 tracking-tight leading-none mt-0.5">
-                            ID: {emp.numero_empleado || emp.id_empleado.slice(0, 8)}
-                          </span>
-                        </div>
-                      </div>
+                            <span className="text-[6px] font-black uppercase bg-black/30 px-1.5 py-0.5 rounded-full inline-block mt-0.5">
+                              CREDENCIAL OFICIAL
+                            </span>
+                          </div>
 
-                      {/* Franja Inferior de Seguridad */}
-                      <div className="bg-zinc-900 text-zinc-300 py-1 px-2 text-center text-[7px] font-mono uppercase tracking-wider shrink-0 flex justify-between items-center border-t border-zinc-800">
-                        <span>MINA BACIS</span>
-                        <span className="text-amber-400 font-bold">SEGURIDAD INDUSTRIAL</span>
-                      </div>
-                    </div>
-                  ) : (
-                    /* CREDENCIAL HORIZONTAL (TARJETA TIPO IDENTIFICACIÓN) */
-                    <div className={`w-[360px] h-[225px] bg-white rounded-2xl overflow-hidden border-2 border-zinc-300 shadow-md flex flex-col justify-between relative print:shadow-none print:border-zinc-400 print:w-[86mm] print:h-[54mm] ${themeStyles.shadowColor}`}>
-                      
-                      {/* Cabecera */}
-                      <div className={`${themeStyles.headerBg} p-2 text-white flex justify-between items-center shrink-0`}>
-                        <div className="flex items-center gap-1.5">
-                          <img src="/logo-bacis.png" alt="Logo Bacis" className="h-5 object-contain filter brightness-0 invert" onError={(e)=>{ (e.target as any).style.display='none' }} />
-                          <span className="text-[10px] font-black uppercase tracking-wider">MINAS DE BACIS</span>
-                        </div>
-                        <span className="text-[7px] font-black uppercase bg-black/30 px-2 py-0.5 rounded-full border border-white/20">
-                          CREDENCIAL OFICIAL
-                        </span>
-                      </div>
-
-                      {/* Cuerpo Horizontal */}
-                      <div className="p-3 flex items-center justify-between gap-2 grow">
-                        
-                        {/* Foto */}
-                        <div className="shrink-0 flex flex-col items-center">
-                          <div className={`w-16 h-16 rounded-xl overflow-hidden border-2 ${themeStyles.borderAccent} bg-zinc-100 flex items-center justify-center`}>
-                            {emp.foto_url ? (
-                              <img src={emp.foto_url} alt={nombreCompleto} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full bg-zinc-900 text-amber-400 flex items-center justify-center font-black text-xl">
-                                {emp.nombre.charAt(0)}{emp.apellido_paterno ? emp.apellido_paterno.charAt(0) : ''}
+                          {/* Cuerpo */}
+                          <div className="p-1 flex flex-col items-center text-center space-y-0.5 grow justify-center">
+                            {/* Foto */}
+                            <div className="relative">
+                              <div className={`w-11 h-11 rounded-full overflow-hidden border ${themeStyles.borderAccent} bg-zinc-100 flex items-center justify-center`}>
+                                {emp.foto_url ? (
+                                  <img src={emp.foto_url} alt={nombreCompleto} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full bg-zinc-900 text-amber-400 flex items-center justify-center font-black text-xs">
+                                    {emp.nombre.charAt(0)}{emp.apellido_paterno ? emp.apellido_paterno.charAt(0) : ''}
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                          <span className="text-[8px] font-mono font-black text-zinc-900 mt-1">
-                            {numeroNomina}
-                          </span>
-                        </div>
-
-                        {/* Datos Centrales */}
-                        <div className="grow text-left space-y-0.5">
-                          <h3 className="text-xs font-black text-zinc-900 uppercase leading-tight line-clamp-2">
-                            {nombreCompleto}
-                          </h3>
-                          <div className={`text-[8.5px] font-black uppercase px-2 py-0.5 rounded-md inline-block border ${themeStyles.badgeBg}`}>
-                            {puesto}
-                          </div>
-                          <div className="text-[8px] text-zinc-500 font-bold truncate">
-                            {departamento}
-                          </div>
-                          {emp.nss && (
-                            <div className="text-[7.5px] text-zinc-400 font-mono">
-                              NSS: {emp.nss}
                             </div>
-                          )}
-                        </div>
 
-                        {/* Código QR */}
-                        <div className="shrink-0 flex flex-col items-center pl-2 border-l border-zinc-100">
-                          {qrUrl ? (
-                            <img src={qrUrl} alt="QR" className="w-16 h-16 object-contain" />
-                          ) : (
-                            <div className="w-16 h-16 bg-zinc-100 flex items-center justify-center text-[7px]">QR</div>
-                          )}
-                          <span className="text-[6.5px] font-mono text-zinc-500 uppercase mt-0.5">Escaneo Ruta</span>
-                        </div>
-                      </div>
+                            {/* Nombre y Puesto */}
+                            <div className="w-full px-0.5">
+                              <h3 className="text-[9.5px] font-black text-zinc-900 leading-tight uppercase truncate">
+                                {nombreCompleto}
+                              </h3>
+                              <span className={`text-[7px] font-black uppercase px-1 py-0.2 rounded inline-block truncate max-w-full border ${themeStyles.badgeBg}`}>
+                                {puesto}
+                              </span>
+                            </div>
 
-                      {/* Franja Inferior */}
-                      <div className="bg-zinc-900 text-zinc-300 py-1 px-3 text-[7px] font-mono uppercase flex justify-between items-center">
-                        <span>MINA BACIS DGO</span>
-                        <span className="text-amber-400 font-bold">CONTROL DE ACCESO</span>
-                      </div>
-                    </div>
-                  )}
+                            {/* Nómina */}
+                            <div className="text-[7.5px] text-zinc-500 font-bold leading-none">
+                              Nómina: <strong className={`font-mono text-zinc-900 ${themeStyles.accentText}`}>{numeroNomina}</strong>
+                            </div>
 
-                  {/* REVERSO OPCIONAL (TARJETA DE SEGURIDAD Y CONTACTO DE EMERGENCIA) */}
-                  {mostrarReverso && (
-                    <div className={`mt-2 w-[250px] h-[385px] bg-zinc-950 text-white rounded-2xl overflow-hidden border-2 border-zinc-800 p-3.5 flex flex-col justify-between text-center relative print:shadow-none print:w-[65mm] print:h-[98mm]`}>
-                      <div className="space-y-1">
-                        <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest block border-b border-zinc-800 pb-1">
-                          DATOS DE SEGURIDAD Y RESCATE
-                        </span>
-                        <div className="text-[8px] text-zinc-400 font-mono">MINAS DE BACIS S.A. DE C.V.</div>
-                      </div>
+                            {/* Código QR */}
+                            <div className="pt-0.5 flex flex-col items-center">
+                              {qrUrl ? (
+                                <img src={qrUrl} alt="QR" className="w-14 h-14 object-contain" />
+                              ) : (
+                                <div className="w-14 h-14 bg-zinc-100 flex items-center justify-center text-[7px]">QR</div>
+                              )}
+                              <span className="text-[6.5px] font-mono font-bold text-zinc-800 leading-none">
+                                ID: {emp.numero_empleado || emp.id_empleado.slice(0, 6)}
+                              </span>
+                            </div>
+                          </div>
 
-                      <div className="space-y-2 text-left text-[8.5px] bg-zinc-900 p-2.5 rounded-xl border border-zinc-800 font-mono">
-                        <div>
-                          <span className="text-zinc-500 uppercase block text-[7px]">Titular:</span>
-                          <strong className="text-white uppercase truncate block">{nombreCompleto}</strong>
-                        </div>
-                        <div>
-                          <span className="text-zinc-500 uppercase block text-[7px]">CURP / NSS:</span>
-                          <strong className="text-amber-300 truncate block">{emp.curp || emp.nss || 'Registrado en RH'}</strong>
-                        </div>
-                        <div>
-                          <span className="text-zinc-500 uppercase block text-[7px]">Teléfono de Contacto:</span>
-                          <strong className="text-emerald-400 block">{emp.telefono || 'Caseta Bacis (674) 861 0000'}</strong>
+                          {/* Franja Inferior */}
+                          <div className="bg-zinc-900 text-zinc-300 py-0.5 px-1 text-center text-[6px] font-mono uppercase flex justify-between items-center shrink-0">
+                            <span>BACIS</span>
+                            <span className="text-amber-400 font-bold">SEGURIDAD</span>
+                          </div>
                         </div>
                       </div>
-
-                      <div className="text-[7.5px] text-zinc-400 space-y-1">
-                        <p className="leading-tight">
-                          ⚠️ Esta credencial es personal e intransferible. Obligatorio portarla para abordar transporte y acceder a interior mina.
-                        </p>
-                        <p className="text-[7px] text-zinc-500">
-                          En caso de extravío favor de entregar en Depto. de Recursos Humanos.
-                        </p>
-                      </div>
-
-                      <div className="border-t border-zinc-800 pt-1 text-[7px] text-zinc-500 uppercase">
-                        Vigencia Oficial: 2026 - 2027
-                      </div>
-                    </div>
-                  )}
-
+                    )
+                  })}
                 </div>
-              )
-            })}
-          </div>
+              ) : (
+                /* CUADRÍCULA 2 COLUMNAS X 4 FILAS = 8 CREDENCIALES HORIZONTALES */
+                <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-3 print:gap-2">
+                  {grupoPagina.map((emp, idx) => {
+                    const qrUrl = qrCache[emp.id_empleado]
+                    const numeroNomina = emp.numero_empleado ? `#${emp.numero_empleado}` : 'N/A'
+                    const nombreCompleto = `${emp.nombre} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.trim()
+                    const puesto = emp.puesto || 'Personal'
+                    const departamento = emp.departamento || 'Mina Bacis'
+
+                    return (
+                      <div 
+                        key={`${emp.id_empleado}-${idx}`} 
+                        className={`${mostrarGuiasCorte ? 'guia-corte rounded-xl p-1 border border-dashed border-zinc-400 bg-zinc-50/40' : 'p-0.5'} flex items-center justify-center`}
+                      >
+                        {/* CREDENCIAL HORIZONTAL (2X4) */}
+                        <div className={`w-[340px] h-[190px] print:w-[95mm] print:h-[60mm] bg-white rounded-xl overflow-hidden border border-zinc-400 shadow-xs flex flex-col justify-between relative print:shadow-none print:border-zinc-500`}>
+                          
+                          {/* Cabecera */}
+                          <div className={`${themeStyles.headerBg} p-1.5 text-white flex justify-between items-center shrink-0`}>
+                            <div className="flex items-center gap-1.5">
+                              <img src="/logo-bacis.png" alt="Bacis" className="h-4 object-contain filter brightness-0 invert" onError={(e)=>{ (e.target as any).style.display='none' }} />
+                              <span className="text-[10px] font-black uppercase tracking-wider">MINAS DE BACIS</span>
+                            </div>
+                            <span className="text-[7px] font-black uppercase bg-black/30 px-1.5 py-0.5 rounded-full">
+                              CREDENCIAL OFICIAL
+                            </span>
+                          </div>
+
+                          {/* Cuerpo */}
+                          <div className="p-2 flex items-center justify-between gap-2 grow">
+                            {/* Foto */}
+                            <div className="shrink-0 flex flex-col items-center">
+                              <div className={`w-14 h-14 rounded-xl overflow-hidden border ${themeStyles.borderAccent} bg-zinc-100 flex items-center justify-center`}>
+                                {emp.foto_url ? (
+                                  <img src={emp.foto_url} alt={nombreCompleto} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full bg-zinc-900 text-amber-400 flex items-center justify-center font-black text-sm">
+                                    {emp.nombre.charAt(0)}{emp.apellido_paterno ? emp.apellido_paterno.charAt(0) : ''}
+                                  </div>
+                                )}
+                              </div>
+                              <span className="text-[7.5px] font-mono font-black text-zinc-900 mt-0.5">
+                                {numeroNomina}
+                              </span>
+                            </div>
+
+                            {/* Datos */}
+                            <div className="grow text-left space-y-0.5">
+                              <h3 className="text-[11px] font-black text-zinc-900 uppercase leading-tight truncate">
+                                {nombreCompleto}
+                              </h3>
+                              <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded inline-block border ${themeStyles.badgeBg}`}>
+                                {puesto}
+                              </span>
+                              <div className="text-[8px] text-zinc-500 font-bold truncate">
+                                {departamento}
+                              </div>
+                            </div>
+
+                            {/* QR */}
+                            <div className="shrink-0 flex flex-col items-center pl-1.5 border-l border-zinc-100">
+                              {qrUrl ? (
+                                <img src={qrUrl} alt="QR" className="w-14 h-14 object-contain" />
+                              ) : (
+                                <div className="w-14 h-14 bg-zinc-100 flex items-center justify-center text-[7px]">QR</div>
+                              )}
+                              <span className="text-[6.5px] font-mono text-zinc-600 uppercase mt-0.5">Escaneo Ruta</span>
+                            </div>
+                          </div>
+
+                          {/* Franja Inferior */}
+                          <div className="bg-zinc-900 text-zinc-300 py-0.5 px-2 text-[6.5px] font-mono uppercase flex justify-between items-center shrink-0">
+                            <span>MINA BACIS DGO</span>
+                            <span className="text-amber-400 font-bold">CONTROL DE ACCESO</span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* REVERSO OPCIONAL */}
+              {mostrarReverso && (
+                <div className="mt-4 pt-4 border-t-2 border-dashed border-zinc-300">
+                  <span className="no-print text-xs font-bold text-zinc-400 uppercase tracking-wider block mb-2">Reverso de Seguridad</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 print:grid-cols-4 gap-2">
+                    {grupoPagina.map((emp, idx) => (
+                      <div key={`rev-${emp.id_empleado}-${idx}`} className="guia-corte p-1 rounded-xl bg-zinc-900 text-white text-[7px] font-mono flex flex-col justify-between h-[255px] print:h-[84mm] p-2">
+                        <div className="text-center border-b border-zinc-800 pb-1">
+                          <strong className="text-amber-400 block text-[8px]">MINAS DE BACIS</strong>
+                          <span>FICHA DE EMERGENCIA</span>
+                        </div>
+                        <div className="space-y-1 text-left bg-zinc-950 p-1.5 rounded">
+                          <div><span className="text-zinc-500">TITULAR:</span> <strong className="text-white block truncate">{emp.nombre} {emp.apellido_paterno}</strong></div>
+                          <div><span className="text-zinc-500">CURP/NSS:</span> <span className="text-amber-300 block truncate">{emp.curp || emp.nss || 'REGISTRADO RH'}</span></div>
+                          <div><span className="text-zinc-500">EMERGENCIA:</span> <span className="text-emerald-400 block">{emp.telefono || '(674) 861 0000'}</span></div>
+                        </div>
+                        <div className="text-[6.5px] text-zinc-400 text-center leading-tight">
+                          Porte obligatorio en interior mina. Intransferible.
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))
         )}
       </div>
     </div>
