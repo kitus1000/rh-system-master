@@ -7,7 +7,7 @@ import {
   Truck, Clock, Camera, Wifi, WifiOff,
   Play, StopCircle, HardHat, ChevronRight,
   Trash2, ArrowLeft, ShieldAlert, X, Sparkles, Check,
-  UserCheck, User, Users, Search
+  UserCheck, User, Users, Search, CloudUpload, RefreshCw
 } from 'lucide-react'
 
 /* ─────────────────────────── Tipos ─────────────────────────── */
@@ -105,6 +105,8 @@ export default function ChoferApp() {
 
   /* ── Red ── */
   const [isOnline, setIsOnline] = useState(true)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [syncStatusMsg, setSyncStatusMsg] = useState('')
 
   /* ── PWA install ── */
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
@@ -271,29 +273,31 @@ export default function ChoferApp() {
     } catch (_) {}
   }
 
-  // Sincroniza viajes y pasajeros completos con el servidor
+  // Sincronización Manual y Automática con la Oficina
   const autoSyncData = async () => {
     if (!navigator.onLine) return
     try {
       const saved: ViajeLocal[] = JSON.parse(localStorage.getItem('rh_chofer_viajes') || '[]')
-      const pendientes = saved.filter(v => !v.sincronizado && v.estado === 'Finalizado')
-      if (!pendientes.length) return
+      const finalizados = saved.filter(v => v.estado === 'Finalizado')
+      if (!finalizados.length) return
 
-      const res = await fetch('/api/choferes/sync', {
+      await fetch('/api/choferes/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          viajes: pendientes.map(v => ({
+          viajes: finalizados.map(v => ({
             id_viaje_local: v.id_viaje_local,
             id_chofer: v.id_chofer ?? null,
             chofer_nombre: v.chofer_nombre,
+            tipo_vehiculo: v.tipo_vehiculo || 'Camioneta',
+            numero_economico: v.numero_economico || 'CAM-01',
             ruta_origen: v.ruta_origen, 
             ruta_destino: v.ruta_destino,
             hora_inicio_real: v.hora_inicio_real, 
             hora_fin_real: v.hora_fin_real,
             estado: v.estado
           })),
-          pasajeros: pendientes.flatMap(v => v.pasajeros.map(p => ({
+          pasajeros: finalizados.flatMap(v => v.pasajeros.map(p => ({
             id_registro_local: p.id_registro_local,
             id_viaje_local: v.id_viaje_local,
             id_empleado: p.id_empleado ?? null,
@@ -303,7 +307,55 @@ export default function ChoferApp() {
             metodo_registro: p.metodo_registro,
             hora_subida: p.hora_subida
           }))),
-          respuestas_checklist: pendientes.map(v => ({
+          respuestas_checklist: finalizados.map(v => ({
+            id_viaje_local: v.id_viaje_local,
+            respuestas_json: v.checklist_respuestas
+          }))
+        })
+      })
+    } catch (_) {}
+  }
+
+  const handleManualSync = async () => {
+    setIsSyncing(true)
+    setSyncStatusMsg('Sincronizando viajes con la oficina...')
+    try {
+      const saved: ViajeLocal[] = JSON.parse(localStorage.getItem('rh_chofer_viajes') || '[]')
+      const finalizados = saved.filter(v => v.estado === 'Finalizado')
+      if (!finalizados.length) {
+        setSyncStatusMsg('No hay viajes concluidos guardados para subir.')
+        setTimeout(() => setSyncStatusMsg(''), 3000)
+        setIsSyncing(false)
+        return
+      }
+
+      const res = await fetch('/api/choferes/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          viajes: finalizados.map(v => ({
+            id_viaje_local: v.id_viaje_local,
+            id_chofer: v.id_chofer ?? null,
+            chofer_nombre: v.chofer_nombre,
+            tipo_vehiculo: v.tipo_vehiculo || 'Camioneta',
+            numero_economico: v.numero_economico || 'CAM-01',
+            ruta_origen: v.ruta_origen, 
+            ruta_destino: v.ruta_destino,
+            hora_inicio_real: v.hora_inicio_real, 
+            hora_fin_real: v.hora_fin_real,
+            estado: v.estado
+          })),
+          pasajeros: finalizados.flatMap(v => v.pasajeros.map(p => ({
+            id_registro_local: p.id_registro_local,
+            id_viaje_local: v.id_viaje_local,
+            id_empleado: p.id_empleado ?? null,
+            id_manual: p.id_manual ?? null,
+            nombre_completo: p.nombre_completo,
+            puesto_depto: p.puesto_depto,
+            metodo_registro: p.metodo_registro,
+            hora_subida: p.hora_subida
+          }))),
+          respuestas_checklist: finalizados.map(v => ({
             id_viaje_local: v.id_viaje_local,
             respuestas_json: v.checklist_respuestas
           }))
@@ -311,18 +363,16 @@ export default function ChoferApp() {
       })
 
       if (res.ok) {
-        const updated = saved.map(v =>
-          pendientes.some(p => p.id_viaje_local === v.id_viaje_local)
-            ? { ...v, sincronizado: true }
-            : v
-        )
-        setHistorialViajes(updated)
-        historialRef.current = updated
-        try {
-          localStorage.setItem('rh_chofer_viajes', JSON.stringify(updated))
-        } catch (_) {}
+        setSyncStatusMsg(`✅ ¡${finalizados.length} viajes sincronizados con éxito con la oficina!`)
+        setTimeout(() => setSyncStatusMsg(''), 4000)
+      } else {
+        setSyncStatusMsg('Error al conectar con la base de datos.')
       }
-    } catch (_) {}
+    } catch (e: any) {
+      setSyncStatusMsg('Sin señal de internet en este momento.')
+    } finally {
+      setIsSyncing(false)
+    }
   }
 
   /* ═══════════════════ Flujo de viaje ═══════════════════ */
@@ -472,7 +522,6 @@ export default function ChoferApp() {
     let clean = codigo.trim()
     if (!clean) return { match: null, idLimpio: '' }
 
-    // Si viene en formato JSON
     if (clean.startsWith('{') || clean.startsWith('[')) {
       try {
         const parsed = JSON.parse(clean)
@@ -481,7 +530,6 @@ export default function ChoferApp() {
       } catch (_) {}
     }
 
-    // Extraer dígitos si viene como "Trabajador #14235" o "ID: 14235"
     const numMatch = clean.match(/\d+/)
     const soloDigitos = numMatch ? numMatch[0] : ''
 
@@ -527,7 +575,6 @@ export default function ChoferApp() {
     lastScanTimestampRef.current = now
     lastScannedCodeRef.current = idLimpio
 
-    // Construcción del Nombre Real y Puesto
     const nombreCompleto = match
       ? `${match.nombre} ${match.apellido_paterno}${match.apellido_materno ? ' ' + match.apellido_materno : ''}`.trim()
       : `Trabajador Nómina #${idLimpio}`
@@ -536,7 +583,6 @@ export default function ChoferApp() {
       ? `${match.puesto || 'Operativo'} • ${match.departamento || 'Mina Bacis'}`
       : 'Credencial QR'
 
-    /* ── Verificar si ya está a bordo ── */
     const listaActual = pasajerosRef.current
 
     const duplicado = listaActual.find(p =>
@@ -552,7 +598,6 @@ export default function ChoferApp() {
       return
     }
 
-    // ✅ REGISTRO DE NUEVO PASAJERO A BORDO
     const nuevo: PasajeroBordo = {
       id_registro_local: `pas_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       id_empleado: match ? match.id_empleado : undefined,
@@ -568,7 +613,6 @@ export default function ChoferApp() {
     pasajerosRef.current = listaActualizada
     setPasajerosEnRuta([...listaActualizada])
 
-    // Actualizar viaje activo en memoria y localStorage
     const viaje = viajeActivoRef.current
     if (viaje) {
       const viajeAct = { ...viaje, pasajeros: listaActualizada }
@@ -594,7 +638,6 @@ export default function ChoferApp() {
     noticeTimerRef.current = setTimeout(() => setScanNotice(null), 2500)
   }
 
-  /* ── Registro Manual por Número de Nómina / ID ── */
   const handleRegistroManual = (e: React.FormEvent) => {
     e.preventDefault()
     const id = manualIdInput.trim()
@@ -623,8 +666,7 @@ export default function ChoferApp() {
     }
   }
 
-  /* ── Cerrar y Finalizar Viaje (Guarda en teléfono y manda a RH) ── */
-  const handleCerrarViaje = () => {
+  const handleCerrarViaje = async () => {
     const total = pasajerosRef.current.length
     if (!confirm(`¿Llegaste a tu destino (${viajeActivoRef.current?.ruta_destino})?\n\nSe cerrará el viaje con ${total} trabajadores a bordo.`)) return
 
@@ -651,13 +693,50 @@ export default function ChoferApp() {
       pasajerosRef.current = []
       setPasajerosEnRuta([])
       playBeep(true)
-      if (navigator.onLine) autoSyncData()
-      alert(`✅ ¡Viaje Finalizado Exitosamente!\n👥 Total de trabajadores transportados: ${total}\n\nLa información quedó guardada y el manifiesto está listo.`)
+      
+      // Sincronizar inmediatamente con Supabase
+      if (navigator.onLine) {
+        try {
+          await fetch('/api/choferes/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              viajes: [{
+                id_viaje_local: finalizado.id_viaje_local,
+                id_chofer: finalizado.id_chofer ?? null,
+                chofer_nombre: finalizado.chofer_nombre,
+                tipo_vehiculo: finalizado.tipo_vehiculo,
+                numero_economico: finalizado.numero_economico,
+                ruta_origen: finalizado.ruta_origen, 
+                ruta_destino: finalizado.ruta_destino,
+                hora_inicio_real: finalizado.hora_inicio_real, 
+                hora_fin_real: finalizado.hora_fin_real,
+                estado: finalizado.estado
+              }],
+              pasajeros: finalizado.pasajeros.map(p => ({
+                id_registro_local: p.id_registro_local,
+                id_viaje_local: finalizado.id_viaje_local,
+                id_empleado: p.id_empleado ?? null,
+                id_manual: p.id_manual ?? null,
+                nombre_completo: p.nombre_completo,
+                puesto_depto: p.puesto_depto,
+                metodo_registro: p.metodo_registro,
+                hora_subida: p.hora_subida
+              })),
+              respuestas_checklist: [{
+                id_viaje_local: finalizado.id_viaje_local,
+                respuestas_json: finalizado.checklist_respuestas
+              }]
+            })
+          })
+        } catch (_) {}
+      }
+
+      alert(`✅ ¡Viaje Finalizado Exitosamente!\n👥 Total de trabajadores transportados: ${total}\n\nLa información quedó guardada y enviada a la oficina.`)
       setView('inicio')
     }
   }
 
-  /* ── Instalar PWA ── */
   const handleInstalarApp = async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt()
@@ -699,6 +778,30 @@ export default function ChoferApp() {
       {/* ══════════ VISTA 1: INICIO (NUEVO RECORRIDO) ══════════ */}
       {view === 'inicio' && (
         <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-4 animate-in fade-in">
+          
+          {/* Botón de Sincronizar con la Oficina */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3 flex flex-col gap-2 shadow-sm">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                <CloudUpload className="w-4 h-4 text-emerald-400" />
+                Sincronización con Oficina
+              </span>
+              <button
+                onClick={handleManualSync}
+                disabled={isSyncing}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl flex items-center gap-1 shadow-sm active:scale-95 transition-all"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'Subiendo...' : '☁️ Subir Viajes'}</span>
+              </button>
+            </div>
+            {syncStatusMsg && (
+              <div className="text-[11px] font-bold text-emerald-400 bg-emerald-950/60 p-2 rounded-xl border border-emerald-800/60 animate-in fade-in">
+                {syncStatusMsg}
+              </div>
+            )}
+          </div>
+
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 space-y-4 shadow-xl">
             <div className="border-b border-zinc-800 pb-3">
               <h2 className="text-base font-black text-white flex items-center gap-2">

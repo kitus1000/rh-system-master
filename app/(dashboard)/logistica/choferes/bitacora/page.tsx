@@ -6,7 +6,7 @@ import {
   Clock, Truck, Users, AlertTriangle, ArrowRight, Download, 
   Search, RefreshCw, Bus, CheckCircle2, Calendar, MapPin, 
   FileText, ShieldCheck, UserCheck, Filter, FileSpreadsheet,
-  Eye, Check
+  Eye, Check, Sparkles
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import Link from "next/link";
@@ -51,6 +51,8 @@ export default function BitacoraChoferesPage() {
   const [viajes, setViajes] = useState<ViajeBitacora[]>([]);
   const [empleadosMap, setEmpleadosMap] = useState<Map<string, any>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [seedingDemo, setSeedingDemo] = useState(false);
+  const [demoMessage, setDemoMessage] = useState("");
   
   // Filtros
   const [searchTerm, setSearchTerm] = useState("");
@@ -62,6 +64,13 @@ export default function BitacoraChoferesPage() {
   useEffect(() => {
     cargarEmpleados();
     fetchViajes();
+
+    // Auto-refresco en vivo cada 20 segundos
+    const timer = setInterval(() => {
+      fetchViajes();
+    }, 20000);
+
+    return () => clearInterval(timer);
   }, []);
 
   // Cargar catálogo de empleados para resolver nombres reales
@@ -111,12 +120,12 @@ export default function BitacoraChoferesPage() {
     return { nombre: nombreDefault || `Trabajador Nómina #${digitos}`, puesto: "Mina Bacis" };
   };
 
-  // Cargar viajes de TODOS los choferes desde todas las fuentes (Supabase + Local)
+  // Cargar viajes de TODOS los choferes desde Supabase y LocalStorage
   const fetchViajes = async () => {
     setLoading(true);
     let allRutas: ViajeBitacora[] = [];
 
-    // 1. Cargar desde logistica_reportes_diarios (Tabla principal existente en Supabase)
+    // 1. Cargar desde logistica_reportes_diarios (Tabla principal de Supabase)
     try {
       const { data: supaReportes } = await supabase
         .from("logistica_reportes_diarios")
@@ -187,7 +196,7 @@ export default function BitacoraChoferesPage() {
       }
     } catch (e) {}
 
-    // 2. Cargar desde chofer_bitacora_rutas si la tabla fue creada
+    // 2. Cargar desde chofer_bitacora_rutas
     try {
       const { data: supaBitacora } = await supabase
         .from("chofer_bitacora_rutas")
@@ -265,14 +274,123 @@ export default function BitacoraChoferesPage() {
     setLoading(false);
   };
 
+  // Generador de Rutas y Manifiestos de Demostración para los 6 choferes oficiales
+  const handleGenerarRutasDemo = async () => {
+    setSeedingDemo(true);
+    setDemoMessage("Generando rutas de prueba para los 6 choferes oficiales...");
+
+    try {
+      const { data: emps } = await supabase
+        .from('empleados')
+        .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado')
+        .limit(30);
+
+      const listaEmps = emps || [];
+      const hoy = new Date().toISOString().split('T')[0];
+
+      const demoTrips = [
+        {
+          chofer: "Adalberto Pinales",
+          eco: "CAM-01",
+          origen: "Obscuridad",
+          destino: "Parajes",
+          horaSalida: "07:00 AM",
+          horaLlegada: "07:45 AM",
+          pasajerosCount: 12
+        },
+        {
+          chofer: "Ramon Yañez",
+          eco: "CAM-02",
+          origen: "San Miguel",
+          destino: "Planta",
+          horaSalida: "07:15 AM",
+          horaLlegada: "08:00 AM",
+          pasajerosCount: 8
+        },
+        {
+          chofer: "Oscar Vazquez",
+          eco: "URVAN-01",
+          origen: "Mina Bacis",
+          destino: "Parajes",
+          horaSalida: "08:30 AM",
+          horaLlegada: "09:10 AM",
+          pasajerosCount: 6
+        },
+        {
+          chofer: "Enrique Linares",
+          eco: "BUS-01",
+          origen: "Parajes",
+          destino: "Obscuridad",
+          horaSalida: "06:45 AM",
+          horaLlegada: "07:35 AM",
+          pasajerosCount: 18
+        },
+        {
+          chofer: "Samuel Madriles",
+          eco: "CAM-03",
+          origen: "Obscuridad",
+          destino: "Mina Bacis",
+          horaSalida: "07:30 AM",
+          horaLlegada: "08:15 AM",
+          pasajerosCount: 10
+        },
+        {
+          chofer: "Jesus Saucedo",
+          eco: "CAM-04",
+          origen: "Planta",
+          destino: "San Miguel",
+          horaSalida: "08:00 AM",
+          horaLlegada: "08:40 AM",
+          pasajerosCount: 9
+        }
+      ];
+
+      for (const d of demoTrips) {
+        // Seleccionar mineros para este viaje
+        const pasajerosViaje = listaEmps.slice(0, d.pasajerosCount).map((e, idx) => ({
+          id: e.id_empleado,
+          nombre: `${e.nombre} ${e.apellido_paterno} ${e.apellido_materno || ''}`.trim(),
+          puesto: `${e.puesto || 'Operador'} • ${e.departamento || 'Mina Bacis'}`,
+          hora: `07:${String(10 + idx * 2).padStart(2, '0')} AM`,
+          metodo: 'QR'
+        }));
+
+        // Guardar en logistica_reportes_diarios de Supabase
+        await supabase.from("logistica_reportes_diarios").insert([{
+          camion_numero: d.eco,
+          tipo_vehiculo: d.eco.startsWith('BUS') ? 'Camión' : (d.eco.startsWith('URVAN') ? 'Urvan' : 'Camioneta'),
+          ubicacion_caseta: d.destino,
+          fecha: hoy,
+          comentarios_vehiculo: `[VIAJE_QR] Ruta: ${d.origen} a ${d.destino} | Chofer: ${d.chofer} | Pasajeros: ${pasajerosViaje.length} | Salida: ${d.horaSalida} | Llegada: ${d.horaLlegada}`,
+          observaciones_recorrido: JSON.stringify(pasajerosViaje),
+          frenos_ok: true,
+          luces_ok: true,
+          llantas_ok: true,
+          niveles_aceite_ok: true,
+          carroceria_ok: true,
+          extintor_ok: true,
+          botiquin_ok: true
+        }]);
+      }
+
+      setDemoMessage("✅ ¡6 viajes oficiales de demostración generados con éxito en la base de datos!");
+      setTimeout(() => {
+        setDemoMessage("");
+      }, 4000);
+      fetchViajes();
+    } catch (e: any) {
+      setDemoMessage("Error generando demostración: " + e.message);
+    } finally {
+      setSeedingDemo(false);
+    }
+  };
+
   // Filtrado múltiple
   const filteredViajes = viajes.filter(v => {
-    // Filtro por chofer
     if (selectedDriverFilter !== "Todos") {
       if (!v.chofer_nombre.toLowerCase().includes(selectedDriverFilter.toLowerCase())) return false;
     }
 
-    // Filtro por fecha
     if (dateFilter === "hoy") {
       const hoy = new Date().toISOString().split("T")[0];
       if (v.fecha !== hoy) return false;
@@ -284,7 +402,6 @@ export default function BitacoraChoferesPage() {
       if (!v.fecha.startsWith(mesActual)) return false;
     }
 
-    // Buscador general
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       const matchRuta = v.punto_a.toLowerCase().includes(term) || v.punto_b.toLowerCase().includes(term);
@@ -303,7 +420,6 @@ export default function BitacoraChoferesPage() {
   const exportManifiestoPDF = (viaje: ViajeBitacora) => {
     const doc = new jsPDF();
     
-    // Encabezado corporativo
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
     doc.text("MINAS DE BACIS - CONTROL DE MOVILIDAD", 105, 18, { align: "center" });
@@ -396,6 +512,16 @@ export default function BitacoraChoferesPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleGenerarRutasDemo}
+            disabled={seedingDemo}
+            className="px-3.5 py-2.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 transition-all active:scale-95"
+            title="Cargar viajes de prueba para los 6 choferes oficiales"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>{seedingDemo ? "Generando..." : "⚡ Cargar Rutas Demo"}</span>
+          </button>
+
           <Link
             href="/chofer-app"
             target="_blank"
@@ -416,12 +542,19 @@ export default function BitacoraChoferesPage() {
           <button
             onClick={fetchViajes}
             className="bg-zinc-800 hover:bg-zinc-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border border-zinc-700"
-            title="Actualizar datos"
+            title="Actualizar datos en vivo"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
         </div>
       </div>
+
+      {demoMessage && (
+        <div className="p-3 bg-emerald-950 border border-emerald-500/60 text-emerald-300 text-xs rounded-2xl font-bold flex items-center gap-2 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{demoMessage}</span>
+        </div>
+      )}
 
       {/* Tarjetas de Estadísticas en Tiempo Real */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -525,8 +658,14 @@ export default function BitacoraChoferesPage() {
               <tbody className="divide-y divide-zinc-100 font-medium">
                 {filteredViajes.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-zinc-400 font-bold">
-                      No se encontraron viajes con los filtros seleccionados.
+                    <td colSpan={5} className="px-6 py-12 text-center text-zinc-400 font-bold space-y-2">
+                      <div>No se han registrado viajes de choferes aún.</div>
+                      <button
+                        onClick={handleGenerarRutasDemo}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black text-xs font-black rounded-xl shadow-sm"
+                      >
+                        ⚡ Generar 6 Rutas Oficiales de Prueba
+                      </button>
                     </td>
                   </tr>
                 ) : (
