@@ -680,25 +680,29 @@ export default function ChoferesClient() {
     const cleanStr = idOrQr.trim()
     const catalog = empleadosCatalogRef.current
 
+    const numMatch = cleanStr.match(/\d+/)
+    const soloDigitos = numMatch ? numMatch[0] : ''
+
     // Buscar en catálogo de empleados
     let emp = catalog.find((e: any) => 
-      e.id_empleado === cleanStr || 
-      String(e.numero_empleado) === cleanStr ||
-      e.qr_token === cleanStr || 
-      `${e.nombre} ${e.apellido_paterno}`.toLowerCase().includes(cleanStr.toLowerCase())
+      (e.numero_empleado && String(e.numero_empleado).trim() === cleanStr) ||
+      (soloDigitos && e.numero_empleado && String(e.numero_empleado).trim() === soloDigitos) ||
+      (e.id_empleado && e.id_empleado.toLowerCase() === cleanStr.toLowerCase()) ||
+      (e.qr_token && e.qr_token === cleanStr) ||
+      (cleanStr.length >= 3 && `${e.nombre} ${e.apellido_paterno}`.toLowerCase().includes(cleanStr.toLowerCase()))
     )
 
     if (!emp && cleanStr.startsWith('{')) {
       try {
         const parsed = JSON.parse(cleanStr)
-        const sid = parsed.id || parsed.id_empleado || parsed.numero_empleado
+        const sid = parsed.id || parsed.id_empleado || parsed.numero_empleado || parsed.nomina
         if (sid) emp = catalog.find((e: any) => e.id_empleado === String(sid) || String(e.numero_empleado) === String(sid))
       } catch (_) {}
     }
 
     const nombreCompleto = emp 
       ? `${emp.nombre} ${emp.apellido_paterno} ${emp.apellido_materno || ''}`.trim() 
-      : `Trabajador #${cleanStr}`
+      : (soloDigitos ? `Trabajador Nómina #${soloDigitos}` : `Trabajador #${cleanStr}`)
 
     // Leer lista ACTUAL directamente de la Ref
     const listaActual = pasajerosAbordadosRef.current
@@ -756,7 +760,7 @@ export default function ChoferesClient() {
     }
   }
 
-  // 4. CÁMARA ESCÁNER QR HÍBRIDO (Native + jsQR)
+  // 4. CÁMARA ESCÁNER QR HÍBRIDO (Native + jsQR con attemptBoth)
   const iniciarCamaraQR = async () => {
     setShowQrScanner(true)
     setCameraLoading(true)
@@ -765,13 +769,19 @@ export default function ChoferesClient() {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { 
+          facingMode: { ideal: 'environment' }, 
+          width: { ideal: 1280 }, 
+          height: { ideal: 720 } 
+        },
         audio: false
       })
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         videoRef.current.setAttribute('playsinline', 'true')
+        videoRef.current.setAttribute('muted', 'true')
+        videoRef.current.setAttribute('autoplay', 'true')
         await videoRef.current.play()
         setCameraLoading(false)
         iniciarBucleEscaneo()
@@ -795,7 +805,7 @@ export default function ChoferesClient() {
     let nativeDetector: any = null
     if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
       try {
-        nativeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] })
+        nativeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'data_matrix'] })
       } catch (e) {}
     }
 
@@ -822,7 +832,7 @@ export default function ChoferesClient() {
           } catch (e) {}
         }
 
-        // 2. jsQR Fallback (100% universal)
+        // 2. jsQR Fallback con attemptBoth
         if (!detectedCode && ctx && video.videoWidth > 0 && video.videoHeight > 0) {
           try {
             if (tempCanvas.width !== video.videoWidth || tempCanvas.height !== video.videoHeight) {
@@ -831,7 +841,7 @@ export default function ChoferesClient() {
             }
             ctx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height)
             const imgData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height)
-            const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' })
+            const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'attemptBoth' })
             if (code && code.data) {
               detectedCode = code.data
             }
@@ -841,9 +851,12 @@ export default function ChoferesClient() {
         if (detectedCode) {
           scanCooldownRef.current = true
           agregarPasajero(detectedCode, 'QR')
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate([70, 40, 70])
+          }
           setTimeout(() => {
             scanCooldownRef.current = false
-          }, 950)
+          }, 850)
         }
       }
 
