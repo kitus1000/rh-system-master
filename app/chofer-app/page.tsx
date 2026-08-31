@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import jsQR from 'jsqr'
 import {
   Truck, Clock, Camera, Wifi, WifiOff,
   Play, StopCircle, HardHat, ChevronRight,
-  Trash2, ArrowLeft, ShieldAlert, X, Sparkles, Check
+  Trash2, ArrowLeft, ShieldAlert, X, Sparkles, Check, RefreshCw
 } from 'lucide-react'
 
 /* ─────────────────────────── Tipos ─────────────────────────── */
@@ -66,20 +66,29 @@ const CHECKLIST_DEFAULT: Record<string, boolean> = {
 }
 
 /* ─────────────────────────── Sonido/Vibración ───────────────── */
+let sharedAudioCtx: any = null
 function playBeep(success = true) {
   try {
-    const AC = window.AudioContext || (window as any).webkitAudioContext
+    const AC = (window as any).AudioContext || (window as any).webkitAudioContext
     if (!AC) return
-    const ctx = new AC()
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+      sharedAudioCtx = new AC()
+    }
+    if (sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume().catch(() => {})
+    }
+    const ctx = sharedAudioCtx
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
     osc.type = success ? 'sine' : 'sawtooth'
     osc.frequency.setValueAtTime(success ? 880 : 320, ctx.currentTime)
     if (success) osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.08)
-    gain.gain.setValueAtTime(0.35, ctx.currentTime)
+    gain.gain.setValueAtTime(0.3, ctx.currentTime)
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12)
-    osc.connect(gain); gain.connect(ctx.destination)
-    osc.start(); osc.stop(ctx.currentTime + 0.12)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.12)
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       navigator.vibrate(success ? [70, 40, 70] : [180])
     }
@@ -116,21 +125,24 @@ export default function ChoferApp() {
   const [tiempoTranscurrido, setTiempoTranscurrido] = useState('00:00:00')
   const [historialViajes, setHistorialViajes] = useState<ViajeLocal[]>([])
 
-  /* ── PASAJEROS (State + Ref sincronizados para evitar stale closure) ── */
+  /* ── PASAJEROS (State + Refs sincronizados en tiempo real) ── */
   const [pasajerosEnRuta, setPasajerosEnRuta] = useState<PasajeroBordo[]>([])
   const pasajerosRef = useRef<PasajeroBordo[]>([])
   const viajeActivoRef = useRef<ViajeLocal | null>(null)
   const historialRef = useRef<ViajeLocal[]>([])
   const empleadosCacheRef = useRef<EmpleadoCache[]>(DEFAULT_CHOFERES)
 
-  /* ── Cámara y Canvas para jsQR ── */
+  /* ── Control de Escaneo Continuo en Móviles ── */
   const [cameraActive, setCameraActive] = useState(false)
   const [cameraError, setCameraError] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const scanLoopRef = useRef<number | null>(null)
-  const cooldownRef = useRef(false)
+
+  // Control de intervalos de escaneo por Timestamp (No se atora jamás)
+  const lastScanTimestampRef = useRef<number>(0)
+  const lastScannedCodeRef = useRef<string>('')
 
   /* ── Notificación de scan ── */
   const [scanNotice, setScanNotice] = useState<{ tipo: 'exito' | 'duplicado'; nombre: string; hora?: string } | null>(null)
@@ -149,8 +161,11 @@ export default function ChoferApp() {
   useEffect(() => {
     setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true)
 
+    // Forzar actualización inmediata del Service Worker
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {})
+      navigator.serviceWorker.register('/sw.js').then((reg) => {
+        reg.update().catch(() => {})
+      }).catch(() => {})
     }
 
     const onBeforeInstall = (e: any) => {
@@ -322,24 +337,28 @@ export default function ChoferApp() {
     viajeActivoRef.current = nuevoViaje
     setPasajerosEnRuta([])
     pasajerosRef.current = []
-    localStorage.setItem('rh_chofer_viajes', JSON.stringify(lista))
-
-    // Guardar en bitácora local global
-    const globalHistory = JSON.parse(localStorage.getItem('rh_rutas_qr_global_history') || '[]')
-    localStorage.setItem('rh_rutas_qr_global_history', JSON.stringify([nuevoViaje, ...globalHistory]))
+    try {
+      localStorage.setItem('rh_chofer_viajes', JSON.stringify(lista))
+      const globalHistory = JSON.parse(localStorage.getItem('rh_rutas_qr_global_history') || '[]')
+      localStorage.setItem('rh_rutas_qr_global_history', JSON.stringify([nuevoViaje, ...globalHistory]))
+    } catch (_) {}
 
     playBeep(true)
     setView('en_ruta')
     setTimeout(iniciarCamara, 350)
   }
 
-  /* ═══════════════════ Cámara & Escáner Híbrido (Native + jsQR) ═══════════════════ */
+  /* ═══════════════════ Cámara & Escaneo Rápido de Alto Rendimiento ═══════════════════ */
   const iniciarCamara = async () => {
     setCameraActive(true)
     setCameraError('')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { 
+          facingMode: { ideal: 'environment' }, 
+          width: { ideal: 640 }, 
+          height: { ideal: 480 } 
+        },
         audio: false
       })
       streamRef.current = stream
@@ -350,7 +369,7 @@ export default function ChoferApp() {
       }
       iniciarBucleEscaneo()
     } catch (_) {
-      setCameraError('Cámara no disponible. Usa el número de nómina abajo.')
+      setCameraError('Cámara no disponible o sin permiso. Puedes teclear el número de nómina abajo.')
     }
   }
 
@@ -378,6 +397,14 @@ export default function ChoferApp() {
     const canvas = canvasRef.current
     const ctx = canvas ? canvas.getContext('2d', { willReadFrequently: true }) : null
 
+    // Optimizado para móviles: Resolución fija de escaneo rápida (400x400)
+    const scanWidth = 400
+    const scanHeight = 400
+    if (canvas) {
+      canvas.width = scanWidth
+      canvas.height = scanHeight
+    }
+
     const tick = async () => {
       if (videoRef.current && videoRef.current.readyState >= 2) {
         const video = videoRef.current
@@ -393,16 +420,12 @@ export default function ChoferApp() {
           } catch (_) {}
         }
 
-        // 2. Fallback con jsQR (100% de efectividad en todos los dispositivos)
-        if (!detectedCode && ctx && canvas && video.videoWidth > 0 && video.videoHeight > 0) {
+        // 2. Fallback ultrarrápido con jsQR
+        if (!detectedCode && ctx && video.videoWidth > 0 && video.videoHeight > 0) {
           try {
-            if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-              canvas.width = video.videoWidth
-              canvas.height = video.videoHeight
-            }
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-            const code = jsQR(imgData.data, imgData.width, imgData.height, {
+            ctx.drawImage(video, 0, 0, scanWidth, scanHeight)
+            const imgData = ctx.getImageData(0, 0, scanWidth, scanHeight)
+            const code = jsQR(imgData.data, scanWidth, scanHeight, {
               inversionAttempts: 'dontInvert'
             })
             if (code && code.data) {
@@ -423,16 +446,27 @@ export default function ChoferApp() {
   }
 
   /* ═══════════════════════════════════════════════════════════════════
-   *  procesarLecturaQR: Detección Instantánea + Anti-Duplicado
+   *  procesarLecturaQR: Detección Instantánea + Prevención de Bloqueos
    * ═══════════════════════════════════════════════════════════════════ */
   const procesarLecturaQR = (codigo: string) => {
-    if (cooldownRef.current) return
     const idLimpio = codigo.trim()
     if (!idLimpio) return
 
+    const now = Date.now()
+    const esMismoCodigo = idLimpio === lastScannedCodeRef.current
+    const tiempoMinimo = esMismoCodigo ? 2000 : 750
+
+    // Control de intervalo no bloqueante por timestamp
+    if (now - lastScanTimestampRef.current < tiempoMinimo) {
+      return
+    }
+
+    lastScanTimestampRef.current = now
+    lastScannedCodeRef.current = idLimpio
+
     const cache = empleadosCacheRef.current
 
-    // 1. Buscar en catálogo precargado
+    // 1. Buscar en catálogo de empleados
     let match = cache.find(e =>
       e.id_empleado === idLimpio ||
       String(e.numero_empleado) === idLimpio ||
@@ -465,8 +499,6 @@ export default function ChoferApp() {
       playBeep(false)
       const horaAbordaje = new Date(duplicado.hora_subida).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       mostrarAviso('duplicado', duplicado.nombre_completo, horaAbordaje)
-      cooldownRef.current = true
-      setTimeout(() => { cooldownRef.current = false }, 1100)
       return
     }
 
@@ -486,7 +518,7 @@ export default function ChoferApp() {
     pasajerosRef.current = listaActualizada
     setPasajerosEnRuta([...listaActualizada])
 
-    // Actualizar viaje activo en memoria
+    // Actualizar viaje activo en memoria y localStorage
     const viaje = viajeActivoRef.current
     if (viaje) {
       const viajeAct = { ...viaje, pasajeros: listaActualizada }
@@ -497,13 +529,13 @@ export default function ChoferApp() {
       )
       historialRef.current = todos
       setHistorialViajes(todos)
-      localStorage.setItem('rh_chofer_viajes', JSON.stringify(todos))
+      try {
+        localStorage.setItem('rh_chofer_viajes', JSON.stringify(todos))
+      } catch (_) {}
     }
 
     playBeep(true)
     mostrarAviso('exito', nombreMostrar)
-    cooldownRef.current = true
-    setTimeout(() => { cooldownRef.current = false }, 900)
   }
 
   const mostrarAviso = (tipo: 'exito' | 'duplicado', nombre: string, hora?: string) => {
@@ -535,7 +567,9 @@ export default function ChoferApp() {
       )
       historialRef.current = todos
       setHistorialViajes(todos)
-      localStorage.setItem('rh_chofer_viajes', JSON.stringify(todos))
+      try {
+        localStorage.setItem('rh_chofer_viajes', JSON.stringify(todos))
+      } catch (_) {}
     }
   }
 
@@ -559,7 +593,9 @@ export default function ChoferApp() {
       )
       historialRef.current = todos
       setHistorialViajes(todos)
-      localStorage.setItem('rh_chofer_viajes', JSON.stringify(todos))
+      try {
+        localStorage.setItem('rh_chofer_viajes', JSON.stringify(todos))
+      } catch (_) {}
       viajeActivoRef.current = null
       setViajeActivo(null)
       pasajerosRef.current = []
