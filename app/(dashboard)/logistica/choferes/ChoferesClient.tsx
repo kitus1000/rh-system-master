@@ -428,29 +428,105 @@ export default function ChoferesClient() {
       setMiHistorial(unique)
 
       // Cargar Historial Global de Rutas y Pasajeros QR
-      cargarHistorialRutasQR()
+      await cargarHistorialRutasQR()
     } catch (err) {
       console.error('Error loading history:', err)
     }
   }
 
-  const cargarHistorialRutasQR = () => {
+  const cargarHistorialRutasQR = async () => {
     let allRutas: ViajeRutaConcluido[] = []
 
+    // 1. Cargar desde Supabase (logistica_reportes_diarios)
+    try {
+      const { data: supaReportes } = await supabase
+        .from('logistica_reportes_diarios')
+        .select(`
+          id_reporte,
+          id_empleado,
+          fecha,
+          camion_numero,
+          tipo_vehiculo,
+          comentarios_vehiculo,
+          observaciones_recorrido,
+          ubicacion_caseta,
+          creado_el,
+          empleados:id_empleado (id_empleado, nombre, apellido_paterno, apellido_materno)
+        `)
+        .order('creado_el', { ascending: false })
+
+      if (supaReportes && supaReportes.length > 0) {
+        supaReportes.forEach((rep: any) => {
+          const com = rep.comentarios_vehiculo || ''
+          let puntoA = 'Mina Bacis'
+          let puntoB = rep.ubicacion_caseta || 'Parajes'
+          let choferNombre = 'Chofer Operador'
+
+          if (rep.empleados) {
+            choferNombre = `${rep.empleados.nombre} ${rep.empleados.apellido_paterno || ''}`.trim()
+          }
+
+          if (com.includes('Ruta:')) {
+            const rPart = com.split('Ruta:')[1]?.split('|')[0]?.trim() || ''
+            const parts = rPart.split(/\s+a\s+|\s+➔\s+|\s+->\s+/i)
+            if (parts.length >= 2) {
+              puntoA = parts[0].trim()
+              puntoB = parts[1].trim()
+            } else if (rPart) {
+              puntoA = rPart
+            }
+          }
+          if (com.includes('Chofer:')) {
+            const chPart = com.split('Chofer:')[1]?.split('|')[0]?.trim() || ''
+            if (chPart) {
+              choferNombre = chPart
+            }
+          }
+
+          let listaPasajeros: PasajeroEscaneado[] = []
+          try {
+            if (rep.observaciones_recorrido && rep.observaciones_recorrido !== '[]') {
+              const parsed = JSON.parse(rep.observaciones_recorrido)
+              listaPasajeros = parsed.map((p: any) => ({
+                id: p.id_empleado || p.id || p.id_manual || 'ID',
+                nombre: p.nombre_completo || p.nombre || 'Trabajador',
+                puesto: p.puesto_depto || p.puesto || 'Personal Mina Bacis',
+                departamento: p.departamento || 'Mina Bacis',
+                hora: p.hora_subida ? new Date(p.hora_subida).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : (p.hora || 'N/A'),
+                metodo: p.metodo_registro || p.metodo || 'QR'
+              }))
+            }
+          } catch (_) {}
+
+          const horaSalida = rep.creado_el ? new Date(rep.creado_el).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'N/A'
+
+          allRutas.push({
+            id_bitacora: rep.id_reporte,
+            id_chofer: rep.id_empleado,
+            chofer_nombre: choferNombre,
+            punto_a: puntoA,
+            punto_b: puntoB,
+            hora_salida_a: horaSalida,
+            hora_llegada_b: 'Completado',
+            pasajeros_subieron_a: listaPasajeros.length,
+            pasajeros_bajaron_b: listaPasajeros.length,
+            pasajeros_lista: listaPasajeros,
+            estatus: 'CONCLUIDO',
+            fecha: rep.fecha ? rep.fecha.toString() : (rep.creado_el ? rep.creado_el.split('T')[0] : new Date().toISOString().split('T')[0]),
+            creado_el: rep.creado_el || new Date().toISOString()
+          })
+        })
+      }
+    } catch (e) {}
+
+    // 2. Cargar desde LocalStorage
     try {
       const globalRaw = localStorage.getItem('rh_rutas_qr_global_history')
       if (globalRaw) allRutas = [...allRutas, ...JSON.parse(globalRaw)]
     } catch (e) {}
 
-    if (selectedChofer) {
-      try {
-        const choferRaw = localStorage.getItem(`history_routes_${selectedChofer}`)
-        if (choferRaw) allRutas = [...allRutas, ...JSON.parse(choferRaw)]
-      } catch (e) {}
-    }
-
     try {
-      const appRaw = localStorage.getItem('rh_viajes_locales_chofer')
+      const appRaw = localStorage.getItem('rh_chofer_viajes')
       if (appRaw) {
         const appViajes = JSON.parse(appRaw)
         appViajes.forEach((v: any) => {
@@ -460,18 +536,19 @@ export default function ChoferesClient() {
             chofer_nombre: v.chofer_nombre || 'Chofer Operador',
             punto_a: v.ruta_origen || 'Origen',
             punto_b: v.ruta_destino || 'Destino',
-            hora_salida_a: v.hora_inicio_real ? new Date(v.hora_inicio_real).toLocaleTimeString() : 'N/A',
-            hora_llegada_b: v.hora_fin_real ? new Date(v.hora_fin_real).toLocaleTimeString() : 'Completado',
+            hora_salida_a: v.hora_inicio_real ? new Date(v.hora_inicio_real).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'N/A',
+            hora_llegada_b: v.hora_fin_real ? new Date(v.hora_fin_real).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'Completado',
             pasajeros_subieron_a: v.pasajeros?.length || 0,
             pasajeros_bajaron_b: v.pasajeros?.length || 0,
             pasajeros_lista: (v.pasajeros || []).map((p: any) => ({
               id: p.id_empleado || p.id_manual || 'ID',
               nombre: p.nombre_completo || 'Trabajador',
               puesto: p.puesto_depto || 'Personal',
-              hora: p.hora_subida ? new Date(p.hora_subida).toLocaleTimeString() : 'N/A',
+              departamento: 'Mina Bacis',
+              hora: p.hora_subida ? new Date(p.hora_subida).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'N/A',
               metodo: p.metodo_registro || 'QR'
             })),
-            estatus: 'CONCLUIDO',
+            estatus: v.estado === 'Finalizado' ? 'CONCLUIDO' : 'EN_CURSO',
             fecha: v.creado_el ? new Date(v.creado_el).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
             creado_el: v.creado_el || new Date().toISOString()
           })
@@ -487,9 +564,26 @@ export default function ChoferesClient() {
     // Ordenar por fecha descendente
     uniqueRutas.sort((a, b) => new Date(b.creado_el || b.fecha).getTime() - new Date(a.creado_el || a.fecha).getTime())
 
-    setRutasQrGlobal(uniqueRutas)
-    if (selectedChofer) {
-      setBitacoraRutasList(uniqueRutas.filter(r => r.id_chofer === selectedChofer || r.chofer_nombre.toLowerCase().includes((selectedChoferObj?.nombre || '').toLowerCase())))
+    // Si es un Chofer autenticado, mostrar únicamente sus viajes en la lista
+    if (!isRHOrAdmin && profile) {
+      const nombreUsuario = (profile.nombre_completo || '').toLowerCase()
+      const misRutas = uniqueRutas.filter(r => 
+        (r.id_chofer && r.id_chofer === profile.id) ||
+        r.chofer_nombre.toLowerCase().includes(nombreUsuario) ||
+        nombreUsuario.includes(r.chofer_nombre.toLowerCase())
+      )
+      setRutasQrGlobal(misRutas)
+      setBitacoraRutasList(misRutas)
+    } else {
+      setRutasQrGlobal(uniqueRutas)
+      if (selectedChofer && selectedChoferObj) {
+        setBitacoraRutasList(uniqueRutas.filter(r => 
+          r.id_chofer === selectedChofer || 
+          r.chofer_nombre.toLowerCase().includes(selectedChoferObj.nombre.toLowerCase())
+        ))
+      } else {
+        setBitacoraRutasList(uniqueRutas)
+      }
     }
   }
 
