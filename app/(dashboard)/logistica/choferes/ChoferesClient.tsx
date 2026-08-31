@@ -921,6 +921,14 @@ export default function ChoferesClient() {
 
           <div className="flex flex-wrap items-center gap-2">
             <Link
+              href="/empleados/credenciales"
+              className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-300 text-xs font-black rounded-xl border border-zinc-700 flex items-center gap-1.5 transition-all shrink-0"
+            >
+              <QrCode className="w-4 h-4 text-amber-400" />
+              <span>🪪 Credenciales QR</span>
+            </Link>
+
+            <Link
               href="/chofer-app"
               target="_blank"
               className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-xs font-black rounded-xl border border-blue-400/50 flex items-center gap-1.5 transition-all shrink-0 shadow-lg shadow-blue-500/20"

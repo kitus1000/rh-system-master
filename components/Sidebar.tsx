@@ -34,7 +34,8 @@ import {
     Stethoscope,
     Pill,
     Hospital,
-    Building
+    Building,
+    QrCode
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/components/AuthProvider'
@@ -61,6 +62,7 @@ const navigationGroups = [
         items: [
             { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Empleados', href: '/empleados', icon: Users, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Credenciales QR', href: '/empleados/credenciales', icon: QrCode, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
             { name: 'Solicitudes', href: '/solicitudes', icon: FileText, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Autorizaciones', href: '/autorizaciones', icon: CheckSquare, roles: ['Administrativo', 'Superintendente'] },
             { name: 'Calendario', href: '/calendario', icon: Calendar, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Plus, Search, RefreshCw, FileDown, Upload, Sparkles } from 'lucide-react'
+import { Plus, Search, RefreshCw, FileDown, Upload, Sparkles, QrCode } from 'lucide-react'
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
 import { useRef } from 'react'
@@ -285,6 +285,13 @@ export default function EmpleadosPage() {
                         <FileDown className="-ml-1 mr-2 h-5 w-5" />
                         Exportar Todo
                     </button>
+                    <Link
+                        href="/empleados/credenciales"
+                        className="inline-flex items-center px-4 py-2 border border-zinc-900 rounded-md shadow-sm text-sm font-black text-white bg-zinc-900 hover:bg-zinc-800 focus:outline-none"
+                    >
+                        <QrCode className="-ml-1 mr-2 h-4 w-4 text-amber-400" />
+                        Credenciales QR
+                    </Link>
                     <Link
                         href="/empleados/duplicados"
                         className="inline-flex items-center px-4 py-2 border border-amber-300 rounded-md shadow-sm text-sm font-bold text-amber-950 bg-amber-100 hover:bg-amber-200 focus:outline-none"
