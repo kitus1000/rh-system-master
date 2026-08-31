@@ -792,6 +792,12 @@ export default function ChoferApp() {
         </div>
       </header>
 
+      {/* Banner de Confirmación de Versión V2.0 */}
+      <div className="bg-emerald-500 text-black px-4 py-1.5 text-center text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 shadow-sm">
+        <CheckCircle2 className="w-3.5 h-3.5" />
+        <span>SISTEMA V2.0 REESTRUCTURADO • MINAS DE BACIS</span>
+      </div>
+
       {/* ══════════ VISTA 1: INICIO (NUEVO RECORRIDO) ══════════ */}
       {view === 'inicio' && (
         <main className="flex-1 max-w-md w-full mx-auto p-4 space-y-4 animate-in fade-in">

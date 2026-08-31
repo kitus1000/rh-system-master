@@ -1257,6 +1257,25 @@ export default function ChoferesClient() {
       {activeTab === 'bitacora_ruta' && (
         <div className="space-y-6 animate-in fade-in">
           
+          {/* Banner directo a App Móvil para Celulares */}
+          <div className="bg-gradient-to-r from-emerald-600 to-teal-700 p-4 rounded-3xl text-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-md">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center text-lg font-black shrink-0">
+                📲
+              </div>
+              <div>
+                <strong className="text-sm font-black block">¿Estás en tu Teléfono Celular?</strong>
+                <span className="text-xs text-emerald-100 block">Abre la App Móvil para Choferes diseñada para escanear y trabajar 100% Offline en la sierra.</span>
+              </div>
+            </div>
+            <Link
+              href="/chofer-app"
+              className="px-5 py-2.5 bg-white text-emerald-900 hover:bg-emerald-50 font-black text-xs rounded-2xl shadow-lg transition-all shrink-0 uppercase tracking-wider text-center w-full sm:w-auto"
+            >
+              Abrir App Móvil ➔
+            </Link>
+          </div>
+
           {/* BARRA DE SINCRONIZACIÓN CON LA OFICINA */}
           <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div className="flex items-center gap-2.5">
