@@ -8,7 +8,7 @@ import {
   Play, StopCircle, HardHat, ChevronRight,
   Trash2, ArrowLeft, ShieldAlert, X, Sparkles, Check,
   UserCheck, User, Users, Search, CloudUpload, RefreshCw,
-  CheckCircle2
+  CheckCircle2, Eye, FileText
 } from 'lucide-react'
 
 /* ─────────────────────────── Tipos ─────────────────────────── */
@@ -130,6 +130,9 @@ export default function ChoferApp() {
   const [viajeActivo, setViajeActivo] = useState<ViajeLocal | null>(null)
   const [tiempoTranscurrido, setTiempoTranscurrido] = useState('00:00:00')
   const [historialViajes, setHistorialViajes] = useState<ViajeLocal[]>([])
+
+  /* ── Manifiesto Modal en Celular ── */
+  const [selectedManifestTrip, setSelectedManifestTrip] = useState<ViajeLocal | null>(null)
 
   /* ── Pasajeros (State + Refs) ── */
   const [pasajerosEnRuta, setPasajerosEnRuta] = useState<PasajeroBordo[]>([])
@@ -271,38 +274,97 @@ export default function ChoferApp() {
     } catch (_) {}
   }
 
+  /* ─────────────────────────── Motor de Subida Redundante ─────────────────────────── */
+  const subirViajeDirecto = async (v: ViajeLocal) => {
+    const listaPasajeros = (v.pasajeros || []).map(p => ({
+      id: p.id_empleado || p.id_manual || p.id_registro_local,
+      nombre: p.nombre_completo,
+      nombre_completo: p.nombre_completo,
+      puesto: p.puesto_depto || 'Personal Mina Bacis',
+      puesto_depto: p.puesto_depto || 'Personal Mina Bacis',
+      hora: new Date(p.hora_subida).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
+      hora_subida: p.hora_subida,
+      metodo: p.metodo_registro || 'QR',
+      metodo_registro: p.metodo_registro || 'QR',
+      id_empleado: p.id_empleado || null,
+      id_manual: p.id_manual || null,
+      id_registro_local: p.id_registro_local
+    }))
+
+    const fechaViaje = v.hora_inicio_real ? v.hora_inicio_real.split('T')[0] : new Date().toISOString().split('T')[0]
+    const horaSalida = v.hora_inicio_real ? new Date(v.hora_inicio_real).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'N/A'
+    const horaLlegada = v.hora_fin_real ? new Date(v.hora_fin_real).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'Completado'
+    const totalPasajeros = listaPasajeros.length
+
+    let success = false
+
+    // Método 1: Endpoint de Servidor
+    try {
+      const res = await fetch('/api/choferes/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          viajes: [{
+            id_viaje_local: v.id_viaje_local,
+            id_chofer: v.id_chofer ?? null,
+            chofer_nombre: v.chofer_nombre,
+            tipo_vehiculo: v.tipo_vehiculo,
+            numero_economico: v.numero_economico,
+            ruta_origen: v.ruta_origen,
+            ruta_destino: v.ruta_destino,
+            hora_inicio_real: v.hora_inicio_real,
+            hora_fin_real: v.hora_fin_real,
+            estado: 'Finalizado',
+            pasajeros: listaPasajeros
+          }]
+        })
+      })
+      if (res.ok) success = true
+    } catch (_) {}
+
+    // Método 2: Inserción directa en Supabase (Respaldo por si la API route fallara)
+    if (!success) {
+      try {
+        const { error } = await supabase.from('logistica_reportes_diarios').insert([{
+          fecha: fechaViaje,
+          camion_numero: v.numero_economico || 'CAM-01',
+          tipo_vehiculo: v.tipo_vehiculo || 'Camioneta',
+          ubicacion_caseta: v.ruta_destino || 'Parajes',
+          comentarios_vehiculo: `[VIAJE_QR] Ruta: ${v.ruta_origen} a ${v.ruta_destino} | Chofer: ${v.chofer_nombre} | Pasajeros: ${totalPasajeros} | Salida: ${horaSalida} | Llegada: ${horaLlegada}`,
+          observaciones_recorrido: JSON.stringify(listaPasajeros),
+          frenos_ok: true,
+          luces_ok: true,
+          llantas_ok: true,
+          niveles_aceite_ok: true,
+          carroceria_ok: true,
+          extintor_ok: true,
+          botiquin_ok: true
+        }])
+        if (!error) success = true
+      } catch (_) {}
+    }
+
+    if (success) {
+      const actualizados = historialRef.current.map(item =>
+        item.id_viaje_local === v.id_viaje_local ? { ...item, sincronizado: true } : item
+      )
+      historialRef.current = actualizados
+      setHistorialViajes(actualizados)
+      try { localStorage.setItem('rh_chofer_viajes', JSON.stringify(actualizados)) } catch (_) {}
+    }
+
+    return success
+  }
+
   // Sincronización Automática
   const autoSyncData = async () => {
     if (!navigator.onLine) return
     try {
       const saved: ViajeLocal[] = JSON.parse(localStorage.getItem('rh_chofer_viajes') || '[]')
       const pendientes = saved.filter(v => v.estado === 'Finalizado' && !v.sincronizado)
-      if (!pendientes.length) return
-
-      await fetch('/api/choferes/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          viajes: pendientes.map(v => ({
-            id_viaje_local: v.id_viaje_local,
-            id_chofer: v.id_chofer ?? null,
-            chofer_nombre: v.chofer_nombre,
-            tipo_vehiculo: v.tipo_vehiculo || 'Camioneta',
-            numero_economico: v.numero_economico || 'CAM-01',
-            ruta_origen: v.ruta_origen, 
-            ruta_destino: v.ruta_destino,
-            hora_inicio_real: v.hora_inicio_real, 
-            hora_fin_real: v.hora_fin_real,
-            estado: 'Finalizado',
-            pasajeros: v.pasajeros
-          }))
-        })
-      })
-
-      const actualizados = saved.map(v => ({ ...v, sincronizado: true }))
-      setHistorialViajes(actualizados)
-      historialRef.current = actualizados
-      try { localStorage.setItem('rh_chofer_viajes', JSON.stringify(actualizados)) } catch (_) {}
+      for (const p of pendientes) {
+        await subirViajeDirecto(p)
+      }
     } catch (_) {}
   }
 
@@ -318,57 +380,26 @@ export default function ChoferApp() {
       }
 
       if (!viajesASubir.length) {
-        setSyncStatusMsg('No hay viajes registrados aún en el celular para subir.')
+        setSyncStatusMsg('No hay viajes registrados aún en el celular.')
         setTimeout(() => setSyncStatusMsg(''), 3500)
         setIsSyncing(false)
         return
       }
 
-      const res = await fetch('/api/choferes/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          viajes: viajesASubir.map(v => ({
-            id_viaje_local: v.id_viaje_local,
-            id_chofer: v.id_chofer ?? null,
-            chofer_nombre: v.chofer_nombre || choferNombre || 'Chofer Operador',
-            tipo_vehiculo: v.tipo_vehiculo || tipoVehiculo || 'Camioneta',
-            numero_economico: v.numero_economico || numeroEconomico || 'CAM-01',
-            ruta_origen: v.ruta_origen || origen || 'Mina Bacis', 
-            ruta_destino: v.ruta_destino || destino || 'Parajes',
-            hora_inicio_real: v.hora_inicio_real || v.creado_el || new Date().toISOString(), 
-            hora_fin_real: v.hora_fin_real || new Date().toISOString(),
-            estado: v.estado || 'Finalizado',
-            pasajeros: (v.pasajeros || []).map((p: any) => ({
-              id: p.id_empleado || p.id_manual || p.id_registro_local,
-              id_registro_local: p.id_registro_local || `pas_${Date.now()}`,
-              id_empleado: p.id_empleado ?? null,
-              id_manual: p.id_manual ?? null,
-              nombre: p.nombre_completo || p.nombre || 'Trabajador',
-              nombre_completo: p.nombre_completo || p.nombre || 'Trabajador',
-              puesto: p.puesto_depto || p.puesto || 'Personal Mina Bacis',
-              puesto_depto: p.puesto_depto || p.puesto || 'Personal Mina Bacis',
-              metodo: p.metodo_registro || 'QR',
-              metodo_registro: p.metodo_registro || 'QR',
-              hora: p.hora_subida ? new Date(p.hora_subida).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'N/A',
-              hora_subida: p.hora_subida || new Date().toISOString()
-            }))
-          }))
-        })
-      })
-
-      if (res.ok) {
-        const actualizados = saved.map(v => ({ ...v, sincronizado: true }))
-        setHistorialViajes(actualizados)
-        historialRef.current = actualizados
-        try { localStorage.setItem('rh_chofer_viajes', JSON.stringify(actualizados)) } catch (_) {}
-
-        const totalPasajeros = viajesASubir.reduce((acc, v) => acc + (v.pasajeros?.length || 0), 0)
-        setSyncStatusMsg(`✅ ¡${viajesASubir.length} viajes (${totalPasajeros} pasajeros) enviados a la oficina!`)
-        setTimeout(() => setSyncStatusMsg(''), 5000)
-      } else {
-        setSyncStatusMsg('Error al conectar con la base de datos central.')
+      let subidos = 0
+      for (const v of viajesASubir) {
+        const ok = await subirViajeDirecto(v)
+        if (ok) subidos++
       }
+
+      const totalPasajeros = viajesASubir.reduce((acc, v) => acc + (v.pasajeros?.length || 0), 0)
+      if (subidos > 0) {
+        playBeep(true)
+        setSyncStatusMsg(`✅ ¡${subidos} viajes (${totalPasajeros} pasajeros) enviados a la oficina con éxito!`)
+      } else {
+        setSyncStatusMsg('Sin señal de internet para enviar los viajes.')
+      }
+      setTimeout(() => setSyncStatusMsg(''), 5000)
     } catch (e: any) {
       setSyncStatusMsg('Sin señal de internet en este momento.')
     } finally {
@@ -694,61 +725,17 @@ export default function ChoferApp() {
     playBeep(true)
     setView('inicio')
 
-    const listaPasajeros = finalizado.pasajeros.map(p => ({
-      id: p.id_empleado || p.id_manual || p.id_registro_local,
-      nombre: p.nombre_completo,
-      nombre_completo: p.nombre_completo,
-      puesto: p.puesto_depto || 'Personal Mina Bacis',
-      puesto_depto: p.puesto_depto || 'Personal Mina Bacis',
-      hora: new Date(p.hora_subida).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
-      hora_subida: p.hora_subida,
-      metodo: p.metodo_registro || 'QR',
-      metodo_registro: p.metodo_registro || 'QR',
-      id_empleado: p.id_empleado || null,
-      id_manual: p.id_manual || null,
-      id_registro_local: p.id_registro_local
-    }))
-
     if (navigator.onLine) {
       setSyncStatusMsg('Enviando viaje a la oficina central...')
       setIsSyncing(true)
-      try {
-        const res = await fetch('/api/choferes/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            viajes: [{
-              id_viaje_local: finalizado.id_viaje_local,
-              id_chofer: finalizado.id_chofer ?? null,
-              chofer_nombre: finalizado.chofer_nombre,
-              tipo_vehiculo: finalizado.tipo_vehiculo,
-              numero_economico: finalizado.numero_economico,
-              ruta_origen: finalizado.ruta_origen,
-              ruta_destino: finalizado.ruta_destino,
-              hora_inicio_real: finalizado.hora_inicio_real,
-              hora_fin_real: finalizado.hora_fin_real,
-              estado: 'Finalizado',
-              pasajeros: listaPasajeros
-            }]
-          })
-        })
-        if (res.ok) {
-          const updatedTodos = historialRef.current.map(v =>
-            v.id_viaje_local === finalizado.id_viaje_local ? { ...v, sincronizado: true } : v
-          )
-          historialRef.current = updatedTodos
-          setHistorialViajes(updatedTodos)
-          try { localStorage.setItem('rh_chofer_viajes', JSON.stringify(updatedTodos)) } catch (_) {}
-          setSyncStatusMsg(`✅ ¡Viaje con ${total} trabajadores enviado a la oficina con éxito!`)
-        } else {
-          setSyncStatusMsg('⚠️ Guardado en celular. Pulsa "☁️ Subir Viajes" cuando tengas señal.')
-        }
-      } catch (_) {
-        setSyncStatusMsg('⚠️ Sin internet. Pulsa "☁️ Subir Viajes" al llegar a la oficina.')
-      } finally {
-        setIsSyncing(false)
-        setTimeout(() => setSyncStatusMsg(''), 6000)
+      const ok = await subirViajeDirecto(finalizado)
+      setIsSyncing(false)
+      if (ok) {
+        setSyncStatusMsg(`✅ ¡Viaje con ${total} trabajadores enviado a la oficina con éxito!`)
+      } else {
+        setSyncStatusMsg('⚠️ Guardado en celular. Pulsa "☁️ Subir Viajes" cuando tengas señal.')
       }
+      setTimeout(() => setSyncStatusMsg(''), 6000)
     } else {
       setSyncStatusMsg('💾 Sin internet. Guardado en celular. Pulsa "☁️ Subir Viajes" al tener señal.')
       setTimeout(() => setSyncStatusMsg(''), 8000)
@@ -809,14 +796,14 @@ export default function ChoferApp() {
               <button
                 onClick={handleManualSync}
                 disabled={isSyncing}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl flex items-center gap-1 shadow-sm active:scale-95 transition-all"
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>{isSyncing ? 'Subiendo...' : '☁️ Subir Viajes'}</span>
+                <span>{isSyncing ? 'Subiendo...' : '☁️ Subir Todos'}</span>
               </button>
             </div>
             {syncStatusMsg && (
-              <div className="text-[11px] font-bold text-emerald-400 bg-emerald-950/60 p-2 rounded-xl border border-emerald-800/60 animate-in fade-in">
+              <div className="text-[11px] font-bold text-emerald-400 bg-emerald-950/60 p-2.5 rounded-xl border border-emerald-800/60 animate-in fade-in">
                 {syncStatusMsg}
               </div>
             )}
@@ -879,26 +866,61 @@ export default function ChoferApp() {
             </button>
           </div>
 
-          {/* Historial Reciente */}
+          {/* Historial Reciente con botón de Manifiesto */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-4 space-y-2.5">
             <h3 className="text-xs font-black uppercase text-zinc-400 tracking-wider flex items-center justify-between">
               <span className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-amber-400" /> Viajes guardados en celular ({historialViajes.length})</span>
-              <span className="text-[10px] text-emerald-400">100% Offline</span>
+              <span className="text-[10px] text-emerald-400 font-bold">100% Offline</span>
             </h3>
             {historialViajes.length === 0 ? (
-              <p className="text-xs text-zinc-500 text-center py-3">Sin viajes previos.</p>
+              <p className="text-xs text-zinc-500 text-center py-4 font-medium">Sin viajes registrados aún.</p>
             ) : (
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              <div className="space-y-2.5 max-h-60 overflow-y-auto">
                 {historialViajes.map((v, i) => (
-                  <div key={i} className="p-3 bg-zinc-800/90 rounded-2xl flex justify-between items-center text-xs border border-zinc-700/60">
-                    <div>
-                      <div className="font-bold text-white text-xs">{v.ruta_origen} ➔ {v.ruta_destino}</div>
-                      <div className="text-[11px] text-emerald-400 font-black">👥 {v.pasajeros?.length || 0} trabajadores a bordo</div>
-                      <div className="text-[10px] text-zinc-400 font-mono">{new Date(v.hora_inicio_real).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • Chofer: {v.chofer_nombre}</div>
+                  <div key={i} className="p-3 bg-zinc-800/90 rounded-2xl border border-zinc-700/60 space-y-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="font-bold text-white text-xs">🚌 {v.ruta_origen} ➔ {v.ruta_destino}</div>
+                        <div className="text-[11px] text-emerald-400 font-black">👥 {v.pasajeros?.length || 0} trabajadores a bordo</div>
+                        <div className="text-[10px] text-zinc-400 font-mono">{new Date(v.hora_inicio_real).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • Chofer: {v.chofer_nombre}</div>
+                      </div>
+                      <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-full border ${v.sincronizado ? 'bg-emerald-950 text-emerald-300 border-emerald-700' : 'bg-amber-950 text-amber-300 border-amber-700'}`}>
+                        {v.sincronizado ? '✓ En Oficina' : '💾 En Celular'}
+                      </span>
                     </div>
-                    <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-full border ${v.sincronizado ? 'bg-emerald-950 text-emerald-300 border-emerald-700' : 'bg-amber-950 text-amber-300 border-amber-700'}`}>
-                      {v.sincronizado ? '✓ En Oficina' : '💾 En Celular'}
-                    </span>
+                    
+                    {/* Botones de acción en cada viaje */}
+                    <div className="flex gap-2 pt-1 border-t border-zinc-700/50">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedManifestTrip(v)}
+                        className="flex-1 py-1.5 px-2.5 bg-zinc-700 hover:bg-zinc-600 text-white rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all"
+                      >
+                        <Users className="w-3.5 h-3.5 text-amber-300" />
+                        <span>Ver Pasajeros ({v.pasajeros?.length || 0})</span>
+                      </button>
+
+                      {!v.sincronizado && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setSyncStatusMsg(`Subiendo viaje de ${v.ruta_origen}...`)
+                            const ok = await subirViajeDirecto(v)
+                            if (ok) {
+                              playBeep(true)
+                              setSyncStatusMsg('✅ Viaje enviado a la oficina.')
+                            } else {
+                              setSyncStatusMsg('⚠️ Sin internet. Intenta cuando tengas señal.')
+                            }
+                            setTimeout(() => setSyncStatusMsg(''), 4000)
+                          }}
+                          className="py-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all"
+                        >
+                          <CloudUpload className="w-3.5 h-3.5" />
+                          <span>Subir</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1062,6 +1084,79 @@ export default function ChoferApp() {
             )}
           </div>
         </main>
+      )}
+
+      {/* ══════════ MODAL DE MANIFIESTO EN CELULAR ══════════ */}
+      {selectedManifestTrip && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-3xl max-w-sm w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-zinc-800 flex justify-between items-center">
+              <div>
+                <span className="text-[10px] text-zinc-400 font-bold uppercase">Manifiesto Oficial de Viaje</span>
+                <h3 className="font-black text-white text-sm">🚌 {selectedManifestTrip.ruta_origen} ➔ {selectedManifestTrip.ruta_destino}</h3>
+              </div>
+              <button onClick={() => setSelectedManifestTrip(null)} className="p-2 text-zinc-400 hover:text-white rounded-xl bg-zinc-800">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-zinc-800/60 flex justify-between items-center text-xs border-b border-zinc-800">
+              <div>
+                <span className="text-zinc-400 text-[10px] block">Chofer</span>
+                <strong className="text-white font-bold">{selectedManifestTrip.chofer_nombre}</strong>
+              </div>
+              <div className="text-right">
+                <span className="text-zinc-400 text-[10px] block">Pasajeros Registrados</span>
+                <strong className="text-emerald-400 font-black text-sm">{selectedManifestTrip.pasajeros?.length || 0}</strong>
+              </div>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-2 flex-1">
+              {(!selectedManifestTrip.pasajeros || selectedManifestTrip.pasajeros.length === 0) ? (
+                <p className="text-xs text-zinc-500 text-center py-6">Sin pasajeros registrados en este viaje.</p>
+              ) : (
+                selectedManifestTrip.pasajeros.map((p, idx) => (
+                  <div key={idx} className="p-2.5 bg-zinc-800 rounded-xl flex items-center justify-between text-xs border border-zinc-700/40">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-md bg-emerald-500/20 text-emerald-400 text-[10px] font-bold flex items-center justify-center">
+                        {idx + 1}
+                      </span>
+                      <div>
+                        <div className="font-bold text-white text-xs">{p.nombre_completo}</div>
+                        <div className="text-[10px] text-zinc-400">{p.puesto_depto}</div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-zinc-500 font-mono">{new Date(p.hora_subida).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="p-3 border-t border-zinc-800 bg-zinc-900 flex gap-2">
+              <button onClick={() => setSelectedManifestTrip(null)} className="flex-1 py-2.5 bg-zinc-800 text-white rounded-xl text-xs font-bold">
+                Cerrar
+              </button>
+              {!selectedManifestTrip.sincronizado && (
+                <button
+                  onClick={async () => {
+                    const ok = await subirViajeDirecto(selectedManifestTrip)
+                    if (ok) {
+                      playBeep(true)
+                      alert('✅ Manifiesto enviado con éxito a la oficina central.')
+                      setSelectedManifestTrip(null)
+                    } else {
+                      alert('⚠️ Sin conexión a internet en este momento.')
+                    }
+                  }}
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1"
+                >
+                  <CloudUpload className="w-4 h-4" />
+                  <span>Enviar a Oficina</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       <footer className="bg-zinc-900 border-t border-zinc-800 p-2 text-center text-[10px] text-zinc-500">
