@@ -59,12 +59,12 @@ export default function BitacoraChoferesPage() {
   
   const [selectedViajeModal, setSelectedViajeModal] = useState<ViajeBitacora | null>(null);
 
-  // 1. Cargar catálogo de empleados para resolver nombres reales
   useEffect(() => {
     cargarEmpleados();
     fetchViajes();
   }, []);
 
+  // Cargar catálogo de empleados para resolver nombres reales
   const cargarEmpleados = async () => {
     try {
       const { data } = await supabase
@@ -88,9 +88,12 @@ export default function BitacoraChoferesPage() {
   const resolverNombre = (idOrName: string, nombreDefault?: string): { nombre: string; puesto: string } => {
     if (!idOrName) return { nombre: nombreDefault || "Trabajador", puesto: "Personal" };
 
-    // Si ya viene un nombre real (no dice Trabajador #...)
-    if (nombreDefault && !nombreDefault.toLowerCase().startsWith("trabajador #") && !nombreDefault.toLowerCase().startsWith("empleado nómina")) {
-      return { nombre: nombreDefault, puesto: "Operativo" };
+    if (nombreDefault && 
+        !nombreDefault.toLowerCase().startsWith("trabajador #") && 
+        !nombreDefault.toLowerCase().startsWith("empleado nómina") && 
+        !nombreDefault.toLowerCase().startsWith("empleado #")
+    ) {
+      return { nombre: nombreDefault, puesto: "Operativo • Mina Bacis" };
     }
 
     const clean = idOrName.trim();
@@ -108,11 +111,83 @@ export default function BitacoraChoferesPage() {
     return { nombre: nombreDefault || `Trabajador Nómina #${digitos}`, puesto: "Mina Bacis" };
   };
 
+  // Cargar viajes de TODOS los choferes desde todas las fuentes (Supabase + Local)
   const fetchViajes = async () => {
     setLoading(true);
     let allRutas: ViajeBitacora[] = [];
 
-    // 1. Cargar desde Supabase (chofer_bitacora_rutas)
+    // 1. Cargar desde logistica_reportes_diarios (Tabla principal existente en Supabase)
+    try {
+      const { data: supaReportes } = await supabase
+        .from("logistica_reportes_diarios")
+        .select(`
+          id_reporte,
+          id_empleado,
+          fecha,
+          camion_numero,
+          tipo_vehiculo,
+          comentarios_vehiculo,
+          observaciones_recorrido,
+          ubicacion_caseta,
+          creado_el,
+          empleados:id_empleado (id_empleado, nombre, apellido_paterno, apellido_materno)
+        `)
+        .order("creado_el", { ascending: false });
+
+      if (supaReportes && supaReportes.length > 0) {
+        supaReportes.forEach((rep: any) => {
+          const com = rep.comentarios_vehiculo || "";
+          let puntoA = "Mina Bacis";
+          let puntoB = rep.ubicacion_caseta || "Parajes";
+          let choferNombre = "Chofer Operador";
+
+          if (rep.empleados) {
+            choferNombre = `${rep.empleados.nombre} ${rep.empleados.apellido_paterno || ''}`.trim();
+          }
+
+          if (com.includes("Ruta:")) {
+            const rutaMatch = com.match(/Ruta:\s*([^\s|]+(?:\s+[^\s|]+)*)\s+a\s+([^\s|]+(?:\s+[^\s|]+)*)/i);
+            if (rutaMatch) {
+              puntoA = rutaMatch[1].trim();
+              puntoB = rutaMatch[2].trim();
+            }
+          }
+          if (com.includes("Chofer:")) {
+            const chMatch = com.match(/Chofer:\s*([^\s|]+(?:\s+[^\s|]+)*)/i);
+            if (chMatch) {
+              choferNombre = chMatch[1].trim();
+            }
+          }
+
+          let listaPasajeros: any[] = [];
+          try {
+            if (rep.observaciones_recorrido) {
+              listaPasajeros = JSON.parse(rep.observaciones_recorrido);
+            }
+          } catch (_) {}
+
+          const horaSalida = rep.creado_el ? new Date(rep.creado_el).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : "N/A";
+
+          allRutas.push({
+            id_bitacora: rep.id_reporte,
+            id_chofer: rep.id_empleado,
+            chofer_nombre: choferNombre,
+            punto_a: puntoA,
+            punto_b: puntoB,
+            hora_salida_a: horaSalida,
+            hora_llegada_b: "Completado",
+            pasajeros_subieron_a: listaPasajeros.length,
+            pasajeros_bajaron_b: listaPasajeros.length,
+            pasajeros_lista: listaPasajeros,
+            estatus: "CONCLUIDO",
+            fecha: rep.fecha ? rep.fecha.toString() : (rep.creado_el ? rep.creado_el.split('T')[0] : new Date().toISOString().split('T')[0]),
+            creado_el: rep.creado_el || new Date().toISOString()
+          });
+        });
+      }
+    } catch (e) {}
+
+    // 2. Cargar desde chofer_bitacora_rutas si la tabla fue creada
     try {
       const { data: supaBitacora } = await supabase
         .from("chofer_bitacora_rutas")
@@ -140,7 +215,7 @@ export default function BitacoraChoferesPage() {
       }
     } catch (e) {}
 
-    // 2. Cargar desde LocalStorage de la App Móvil
+    // 3. Cargar desde LocalStorage de la App Móvil
     try {
       const rawApp = localStorage.getItem("rh_chofer_viajes");
       if (rawApp) {
@@ -172,7 +247,7 @@ export default function BitacoraChoferesPage() {
       }
     } catch (e) {}
 
-    // 3. Cargar desde LocalStorage Global de Rutas
+    // 4. Cargar desde LocalStorage Global de Rutas
     try {
       const globalRaw = localStorage.getItem("rh_rutas_qr_global_history");
       if (globalRaw) allRutas = [...allRutas, ...JSON.parse(globalRaw)];
@@ -314,9 +389,9 @@ export default function BitacoraChoferesPage() {
             <Bus className="w-8 h-8" />
           </div>
           <div>
-            <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">Panel Administrativo</span>
-            <h1 className="text-2xl font-black tracking-tight">Centro de Manifiestos de Rutas y Choferes</h1>
-            <p className="text-zinc-400 text-xs mt-0.5">Control de todos los viajes, recorridos y personal a bordo con QR</p>
+            <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">Panel Administrativo Central</span>
+            <h1 className="text-2xl font-black tracking-tight">Centro de Manifiestos de Choferes</h1>
+            <p className="text-zinc-400 text-xs mt-0.5">Control y visualización de viajes de todos los choferes y pasaje a bordo</p>
           </div>
         </div>
 
@@ -355,7 +430,7 @@ export default function BitacoraChoferesPage() {
             <Bus className="w-6 h-6" />
           </div>
           <div>
-            <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Total de Viajes</span>
+            <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Total de Viajes Registrados</span>
             <div className="text-2xl font-black text-zinc-900">{filteredViajes.length}</div>
           </div>
         </div>
@@ -365,7 +440,7 @@ export default function BitacoraChoferesPage() {
             <Users className="w-6 h-6" />
           </div>
           <div>
-            <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Pasajeros Transportados</span>
+            <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Total Pasajeros Transportados</span>
             <div className="text-2xl font-black text-zinc-900">{totalPasajeros}</div>
           </div>
         </div>
@@ -375,8 +450,8 @@ export default function BitacoraChoferesPage() {
             <ShieldCheck className="w-6 h-6" />
           </div>
           <div>
-            <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Roster Oficial</span>
-            <div className="text-2xl font-black text-zinc-900">6 Choferes</div>
+            <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Flotilla de Choferes</span>
+            <div className="text-2xl font-black text-zinc-900">6 Choferes Oficiales</div>
           </div>
         </div>
       </div>
@@ -392,7 +467,7 @@ export default function BitacoraChoferesPage() {
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Buscar chofer, ruta o trabajador..."
+              placeholder="Buscar por chofer, ruta o trabajador..."
               className="w-full text-xs font-bold text-zinc-800 focus:outline-none bg-transparent"
             />
             {searchTerm && (
@@ -433,7 +508,7 @@ export default function BitacoraChoferesPage() {
 
       {/* Tabla de Manifiestos de Todos los Choferes */}
       {loading ? (
-        <div className="text-center py-16 text-zinc-400 font-bold text-xs animate-pulse">Cargando manifiestos...</div>
+        <div className="text-center py-16 text-zinc-400 font-bold text-xs animate-pulse">Cargando manifiestos de choferes...</div>
       ) : (
         <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 overflow-hidden">
           <div className="overflow-x-auto">
@@ -443,15 +518,15 @@ export default function BitacoraChoferesPage() {
                   <th className="px-6 py-4 font-black uppercase text-zinc-600 tracking-wider">Chofer Operador</th>
                   <th className="px-6 py-4 font-black uppercase text-zinc-600 tracking-wider">Ruta Minera</th>
                   <th className="px-6 py-4 font-black uppercase text-zinc-600 tracking-wider">Fecha y Horarios</th>
-                  <th className="px-6 py-4 font-black uppercase text-zinc-600 tracking-wider text-center">Pasajeros</th>
-                  <th className="px-6 py-4 font-black uppercase text-zinc-600 tracking-wider text-right">Manifiesto Oficial</th>
+                  <th className="px-6 py-4 font-black uppercase text-zinc-600 tracking-wider text-center">Personal a Bordo</th>
+                  <th className="px-6 py-4 font-black uppercase text-zinc-600 tracking-wider text-right">Manifiesto Nominal</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 font-medium">
                 {filteredViajes.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-6 py-12 text-center text-zinc-400 font-bold">
-                      No se encontraron manifiestos con los filtros seleccionados.
+                      No se encontraron viajes con los filtros seleccionados.
                     </td>
                   </tr>
                 ) : (
@@ -490,7 +565,7 @@ export default function BitacoraChoferesPage() {
                       <td className="px-6 py-4 text-center">
                         <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl font-black text-xs bg-indigo-50 text-indigo-900 border border-indigo-200">
                           <Users className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>{viaje.pasajeros_subieron_a || (viaje.pasajeros_lista?.length || 0)} Personas</span>
+                          <span>{viaje.pasajeros_subieron_a || (viaje.pasajeros_lista?.length || 0)} Trabajadores</span>
                         </span>
                       </td>
 
@@ -501,7 +576,7 @@ export default function BitacoraChoferesPage() {
                             className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs flex items-center gap-1 shadow-sm transition-all"
                           >
                             <Users className="w-3.5 h-3.5" />
-                            <span>Ver Manifiesto</span>
+                            <span>Ver Manifiesto ({viaje.pasajeros_lista?.length || viaje.pasajeros_subieron_a || 0})</span>
                           </button>
 
                           <button
