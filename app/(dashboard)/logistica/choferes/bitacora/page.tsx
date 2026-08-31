@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/utils/supabase/client";
+import { useAuth } from "@/components/AuthProvider";
 import { 
   Clock, Truck, Users, AlertTriangle, ArrowRight, Download, 
   Search, RefreshCw, Bus, CheckCircle2, Calendar, MapPin, 
   FileText, ShieldCheck, UserCheck, Filter, FileSpreadsheet,
-  Eye, Check, Sparkles
+  Eye, Check, Sparkles, CloudUpload
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import Link from "next/link";
@@ -48,6 +49,15 @@ const CHOFERES_LIST = [
 ];
 
 export default function BitacoraChoferesPage() {
+  const { profile } = useAuth();
+  
+  const isChofer = profile?.rol === 'Chofer';
+  const isRHOrAdmin = profile?.rol === 'Administrativo' || 
+                      profile?.rol === 'Superintendente' || 
+                      profile?.rol === 'Jefe de Departamento' || 
+                      (profile?.rol || '').toLowerCase().includes('rh') || 
+                      (profile?.rol || '').toLowerCase().includes('admin');
+
   const [viajes, setViajes] = useState<ViajeBitacora[]>([]);
   const [empleadosMap, setEmpleadosMap] = useState<Map<string, any>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -65,13 +75,18 @@ export default function BitacoraChoferesPage() {
     cargarEmpleados();
     fetchViajes();
 
-    // Auto-refresco en vivo cada 20 segundos
+    // Si es chofer, prefiltrar por su nombre
+    if (profile && isChofer) {
+      const match = CHOFERES_LIST.find(c => (profile.nombre_completo || '').toLowerCase().includes(c.toLowerCase()));
+      if (match) setSelectedDriverFilter(match);
+    }
+
     const timer = setInterval(() => {
       fetchViajes();
-    }, 20000);
+    }, 15000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [profile]);
 
   // Cargar catálogo de empleados para resolver nombres reales
   const cargarEmpleados = async () => {
@@ -125,7 +140,7 @@ export default function BitacoraChoferesPage() {
     setLoading(true);
     let allRutas: ViajeBitacora[] = [];
 
-    // 1. Cargar desde logistica_reportes_diarios (Tabla principal de Supabase)
+    // 1. Cargar desde logistica_reportes_diarios (Tabla principal en Supabase)
     try {
       const { data: supaReportes } = await supabase
         .from("logistica_reportes_diarios")
@@ -154,23 +169,27 @@ export default function BitacoraChoferesPage() {
             choferNombre = `${rep.empleados.nombre} ${rep.empleados.apellido_paterno || ''}`.trim();
           }
 
+          // Parser seguro por split de cadenas
           if (com.includes("Ruta:")) {
-            const rutaMatch = com.match(/Ruta:\s*([^\s|]+(?:\s+[^\s|]+)*)\s+a\s+([^\s|]+(?:\s+[^\s|]+)*)/i);
-            if (rutaMatch) {
-              puntoA = rutaMatch[1].trim();
-              puntoB = rutaMatch[2].trim();
+            const rPart = com.split("Ruta:")[1]?.split("|")[0]?.trim() || "";
+            const parts = rPart.split(/\s+a\s+|\s+➔\s+|\s+->\s+/i);
+            if (parts.length >= 2) {
+              puntoA = parts[0].trim();
+              puntoB = parts[1].trim();
+            } else if (rPart) {
+              puntoA = rPart;
             }
           }
           if (com.includes("Chofer:")) {
-            const chMatch = com.match(/Chofer:\s*([^\s|]+(?:\s+[^\s|]+)*)/i);
-            if (chMatch) {
-              choferNombre = chMatch[1].trim();
+            const chPart = com.split("Chofer:")[1]?.split("|")[0]?.trim() || "";
+            if (chPart) {
+              choferNombre = chPart;
             }
           }
 
           let listaPasajeros: any[] = [];
           try {
-            if (rep.observaciones_recorrido) {
+            if (rep.observaciones_recorrido && rep.observaciones_recorrido !== '[]') {
               listaPasajeros = JSON.parse(rep.observaciones_recorrido);
             }
           } catch (_) {}
@@ -196,35 +215,7 @@ export default function BitacoraChoferesPage() {
       }
     } catch (e) {}
 
-    // 2. Cargar desde chofer_bitacora_rutas
-    try {
-      const { data: supaBitacora } = await supabase
-        .from("chofer_bitacora_rutas")
-        .select("*")
-        .order("creado_el", { ascending: false });
-
-      if (supaBitacora && supaBitacora.length > 0) {
-        supaBitacora.forEach((b: any) => {
-          allRutas.push({
-            id_bitacora: b.id_bitacora || "SUPA-" + b.id,
-            id_chofer: b.id_chofer,
-            chofer_nombre: b.chofer_nombre || "Chofer Operador",
-            punto_a: b.punto_a || "Origen",
-            punto_b: b.punto_b || "Destino",
-            hora_salida_a: b.hora_salida_a || "N/A",
-            hora_llegada_b: b.hora_llegada_b || "Completado",
-            pasajeros_subieron_a: b.pasajeros_subieron_a || (b.pasajeros_lista?.length || 0),
-            pasajeros_bajaron_b: b.pasajeros_bajaron_b || (b.pasajeros_lista?.length || 0),
-            pasajeros_lista: b.pasajeros_lista || [],
-            estatus: b.estatus || "CONCLUIDO",
-            fecha: b.fecha || new Date().toISOString().split("T")[0],
-            creado_el: b.creado_el || new Date().toISOString()
-          });
-        });
-      }
-    } catch (e) {}
-
-    // 3. Cargar desde LocalStorage de la App Móvil
+    // 2. Cargar desde LocalStorage de la App Móvil
     try {
       const rawApp = localStorage.getItem("rh_chofer_viajes");
       if (rawApp) {
@@ -256,7 +247,7 @@ export default function BitacoraChoferesPage() {
       }
     } catch (e) {}
 
-    // 4. Cargar desde LocalStorage Global de Rutas
+    // 3. Cargar desde LocalStorage Global de Rutas
     try {
       const globalRaw = localStorage.getItem("rh_rutas_qr_global_history");
       if (globalRaw) allRutas = [...allRutas, ...JSON.parse(globalRaw)];
@@ -277,7 +268,7 @@ export default function BitacoraChoferesPage() {
   // Generador de Rutas y Manifiestos de Demostración para los 6 choferes oficiales
   const handleGenerarRutasDemo = async () => {
     setSeedingDemo(true);
-    setDemoMessage("Generando rutas de prueba para los 6 choferes oficiales...");
+    setDemoMessage("Generando rutas oficiales en la base de datos para los 6 choferes...");
 
     try {
       const { data: emps } = await supabase
@@ -289,65 +280,16 @@ export default function BitacoraChoferesPage() {
       const hoy = new Date().toISOString().split('T')[0];
 
       const demoTrips = [
-        {
-          chofer: "Adalberto Pinales",
-          eco: "CAM-01",
-          origen: "Obscuridad",
-          destino: "Parajes",
-          horaSalida: "07:00 AM",
-          horaLlegada: "07:45 AM",
-          pasajerosCount: 12
-        },
-        {
-          chofer: "Ramon Yañez",
-          eco: "CAM-02",
-          origen: "San Miguel",
-          destino: "Planta",
-          horaSalida: "07:15 AM",
-          horaLlegada: "08:00 AM",
-          pasajerosCount: 8
-        },
-        {
-          chofer: "Oscar Vazquez",
-          eco: "URVAN-01",
-          origen: "Mina Bacis",
-          destino: "Parajes",
-          horaSalida: "08:30 AM",
-          horaLlegada: "09:10 AM",
-          pasajerosCount: 6
-        },
-        {
-          chofer: "Enrique Linares",
-          eco: "BUS-01",
-          origen: "Parajes",
-          destino: "Obscuridad",
-          horaSalida: "06:45 AM",
-          horaLlegada: "07:35 AM",
-          pasajerosCount: 18
-        },
-        {
-          chofer: "Samuel Madriles",
-          eco: "CAM-03",
-          origen: "Obscuridad",
-          destino: "Mina Bacis",
-          horaSalida: "07:30 AM",
-          horaLlegada: "08:15 AM",
-          pasajerosCount: 10
-        },
-        {
-          chofer: "Jesus Saucedo",
-          eco: "CAM-04",
-          origen: "Planta",
-          destino: "San Miguel",
-          horaSalida: "08:00 AM",
-          horaLlegada: "08:40 AM",
-          pasajerosCount: 9
-        }
+        { chofer: "Adalberto Pinales", eco: "CAM-01", origen: "Obscuridad", destino: "Parajes", horaSalida: "07:00 AM", horaLlegada: "07:45 AM", count: 12 },
+        { chofer: "Ramon Yañez", eco: "CAM-02", origen: "San Miguel", destino: "Planta", horaSalida: "07:15 AM", horaLlegada: "08:00 AM", count: 8 },
+        { chofer: "Oscar Vazquez", eco: "URVAN-01", origen: "Mina Bacis", destino: "Parajes", horaSalida: "08:30 AM", horaLlegada: "09:10 AM", count: 6 },
+        { chofer: "Enrique Linares", eco: "BUS-01", origen: "Parajes", destino: "Obscuridad", horaSalida: "06:45 AM", horaLlegada: "07:35 AM", count: 18 },
+        { chofer: "Samuel Madriles", eco: "CAM-03", origen: "Obscuridad", destino: "Mina Bacis", horaSalida: "07:30 AM", horaLlegada: "08:15 AM", count: 10 },
+        { chofer: "Jesus Saucedo", eco: "CAM-04", origen: "Planta", destino: "San Miguel", horaSalida: "08:00 AM", horaLlegada: "08:40 AM", count: 9 }
       ];
 
       for (const d of demoTrips) {
-        // Seleccionar mineros para este viaje
-        const pasajerosViaje = listaEmps.slice(0, d.pasajerosCount).map((e, idx) => ({
+        const pasajerosViaje = listaEmps.slice(0, d.count).map((e, idx) => ({
           id: e.id_empleado,
           nombre: `${e.nombre} ${e.apellido_paterno} ${e.apellido_materno || ''}`.trim(),
           puesto: `${e.puesto || 'Operador'} • ${e.departamento || 'Mina Bacis'}`,
@@ -355,7 +297,6 @@ export default function BitacoraChoferesPage() {
           metodo: 'QR'
         }));
 
-        // Guardar en logistica_reportes_diarios de Supabase
         await supabase.from("logistica_reportes_diarios").insert([{
           camion_numero: d.eco,
           tipo_vehiculo: d.eco.startsWith('BUS') ? 'Camión' : (d.eco.startsWith('URVAN') ? 'Urvan' : 'Camioneta'),
@@ -373,10 +314,8 @@ export default function BitacoraChoferesPage() {
         }]);
       }
 
-      setDemoMessage("✅ ¡6 viajes oficiales de demostración generados con éxito en la base de datos!");
-      setTimeout(() => {
-        setDemoMessage("");
-      }, 4000);
+      setDemoMessage("✅ ¡6 viajes oficiales generados exitosamente en la base de datos central!");
+      setTimeout(() => setDemoMessage(""), 4000);
       fetchViajes();
     } catch (e: any) {
       setDemoMessage("Error generando demostración: " + e.message);
@@ -505,22 +444,26 @@ export default function BitacoraChoferesPage() {
             <Bus className="w-8 h-8" />
           </div>
           <div>
-            <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">Panel Administrativo Central</span>
+            <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">
+              {isChofer ? `Bitácora Oficial • ${profile?.nombre_completo || 'Chofer'}` : 'Panel Administrativo Central'}
+            </span>
             <h1 className="text-2xl font-black tracking-tight">Centro de Manifiestos de Choferes</h1>
             <p className="text-zinc-400 text-xs mt-0.5">Control y visualización de viajes de todos los choferes y pasaje a bordo</p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleGenerarRutasDemo}
-            disabled={seedingDemo}
-            className="px-3.5 py-2.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 transition-all active:scale-95"
-            title="Cargar viajes de prueba para los 6 choferes oficiales"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>{seedingDemo ? "Generando..." : "⚡ Cargar Rutas Demo"}</span>
-          </button>
+          {isRHOrAdmin && (
+            <button
+              onClick={handleGenerarRutasDemo}
+              disabled={seedingDemo}
+              className="px-3.5 py-2.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 transition-all active:scale-95"
+              title="Cargar viajes de prueba para los 6 choferes oficiales"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>{seedingDemo ? "Generando..." : "⚡ Cargar Rutas Demo"}</span>
+            </button>
+          )}
 
           <Link
             href="/chofer-app"
@@ -583,8 +526,8 @@ export default function BitacoraChoferesPage() {
             <ShieldCheck className="w-6 h-6" />
           </div>
           <div>
-            <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Flotilla de Choferes</span>
-            <div className="text-2xl font-black text-zinc-900">6 Choferes Oficiales</div>
+            <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Flotilla Oficial</span>
+            <div className="text-2xl font-black text-zinc-900">6 Choferes</div>
           </div>
         </div>
       </div>
@@ -608,19 +551,25 @@ export default function BitacoraChoferesPage() {
             )}
           </div>
 
-          {/* Filtro por Chofer */}
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider whitespace-nowrap">Chofer:</span>
-            <select
-              value={selectedDriverFilter}
-              onChange={e => setSelectedDriverFilter(e.target.value)}
-              className="p-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800 focus:outline-none"
-            >
-              {CHOFERES_LIST.map(ch => (
-                <option key={ch} value={ch}>{ch === 'Todos' ? '👥 Todos los Choferes' : `👔 ${ch}`}</option>
-              ))}
-            </select>
-          </div>
+          {/* Filtro por Chofer (Solo editable para Administradores / RH) */}
+          {isRHOrAdmin ? (
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider whitespace-nowrap">Chofer:</span>
+              <select
+                value={selectedDriverFilter}
+                onChange={e => setSelectedDriverFilter(e.target.value)}
+                className="p-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800 focus:outline-none"
+              >
+                {CHOFERES_LIST.map(ch => (
+                  <option key={ch} value={ch}>{ch === 'Todos' ? '👥 Todos los Choferes' : `👔 ${ch}`}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="text-xs font-bold text-zinc-600 bg-zinc-100 px-3 py-2 rounded-xl">
+              👔 Chofer: <strong className="text-zinc-900">{profile?.nombre_completo || 'Chofer Operador'}</strong>
+            </div>
+          )}
 
           {/* Filtro por Fecha */}
           <div className="flex items-center gap-1 bg-zinc-100 p-1 rounded-xl w-full sm:w-auto justify-center">
@@ -659,13 +608,15 @@ export default function BitacoraChoferesPage() {
                 {filteredViajes.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-6 py-12 text-center text-zinc-400 font-bold space-y-2">
-                      <div>No se han registrado viajes de choferes aún.</div>
-                      <button
-                        onClick={handleGenerarRutasDemo}
-                        className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black text-xs font-black rounded-xl shadow-sm"
-                      >
-                        ⚡ Generar 6 Rutas Oficiales de Prueba
-                      </button>
+                      <div>No se han encontrado registros con los filtros actuales.</div>
+                      {isRHOrAdmin && (
+                        <button
+                          onClick={handleGenerarRutasDemo}
+                          className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black text-xs font-black rounded-xl shadow-sm mt-2"
+                        >
+                          ⚡ Cargar Rutas Oficiales Demo
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ) : (

@@ -321,10 +321,19 @@ export default function ChoferApp() {
     setSyncStatusMsg('Sincronizando viajes con la oficina...')
     try {
       const saved: ViajeLocal[] = JSON.parse(localStorage.getItem('rh_chofer_viajes') || '[]')
-      const finalizados = saved.filter(v => v.estado === 'Finalizado')
-      if (!finalizados.length) {
-        setSyncStatusMsg('No hay viajes concluidos guardados para subir.')
-        setTimeout(() => setSyncStatusMsg(''), 3000)
+      const globalRutas = JSON.parse(localStorage.getItem('rh_rutas_qr_global_history') || '[]')
+
+      // Unir todos los viajes disponibles
+      const todosLosViajes = [...saved, ...globalRutas]
+      
+      // Si no hay viajes pero hay un viaje activo en curso
+      if (!todosLosViajes.length && viajeActivoRef.current) {
+        todosLosViajes.push(viajeActivoRef.current)
+      }
+
+      if (!todosLosViajes.length) {
+        setSyncStatusMsg('No hay viajes locales guardados para subir.')
+        setTimeout(() => setSyncStatusMsg(''), 3500)
         setIsSyncing(false)
         return
       }
@@ -333,37 +342,32 @@ export default function ChoferApp() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          viajes: finalizados.map(v => ({
-            id_viaje_local: v.id_viaje_local,
+          viajes: todosLosViajes.map(v => ({
+            id_viaje_local: v.id_viaje_local || `app_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             id_chofer: v.id_chofer ?? null,
-            chofer_nombre: v.chofer_nombre,
-            tipo_vehiculo: v.tipo_vehiculo || 'Camioneta',
-            numero_economico: v.numero_economico || 'CAM-01',
-            ruta_origen: v.ruta_origen, 
-            ruta_destino: v.ruta_destino,
-            hora_inicio_real: v.hora_inicio_real, 
-            hora_fin_real: v.hora_fin_real,
-            estado: v.estado
-          })),
-          pasajeros: finalizados.flatMap(v => v.pasajeros.map(p => ({
-            id_registro_local: p.id_registro_local,
-            id_viaje_local: v.id_viaje_local,
-            id_empleado: p.id_empleado ?? null,
-            id_manual: p.id_manual ?? null,
-            nombre_completo: p.nombre_completo,
-            puesto_depto: p.puesto_depto,
-            metodo_registro: p.metodo_registro,
-            hora_subida: p.hora_subida
-          }))),
-          respuestas_checklist: finalizados.map(v => ({
-            id_viaje_local: v.id_viaje_local,
-            respuestas_json: v.checklist_respuestas
+            chofer_nombre: v.chofer_nombre || choferNombre || 'Chofer Operador',
+            tipo_vehiculo: v.tipo_vehiculo || tipoVehiculo || 'Camioneta',
+            numero_economico: v.numero_economico || numeroEconomico || 'CAM-01',
+            ruta_origen: v.ruta_origen || origen || 'Mina Bacis', 
+            ruta_destino: v.ruta_destino || destino || 'Parajes',
+            hora_inicio_real: v.hora_inicio_real || v.creado_el || new Date().toISOString(), 
+            hora_fin_real: v.hora_fin_real || new Date().toISOString(),
+            estado: v.estado || 'Finalizado',
+            pasajeros: (v.pasajeros || []).map((p: any) => ({
+              id_registro_local: p.id_registro_local || `pas_${Date.now()}`,
+              id_empleado: p.id_empleado ?? null,
+              id_manual: p.id_manual ?? null,
+              nombre_completo: p.nombre_completo || p.nombre || 'Trabajador',
+              puesto_depto: p.puesto_depto || p.puesto || 'Personal Mina Bacis',
+              metodo_registro: p.metodo_registro || 'QR',
+              hora_subida: p.hora_subida || new Date().toISOString()
+            }))
           }))
         })
       })
 
       if (res.ok) {
-        setSyncStatusMsg(`✅ ¡${finalizados.length} viajes sincronizados con éxito con la oficina!`)
+        setSyncStatusMsg(`✅ ¡${todosLosViajes.length} viajes sincronizados con éxito con la oficina!`)
         setTimeout(() => setSyncStatusMsg(''), 4000)
       } else {
         setSyncStatusMsg('Error al conectar con la base de datos.')

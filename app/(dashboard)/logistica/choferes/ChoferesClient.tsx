@@ -9,7 +9,7 @@ import {
   Upload, User, Save, Download, Truck, Calendar, History, Clock, MapPin, 
   AlertTriangle, ShieldCheck, ShieldAlert, Ambulance, Sparkles, RefreshCw, 
   QrCode, UserPlus, Trash2, StopCircle, Play, Volume2, VolumeX, CheckCircle2,
-  Users, Eye, FileSpreadsheet
+  Users, Eye, FileSpreadsheet, CloudUpload
 } from 'lucide-react'
 import SignatureCanvas from 'react-signature-canvas'
 import { jsPDF } from 'jspdf'
@@ -236,6 +236,60 @@ export default function ChoferesClient() {
   const [firmaGuardiaData, setFirmaGuardiaData] = useState<string | null>(null)
   const [rhApproved, setRhApproved] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [syncPortalLoading, setSyncPortalLoading] = useState(false)
+  const [syncPortalMsg, setSyncPortalMsg] = useState('')
+
+  const handleSyncPortal = async () => {
+    setSyncPortalLoading(true)
+    setSyncPortalMsg('Sincronizando viajes con la oficina central...')
+    try {
+      const localHistory = JSON.parse(localStorage.getItem(`history_routes_${selectedChofer}`) || '[]')
+      const globalHistory = JSON.parse(localStorage.getItem('rh_rutas_qr_global_history') || '[]')
+      const appHistory = JSON.parse(localStorage.getItem('rh_chofer_viajes') || '[]')
+
+      const combined = [...localHistory, ...globalHistory, ...appHistory]
+      if (combined.length === 0) {
+        setSyncPortalMsg('No hay viajes locales guardados para subir.')
+        setTimeout(() => setSyncPortalMsg(''), 3500)
+        setSyncPortalLoading(false)
+        return
+      }
+
+      const choferActualNombre = selectedChoferObj?.nombre || profile?.nombre_completo || 'Chofer Operador'
+
+      const res = await fetch('/api/choferes/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          viajes: combined.map(v => ({
+            id_viaje_local: v.id_bitacora || v.id_viaje_local || `web_${Date.now()}_${Math.random()}`,
+            id_chofer: v.id_chofer || selectedChofer,
+            chofer_nombre: v.chofer_nombre || choferActualNombre,
+            tipo_vehiculo: tipoVehiculo || 'Camioneta',
+            numero_economico: camion || 'CAM-01',
+            ruta_origen: v.punto_a || v.ruta_origen || 'Mina Bacis',
+            ruta_destino: v.punto_b || v.ruta_destino || 'Parajes',
+            hora_inicio_real: v.creado_el || new Date().toISOString(),
+            hora_fin_real: v.hora_llegada_b ? new Date().toISOString() : undefined,
+            estado: 'Finalizado',
+            pasajeros: v.pasajeros_lista || v.pasajeros || []
+          }))
+        })
+      })
+
+      if (res.ok) {
+        setSyncPortalMsg(`✅ ¡${combined.length} viajes sincronizados con éxito con la oficina central!`)
+        setTimeout(() => setSyncPortalMsg(''), 4000)
+        fetchViajesYHistorial()
+      } else {
+        setSyncPortalMsg('Error al conectar con la base de datos.')
+      }
+    } catch (e: any) {
+      setSyncPortalMsg('Error de red al intentar sincronizar.')
+    } finally {
+      setSyncPortalLoading(false)
+    }
+  }
 
   const isUUID = (str?: string) => {
     if (!str) return false
@@ -288,7 +342,18 @@ export default function ChoferesClient() {
       // AUTO-VINCULACIÓN SEGÚN EL USUARIO LOGUEADO:
       if (profile) {
         const nombreLog = (profile.nombre_completo || '').toLowerCase()
-        const myDriver = list.find(c => nombreLog.includes(c.nombre.toLowerCase()) || c.id_empleado === profile.id)
+        const emailLog = ((profile as any)?.email || '').toLowerCase()
+        const myDriver = list.find(c => 
+          nombreLog.includes(c.nombre.toLowerCase()) || 
+          c.id_empleado === profile.id ||
+          emailLog.includes(c.nombre.toLowerCase().split(' ')[0]) ||
+          (c.nombre.toLowerCase().includes('adalberto') && emailLog.includes('adalberto')) ||
+          (c.nombre.toLowerCase().includes('ramon') && emailLog.includes('ramon')) ||
+          (c.nombre.toLowerCase().includes('oscar') && emailLog.includes('oscar')) ||
+          (c.nombre.toLowerCase().includes('enrique') && emailLog.includes('enrique')) ||
+          (c.nombre.toLowerCase().includes('samuel') && emailLog.includes('samuel')) ||
+          (c.nombre.toLowerCase().includes('jesus') && emailLog.includes('jesus'))
+        )
 
         if (myDriver) {
           setSelectedChofer(myDriver.id_empleado)
@@ -298,6 +363,9 @@ export default function ChoferesClient() {
           setSelectedChofer(list[0].id_empleado)
           setSelectedChoferObj(list[0])
           if (!camion && list[0].numero_economico) setCamion(list[0].numero_economico)
+        } else if (list.length > 0) {
+          setSelectedChofer(list[0].id_empleado)
+          setSelectedChoferObj(list[0])
         }
       }
     } catch (err) {
@@ -1117,6 +1185,35 @@ export default function ChoferesClient() {
       {activeTab === 'bitacora_ruta' && (
         <div className="space-y-6 animate-in fade-in">
           
+          {/* BARRA DE SINCRONIZACIÓN CON LA OFICINA */}
+          <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black">
+                <CloudUpload className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-xs font-black text-zinc-900">Sincronización de Rutas y Pasajeros</div>
+                <div className="text-[11px] text-zinc-500">Envía los viajes y listas de personal a la base central de la oficina</div>
+              </div>
+            </div>
+
+            <button
+              onClick={handleSyncPortal}
+              disabled={syncPortalLoading}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl flex items-center gap-1.5 shadow-sm active:scale-95 transition-all w-full sm:w-auto justify-center"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncPortalLoading ? 'animate-spin' : ''}`} />
+              <span>{syncPortalLoading ? 'Sincronizando...' : '☁️ Sincronizar Rutas'}</span>
+            </button>
+          </div>
+
+          {syncPortalMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs rounded-2xl font-bold flex items-center gap-2 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{syncPortalMsg}</span>
+            </div>
+          )}
+
           {/* VIAJE EN CURSO */}
           {viajeRutaActivo ? (
             <div className="bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700 text-white p-6 rounded-3xl shadow-xl space-y-5 border border-amber-400">
