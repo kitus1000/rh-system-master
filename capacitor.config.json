@@ -3,7 +3,7 @@
   "appName": "Choferes Bacis",
   "webDir": "public",
   "server": {
-    "url": "https://rh-system-master.vercel.app/chofer-app",
+    "url": "https://rh-system-master.vercel.app/logistica/choferes",
     "cleartext": true
   },
   "android": {
