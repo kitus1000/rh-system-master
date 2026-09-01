@@ -11,6 +11,8 @@ import {
   CheckCircle2, MapPin
 } from 'lucide-react'
 
+import empleadosOfflineJson from '@/app/data/empleados_offline.json'
+
 /* ─────────────────────────── Tipos ─────────────────────────── */
 interface EmpleadoCache {
   id_empleado: string
@@ -19,7 +21,7 @@ interface EmpleadoCache {
   apellido_materno?: string
   puesto?: string
   departamento?: string
-  numero_empleado?: string
+  numero_empleado?: string | number
   qr_token?: string
 }
 
@@ -70,6 +72,7 @@ const CHECKLIST_DEFAULT: Record<string, boolean> = {
 }
 
 const STORAGE_KEY = 'rh_bitacora_viajes_v2'
+const INITIAL_EMPLEADOS_OFFLINE: EmpleadoCache[] = (empleadosOfflineJson as any) || DEFAULT_CHOFERES
 
 /* ─────────────────────────── Sonido / Vibración ─────────────────────────── */
 let sharedAudioCtx: any = null
@@ -116,7 +119,7 @@ export default function ChoferApp() {
   const [isInstalled, setIsInstalled] = useState(false)
 
   /* ── Catálogos offline ── */
-  const [empleadosCache, setEmpleadosCache] = useState<EmpleadoCache[]>(DEFAULT_CHOFERES)
+  const [empleadosCache, setEmpleadosCache] = useState<EmpleadoCache[]>(INITIAL_EMPLEADOS_OFFLINE)
   const [choferesList, setChoferesList] = useState<EmpleadoCache[]>(DEFAULT_CHOFERES)
 
   /* ── Formulario inicio ── */
@@ -141,7 +144,7 @@ export default function ChoferApp() {
   const pasajerosRef = useRef<PasajeroBordo[]>([])
   const viajeActivoRef = useRef<ViajeLocal | null>(null)
   const historialRef = useRef<ViajeLocal[]>([])
-  const empleadosCacheRef = useRef<EmpleadoCache[]>(DEFAULT_CHOFERES)
+  const empleadosCacheRef = useRef<EmpleadoCache[]>(INITIAL_EMPLEADOS_OFFLINE)
 
   /* ── Control de Cámara & Escáner ── */
   const [cameraActive, setCameraActive] = useState(false)
@@ -638,7 +641,7 @@ export default function ChoferApp() {
       id_manual: match ? undefined : idLimpio,
       nombre_completo: nombreCompleto,
       puesto_depto: puestoDepto,
-      numero_nomina: match?.numero_empleado || idLimpio,
+      numero_nomina: match?.numero_empleado ? String(match.numero_empleado) : idLimpio,
       metodo_registro: 'QR',
       hora_subida: new Date().toISOString()
     }

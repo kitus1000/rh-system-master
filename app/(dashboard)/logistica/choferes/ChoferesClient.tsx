@@ -14,6 +14,7 @@ import {
 import SignatureCanvas from 'react-signature-canvas'
 import { jsPDF } from 'jspdf'
 import Link from 'next/link'
+import empleadosOfflineJson from '@/app/data/empleados_offline.json'
 
 interface Chofer {
   id_empleado: string
@@ -134,7 +135,7 @@ export default function ChoferesClient() {
   // Refs de sincronización en tiempo real para evitar cierres obsoletos (Stale Closures)
   const pasajerosAbordadosRef = useRef<PasajeroEscaneado[]>([])
   const viajeRutaActivoRef = useRef<ViajeRutaConcluido | null>(null)
-  const empleadosCatalogRef = useRef<any[]>([])
+  const empleadosCatalogRef = useRef<any[]>(empleadosOfflineJson || [])
   const scanCooldownRef = useRef<boolean>(false)
 
   // Sub-pestaña de Historial ('rutas_qr' | 'checklists')
@@ -150,7 +151,7 @@ export default function ChoferesClient() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const scanLoopRef = useRef<number | null>(null)
-  const [empleadosCatalog, setEmpleadosCatalog] = useState<any[]>([])
+  const [empleadosCatalog, setEmpleadosCatalog] = useState<any[]>(empleadosOfflineJson || [])
 
   useEffect(() => { pasajerosAbordadosRef.current = pasajerosAbordados }, [pasajerosAbordados])
   useEffect(() => { viajeRutaActivoRef.current = viajeRutaActivo }, [viajeRutaActivo])
@@ -266,10 +267,22 @@ export default function ChoferesClient() {
 
   const cargarEmpleadosCatalogo = async () => {
     try {
+      const local = localStorage.getItem('rh_chofer_empleados_cache')
+      if (local) {
+        const parsed = JSON.parse(local)
+        if (parsed?.length) {
+          setEmpleadosCatalog(parsed)
+          empleadosCatalogRef.current = parsed
+        }
+      }
       const { data } = await supabase.from('empleados')
         .select('id_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, numero_empleado, qr_token')
         .order('nombre')
-      if (data) setEmpleadosCatalog(data)
+      if (data && data.length > 0) {
+        setEmpleadosCatalog(data)
+        empleadosCatalogRef.current = data
+        try { localStorage.setItem('rh_chofer_empleados_cache', JSON.stringify(data)) } catch (_) {}
+      }
     } catch (e) {}
   }
 
