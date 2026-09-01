@@ -350,6 +350,7 @@
       if (isOnline) {
         b.className = 'badge-status badge-online';
         b.innerHTML = '● En Línea (Sincronizado)';
+        actualizarCatalogoDesdeNube();
         autoSync();
       } else {
         b.className = 'badge-status badge-offline';
@@ -412,16 +413,49 @@
       actualizarStats();
     }
 
+    function getCatalogoActual() {
+      try {
+        const raw = localStorage.getItem('rh_empleados_cache_updated');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch(_) {}
+      return window.EMPLEADOS_OFFLINE || [];
+    }
+
+    async function actualizarCatalogoDesdeNube() {
+      if (!navigator.onLine) return;
+      try {
+        const res = await fetch('https://levyoflvpcbuueefqhtk.supabase.co/rest/v1/empleados?select=id_empleado,nombre,apellido_paterno,apellido_materno,puesto,departamento,numero_empleado,qr_token', {
+          headers: {
+            'apikey': 'sb_publishable_FQWWX93mMjFFQdqy6N_GWQ_pb5vkCzG',
+            'Authorization': 'Bearer sb_publishable_FQWWX93mMjFFQdqy6N_GWQ_pb5vkCzG'
+          }
+        });
+        if (res.ok) {
+          const emps = await res.json();
+          if (Array.isArray(emps) && emps.length > 0) {
+            localStorage.setItem('rh_empleados_cache_updated', JSON.stringify(emps));
+            actualizarStats();
+          }
+        }
+      } catch(_) {}
+    }
+
     function actualizarStats() {
       document.getElementById('statViajesTotal').innerText = viajesHistorial.length;
       const pend = viajesHistorial.filter(v => !v.sincronizado).length;
       document.getElementById('statViajesPendientes').innerText = pend;
       document.getElementById('countBitacora').innerText = viajesHistorial.length;
+      const totalEmps = getCatalogoActual().length;
+      const desc = document.getElementById('syncStatusDesc');
+      if (desc) desc.innerText = `Catálogo Local: ${totalEmps} Trabajadores Disponibles`;
     }
 
     /* ──────────────── RESOLUCIÓN DE EMPLEADOS OFFLINE ──────────────── */
     function buscarEmpleado(code) {
-      const catalogo = window.EMPLEADOS_OFFLINE || [];
+      const catalogo = getCatalogoActual();
       let clean = String(code).trim();
       const numMatch = clean.match(/\d+/);
       const digits = numMatch ? numMatch[0] : '';
