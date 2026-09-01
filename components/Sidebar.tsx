@@ -94,12 +94,11 @@ const navigationGroups = [
         isCollapsible: true,
         defaultExpanded: true,
         items: [
-            { name: '📱 App Choferes (Móvil/Offline)', href: '/chofer-app', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas', 'Encargado de Campamento y Comedor'] },
-            { name: 'Viajes Programados', href: '/transporte', icon: Bus, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Logística', href: '/logistica', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Portal Choferes', href: '/logistica/choferes', icon: Car, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Chofer'] },
-            { name: 'Bitácora Pasajeros QR', href: '/logistica/choferes/bitacora', icon: Users, roles: ['Recursos Humanos', 'Administrativo', 'Superintendente', 'Jefe de Departamento', 'Chofer'] },
-            { name: 'Supervisión', href: '/logistica/reportes', icon: ClipboardList, roles: ['Recursos Humanos', 'Administrativo', 'Superintendente', 'Jefe de Departamento', 'Sistemas'] }
+            { name: '🚌 Portal Choferes & Pasaje QR', href: '/logistica/choferes', icon: Car, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas', 'Supervisor', 'Encargado de Campamento y Comedor'] },
+            { name: '📑 Bitácora de Pasajeros QR', href: '/logistica/choferes/bitacora', icon: Users, roles: ['Recursos Humanos', 'Administrativo', 'Superintendente', 'Jefe de Departamento', 'Chofer', 'Sistemas', 'Supervisor'] },
+            { name: '📅 Viajes Programados', href: '/transporte', icon: Bus, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas', 'Supervisor'] },
+            { name: '🛠️ Control de Flota y Logística', href: '/logistica', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Sistemas', 'Chofer'] },
+            { name: '📊 Supervisión y Reportes', href: '/logistica/reportes', icon: ClipboardList, roles: ['Recursos Humanos', 'Administrativo', 'Superintendente', 'Jefe de Departamento', 'Sistemas', 'Chofer'] }
         ]
     },
     {
