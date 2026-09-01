@@ -1,0 +1,50 @@
+name: Compilar APK Android Choferes Bacis
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar Código Fuente
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Instalar Dependencias
+        run: npm ci
+
+      - name: Sincronizar Capacitor con Android
+        run: npx cap sync android
+
+      - name: Dar permisos de ejecución a Gradle
+        run: chmod +x android/gradlew
+
+      - name: Compilar APK con Gradle (Build Real de Android)
+        run: |
+          cd android
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Subir Archivo APK para Descarga
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChoferesBacis-App-Android
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
