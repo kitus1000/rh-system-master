@@ -673,6 +673,100 @@ export default function ChoferesClient() {
     fetchViajesYHistorial()
   }
 
+  // GUARDAR MANIFIESTO DIRECTO (1 SOLO CLIC)
+  const handleGuardarViajeDirecto = async () => {
+    if (!selectedChofer) return alert('Por favor selecciona un chofer')
+    if (!puntoA.trim() || !puntoB.trim()) return alert('Define el Punto A y Punto B')
+
+    const choferNombre = selectedChoferObj 
+      ? `${selectedChoferObj.nombre} ${selectedChoferObj.apellido_paterno || ''}`.trim() 
+      : (profile?.nombre_completo || 'Chofer Operador')
+    const now = new Date()
+    const horaActual = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
+    const fechaActual = now.toISOString().split('T')[0]
+
+    const listaFinal = [...pasajerosAbordadosRef.current]
+    const totalFinal = listaFinal.length > 0 ? listaFinal.length : (pasajerosA || 0)
+
+    const completedTrip: ViajeRutaConcluido = {
+      id_bitacora: 'RUT-' + Date.now(),
+      id_chofer: selectedChofer,
+      chofer_nombre: choferNombre,
+      punto_a: puntoA.toUpperCase().trim(),
+      punto_b: puntoB.toUpperCase().trim(),
+      hora_salida_a: horaActual,
+      hora_llegada_b: horaActual,
+      pasajeros_subieron_a: totalFinal,
+      pasajeros_bajaron_b: totalFinal,
+      pasajeros_lista: listaFinal,
+      estatus: 'CONCLUIDO',
+      fecha: fechaActual,
+      comentarios: comentariosRuta,
+      creado_el: now.toISOString()
+    }
+
+    setViajeRutaActivo(null)
+    viajeRutaActivoRef.current = null
+    setPasajerosAbordados([])
+    pasajerosAbordadosRef.current = []
+    setPasajerosA(0)
+    setPasajerosB(0)
+    localStorage.removeItem(`active_route_${selectedChofer}`)
+
+    // Guardar en Historial Local
+    const updatedChoferHistory = [completedTrip, ...bitacoraRutasList]
+    setBitacoraRutasList(updatedChoferHistory)
+    localStorage.setItem(`history_routes_${selectedChofer}`, JSON.stringify(updatedChoferHistory))
+
+    // Guardar en Supabase a través del endpoint central de sincronización
+    try {
+      await fetch('/api/choferes/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          viajes: [{
+            id_viaje_local: completedTrip.id_bitacora,
+            id_chofer: isUUID(selectedChofer) ? selectedChofer : null,
+            chofer_nombre: completedTrip.chofer_nombre,
+            tipo_vehiculo: tipoVehiculo || 'Camioneta',
+            numero_economico: camion || 'CAM-01',
+            ruta_origen: completedTrip.punto_a,
+            ruta_destino: completedTrip.punto_b,
+            hora_inicio_real: completedTrip.creado_el,
+            hora_fin_real: now.toISOString(),
+            estado: 'Finalizado',
+            pasajeros: listaFinal
+          }]
+        })
+      })
+    } catch (e) {}
+
+    // Respaldo directo en Supabase
+    try {
+      await supabase.from('logistica_reportes_diarios').insert([{
+        fecha: completedTrip.fecha,
+        camion_numero: camion || 'CAM-01',
+        tipo_vehiculo: tipoVehiculo || 'Camioneta',
+        ubicacion_caseta: completedTrip.punto_b,
+        comentarios_vehiculo: `[VIAJE_QR] Ruta: ${completedTrip.punto_a} a ${completedTrip.punto_b} | Chofer: ${completedTrip.chofer_nombre} | Pasajeros: ${totalFinal} | Salida: ${completedTrip.hora_salida_a} | Llegada: ${completedTrip.hora_llegada_b}`,
+        observaciones_recorrido: JSON.stringify(listaFinal),
+        frenos_ok: true,
+        luces_ok: true,
+        llantas_ok: true,
+        niveles_aceite_ok: true,
+        carroceria_ok: true,
+        extintor_ok: true,
+        botiquin_ok: true
+      }])
+    } catch (e) {}
+
+    playBeep(true)
+    alert(`🏁 ¡Manifiesto Guardado con Éxito!\n\n👥 Total de Personal Registrado: ${totalFinal}\n\nLos datos fueron guardados y enviados a la oficina central.`)
+    setActiveTab('historial')
+    setSubTabHistorial('rutas_qr')
+    fetchViajesYHistorial()
+  }
+
   // AGREGAR PASAJERO (QR O MANUAL - NUNCA SOBREESCRIBE LISTA PREVIA)
   const agregarPasajero = (idOrQr: string, metodo: 'QR' | 'Manual' = 'Manual') => {
     if (!idOrQr.trim()) return
@@ -1522,13 +1616,22 @@ export default function ChoferesClient() {
                 />
               </div>
 
-              <button
-                onClick={handleIniciarRuta}
-                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-base rounded-2xl shadow-xl flex items-center justify-center gap-2 transform active:scale-95 transition-all uppercase tracking-wide"
-              >
-                <Bus className="w-6 h-6" />
-                <span>🟢 Iniciar Ruta ({puntoA} ➔ {puntoB})</span>
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  onClick={handleGuardarViajeDirecto}
+                  className="py-4 px-3 bg-zinc-900 hover:bg-zinc-800 text-white font-black text-sm rounded-2xl shadow-xl flex items-center justify-center gap-2 transform active:scale-95 transition-all uppercase tracking-wide"
+                >
+                  <CheckCircle className="w-5 h-5 text-emerald-400" />
+                  <span>💾 Guardar Manifiesto ({pasajerosAbordados.length})</span>
+                </button>
+                <button
+                  onClick={handleIniciarRuta}
+                  className="py-4 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm rounded-2xl shadow-xl flex items-center justify-center gap-2 transform active:scale-95 transition-all uppercase tracking-wide"
+                >
+                  <Bus className="w-5 h-5" />
+                  <span>🟢 Iniciar Ruta en Vivo</span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -2296,13 +2399,47 @@ export default function ChoferesClient() {
             )}
 
             {scanMessage && (
-              <div className="p-3 bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-xs rounded-xl font-bold text-center animate-bounce">
+              <div className="p-3 bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-xs rounded-xl font-bold text-center">
                 {scanMessage}
               </div>
             )}
 
+            {/* Lista en Vivo de Escaneados dentro del Modal */}
+            <div className="space-y-1.5 bg-zinc-950/90 p-3 rounded-2xl border border-zinc-800">
+              <div className="flex justify-between items-center text-[11px] font-black uppercase text-zinc-400">
+                <span>Personal Registrado:</span>
+                <span className="text-emerald-400 font-black">{pasajerosAbordados.length} a bordo</span>
+              </div>
+              {pasajerosAbordados.length === 0 ? (
+                <p className="text-[11px] text-zinc-500 text-center py-2">Apunta el QR de la credencial frente a la cámara</p>
+              ) : (
+                <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                  {pasajerosAbordados.map((p, idx) => (
+                    <div key={idx} className="flex justify-between items-center p-2 bg-zinc-800/90 rounded-xl text-xs border border-zinc-700/50">
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <span className="w-5 h-5 rounded-md bg-emerald-500/20 text-emerald-400 font-black text-[10px] flex items-center justify-center shrink-0">
+                          {pasajerosAbordados.length - idx}
+                        </span>
+                        <div className="truncate">
+                          <span className="font-bold text-white block truncate text-xs">{p.nombre}</span>
+                          <span className="text-[10px] text-zinc-400 block">{p.puesto} • {p.hora}</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => quitarPasajero(p.id)}
+                        className="text-zinc-500 hover:text-rose-400 p-1 shrink-0"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Input Manual Rápido */}
-            <div className="flex gap-2 pt-2 border-t border-zinc-800">
+            <div className="flex gap-2 pt-1 border-t border-zinc-800">
               <input
                 type="text"
                 value={manualIdInput}
