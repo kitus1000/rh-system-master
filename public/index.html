@@ -6,60 +6,162 @@
   <title>Choferes Bacis - App Offline</title>
   <meta name="theme-color" content="#10b981">
   <style>
+    :root {
+      --bg-main: #09090b;
+      --bg-card: #18181b;
+      --bg-input: #27272a;
+      --border-color: #3f3f46;
+      --text-main: #ffffff;
+      --text-muted: #a1a1aa;
+      --text-label: #a1a1aa;
+      --accent: #10b981;
+      --accent-hover: #059669;
+      --accent-text: #000000;
+      --card-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+
+    /* MODO DÍA / ALTO CONTRASTE BAJO EL SOL */
+    body.light-theme {
+      --bg-main: #f8fafc;
+      --bg-card: #ffffff;
+      --bg-input: #f1f5f9;
+      --border-color: #cbd5e1;
+      --text-main: #0f172a;
+      --text-muted: #475569;
+      --text-label: #334155;
+      --accent: #047857;
+      --accent-hover: #065f46;
+      --accent-text: #ffffff;
+      --card-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
-    body { background-color: #09090b; color: #f4f4f5; display: flex; flex-direction: column; min-height: 100vh; padding-bottom: 80px; user-select: none; }
-    header { background-color: #18181b; border-bottom: 1px solid #27272a; position: sticky; top: 0; z-index: 40; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; }
-    .badge-status { font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 999px; display: flex; align-items: center; gap: 6px; }
+    body { background-color: var(--bg-main); color: var(--text-main); display: flex; flex-direction: column; min-height: 100vh; padding-bottom: 80px; user-select: none; transition: background-color 0.2s, color 0.2s; }
+    header { background-color: var(--bg-card); border-bottom: 2px solid var(--border-color); position: sticky; top: 0; z-index: 40; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; }
+    .badge-status { font-size: 11px; font-weight: 900; padding: 4px 10px; border-radius: 999px; display: flex; align-items: center; gap: 6px; }
     .badge-online { background-color: #064e3b; color: #6ee7b7; border: 1px solid #059669; }
     .badge-offline { background-color: #78350f; color: #fde68a; border: 1px solid #d97706; }
-    main { max-width: 480px; width: 100%; margin: 0 auto; padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 14px; }
-    .card { background-color: #18181b; border: 1px solid #27272a; border-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
-    .card-title { font-size: 14px; font-weight: 900; color: #ffffff; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #27272a; padding-bottom: 8px; }
+    .theme-toggle-btn { background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-main); padding: 5px 10px; border-radius: 10px; font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+    main { max-width: 480px; width: 100%; margin: 0 auto; padding: 12px; flex: 1; display: flex; flex-direction: column; gap: 12px; }
+    .card { background-color: var(--bg-card); border: 1.5px solid var(--border-color); border-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--card-shadow); }
+    .card-title { font-size: 14px; font-weight: 900; color: var(--text-main); display: flex; align-items: center; gap: 8px; border-bottom: 1.5px solid var(--border-color); padding-bottom: 8px; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .form-group { display: flex; flex-direction: column; gap: 4px; }
-    label { font-size: 11px; font-weight: 700; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.5px; }
-    select, input, textarea { width: 100%; background-color: #27272a; border: 1px solid #3f3f46; border-radius: 12px; padding: 10px 12px; color: #ffffff; font-size: 13px; font-weight: 600; outline: none; }
-    select:focus, input:focus, textarea:focus { border-color: #10b981; }
-    .btn { padding: 12px 16px; border-radius: 14px; font-weight: 800; font-size: 13px; text-transform: uppercase; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; transition: 0.1s transform; }
+    label { font-size: 11px; font-weight: 800; color: var(--text-label); text-transform: uppercase; letter-spacing: 0.5px; }
+    select, input, textarea { width: 100%; background-color: var(--bg-input); border: 1.5px solid var(--border-color); border-radius: 12px; padding: 11px 12px; color: var(--text-main); font-size: 13px; font-weight: 700; outline: none; }
+    select:focus, input:focus, textarea:focus { border-color: var(--accent); }
+    .btn { padding: 13px 16px; border-radius: 14px; font-weight: 900; font-size: 13px; text-transform: uppercase; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; transition: 0.1s transform; }
     .btn:active { transform: scale(0.97); }
-    .btn-primary { background-color: #10b981; color: #09090b; }
-    .btn-secondary { background-color: #27272a; color: #ffffff; border: 1px solid #3f3f46; }
+    .btn-primary { background-color: var(--accent); color: var(--accent-text); }
+    .btn-secondary { background-color: var(--bg-input); color: var(--text-main); border: 1.5px solid var(--border-color); }
     .btn-danger { background-color: #e11d48; color: #ffffff; }
-    .btn-cam { background-color: #059669; color: #ffffff; width: 100%; }
-    .camera-box { position: relative; width: 100%; aspect-ratio: 16/9; background-color: #000; border-radius: 16px; overflow: hidden; border: 2px solid #10b981; }
-    video { width: 100%; height: 100%; object-fit: cover; }
-    .scan-guide { position: absolute; inset: 15%; border: 2px dashed #10b981; border-radius: 12px; pointer-events: none; }
-    .notice { padding: 10px; border-radius: 12px; font-size: 12px; font-weight: 800; text-align: center; }
-    .notice-success { background-color: #064e3b; color: #6ee7b7; border: 1px solid #10b981; }
-    .notice-dup { background-color: #78350f; color: #fde68a; border: 1px solid #d97706; }
+    .btn-cam { background-color: #047857; color: #ffffff; width: 100%; }
+    .notice { padding: 10px; border-radius: 12px; font-size: 12px; font-weight: 900; text-align: center; }
+    .notice-success { background-color: #064e3b; color: #6ee7b7; border: 1.5px solid #10b981; }
+    .notice-dup { background-color: #78350f; color: #fde68a; border: 1.5px solid #d97706; }
     .passengers-list { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
-    .passenger-item { background-color: #27272a; border: 1px solid #3f3f46; padding: 8px 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
-    .nav-bar { position: fixed; bottom: 0; left: 0; right: 0; background-color: rgba(24, 24, 27, 0.95); backdrop-filter: blur(10px); border-top: 1px solid #27272a; z-index: 50; display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px; max-width: 480px; margin: 0 auto; }
-    .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: #71717a; font-size: 10px; font-weight: 800; padding: 8px 0; border: none; background: transparent; cursor: pointer; }
-    .nav-item.active { color: #10b981; }
+    .passenger-item { background-color: var(--bg-input); border: 1px solid var(--border-color); padding: 9px 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+    .nav-bar { position: fixed; bottom: 0; left: 0; right: 0; background-color: var(--bg-card); border-top: 1.5px solid var(--border-color); z-index: 50; display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px; max-width: 480px; margin: 0 auto; }
+    .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--text-muted); font-size: 10px; font-weight: 900; padding: 8px 0; border: none; background: transparent; cursor: pointer; }
+    .nav-item.active { color: var(--accent); }
     .tab-content { display: none; }
-    .tab-content.active { display: flex; flex-direction: column; gap: 14px; }
-    .trip-live { background-color: #064e3b; border: 1px solid #059669; border-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 12px; text-align: center; }
-    .modal { position: fixed; inset: 0; background-color: rgba(0,0,0,0.85); backdrop-filter: blur(5px); z-index: 60; display: none; align-items: center; justify-content: center; padding: 16px; }
-    .modal-box { background-color: #18181b; border: 1px solid #27272a; border-radius: 24px; max-width: 420px; width: 100%; max-height: 80vh; display: flex; flex-direction: column; padding: 16px; gap: 12px; }
+    .tab-content.active { display: flex; flex-direction: column; gap: 12px; }
+    .trip-live { background-color: #064e3b; border: 2px solid #059669; border-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 12px; text-align: center; color: #ffffff; }
+    .modal { position: fixed; inset: 0; background-color: rgba(0,0,0,0.85); backdrop-filter: blur(5px); z-index: 60; display: none; align-items: center; justify-content: center; padding: 14px; }
+    .modal-box { background-color: var(--bg-card); border: 2px solid var(--border-color); border-radius: 24px; max-width: 420px; width: 100%; max-height: 80vh; display: flex; flex-direction: column; padding: 16px; gap: 12px; color: var(--text-main); }
     .log-console { background: #000; border: 1px solid #3f3f46; border-radius: 12px; padding: 10px; font-family: monospace; font-size: 11px; color: #10b981; max-height: 140px; overflow-y: auto; text-align: left; line-height: 1.4; }
+
+    /* ── FULL SCREEN SCANNER MODAL ── */
+    #scannerFullscreen {
+      position: fixed;
+      inset: 0;
+      background: #000000;
+      z-index: 100;
+      display: none;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    #scannerVideo {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .scanner-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 16px;
+      pointer-events: none;
+    }
+    .scanner-header-hud {
+      pointer-events: auto;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 18px;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #fff;
+    }
+    .scanner-target-zone {
+      position: relative;
+      align-self: center;
+      width: min(80vw, 290px);
+      height: min(80vw, 290px);
+      border: 3px solid #10b981;
+      border-radius: 24px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.65), 0 0 30px rgba(16, 185, 129, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .scanner-laser {
+      position: absolute;
+      width: 100%;
+      height: 3px;
+      background: #34d399;
+      box-shadow: 0 0 15px #10b981, 0 0 30px #34d399;
+      animation: scanLaser 1.8s infinite alternate ease-in-out;
+    }
+    @keyframes scanLaser {
+      0% { top: 8%; }
+      100% { top: 90%; }
+    }
+    .scanner-footer-hud {
+      pointer-events: auto;
+      display: flex;
+      gap: 10px;
+    }
   </style>
 </head>
 <body>
 
-  <!-- Encabezado -->
+  <!-- Encabezado con Switch Modo Luz / Noche -->
   <header>
     <div style="display: flex; align-items: center; gap: 8px;">
-      <div style="width: 34px; height: 34px; background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px;">
+      <div style="width: 34px; height: 34px; background: rgba(16, 185, 129, 0.2); border: 1.5px solid var(--accent); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px;">
         🚌
       </div>
       <div>
-        <div style="font-size: 13px; font-weight: 900; color: #fff;">CHOFERES BACIS</div>
-        <div id="driverHeaderLabel" style="font-size: 10px; color: #a1a1aa; font-weight: 700;">👔 Adalberto Pinales • CAM-01</div>
+        <div style="font-size: 13px; font-weight: 900; color: var(--text-main);">CHOFERES BACIS</div>
+        <div id="driverHeaderLabel" style="font-size: 10px; color: var(--text-muted); font-weight: 800;">👔 Adalberto Pinales • CAM-01</div>
       </div>
     </div>
-    <div id="statusBadge" class="badge-status badge-offline">
-      <span>● Modo Sierra</span>
+
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <button id="themeToggleBtn" class="theme-toggle-btn" onclick="toggleTheme()">
+        ☀️ Modo Sol
+      </button>
+      <div id="statusBadge" class="badge-status badge-offline">
+        <span>● Sierra</span>
+      </div>
     </div>
   </header>
 
@@ -141,16 +243,13 @@
       <div class="card">
         <div class="card-title" style="justify-content: space-between;">
           <span>👥 Personal a Bordo (<span id="countPasajeros">0</span>)</span>
-          <button class="btn btn-cam" style="width: auto; padding: 6px 12px; font-size: 11px;" onclick="toggleCamara()">
-            📷 <span id="camBtnText">Abrir Cámara</span>
-          </button>
+          <span style="font-size: 11px; color: var(--accent); font-weight: 800;">✓ 356 en Memoria</span>
         </div>
 
-        <!-- Cámara -->
-        <div id="camBox" class="camera-box" style="display: none;">
-          <video id="videoEl" playsinline autoplay muted></video>
-          <div class="scan-guide"></div>
-        </div>
+        <!-- Botón Gigante de Apertura de Cámara -->
+        <button class="btn btn-primary" style="padding: 16px; font-size: 14px; letter-spacing: 0.5px;" onclick="abrirEscanerPantallaCompleta()">
+          📷 ABRIR ESCÁNER QR PANTALLA COMPLETA
+        </button>
 
         <div id="scanAlert" class="notice notice-success" style="display: none;"></div>
 
@@ -160,9 +259,9 @@
           <button class="btn btn-secondary" onclick="agregarManual()" style="width: auto;">+ Agregar</button>
         </div>
 
-        <!-- Lista -->
+        <!-- Lista de Pasajeros -->
         <div id="listaPasajeros" class="passengers-list">
-          <div style="text-align: center; color: #71717a; font-size: 12px; padding: 12px;">Ningún trabajador escaneado aún.</div>
+          <div style="text-align: center; color: var(--text-muted); font-size: 12px; padding: 12px;">Ningún trabajador escaneado aún.</div>
         </div>
 
         <!-- Botones de Guardado -->
@@ -181,14 +280,17 @@
         <div style="font-size: 11px; font-weight: 900; text-transform: uppercase; color: #a7f3d0; letter-spacing: 1px;">
           🟢 Recorrido Activo en Curso
         </div>
-        <div id="liveTimer" style="font-size: 28px; font-weight: 900; font-family: monospace; color: #ffffff;">00:00:00</div>
-        <div style="font-size: 13px; font-weight: 700; color: #fff;">
+        <div id="liveTimer" style="font-size: 32px; font-weight: 900; font-family: monospace; color: #ffffff;">00:00:00</div>
+        <div style="font-size: 14px; font-weight: 800; color: #fff;">
           <span id="liveOrigen"></span> ➔ <span id="liveDestino"></span>
         </div>
-        <div style="font-size: 12px; color: #6ee7b7; font-weight: 800;">
+        <div style="font-size: 13px; color: #6ee7b7; font-weight: 900;">
           👥 <span id="liveCount">0</span> Trabajadores a Bordo
         </div>
-        <button class="btn btn-primary" style="background-color: #34d399;" onclick="finalizarRecorridoVivo()">
+        <button class="btn btn-primary" style="background-color: #34d399; color: #000;" onclick="abrirEscanerPantallaCompleta()">
+          📷 Escanear en Carretera
+        </button>
+        <button class="btn btn-primary" style="background-color: #ffffff; color: #000;" onclick="finalizarRecorridoVivo()">
           🏁 Finalizar Viaje en Destino
         </button>
       </div>
@@ -235,18 +337,18 @@
       </div>
     </div>
 
-    <!-- TAB 5: NUBE / SYNC CON MONITOREO Y CONSOLA DE ESTADO -->
+    <!-- TAB 5: NUBE / SYNC CON CONSOLA DE ESTADO -->
     <div id="tab-sync" class="tab-content">
       <div class="card" style="text-align: center; gap: 14px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #27272a; padding-bottom: 8px;">
-          <span style="font-size: 14px; font-weight: 900; color: #fff;">📡 Centro de Sincronización</span>
-          <span id="dbStatusBadge" style="font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: #27272a; color: #a1a1aa;">Verificando base...</span>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid var(--border-color); padding-bottom: 8px;">
+          <span style="font-size: 14px; font-weight: 900; color: var(--text-main);">📡 Centro de Sincronización</span>
+          <span id="dbStatusBadge" style="font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: var(--bg-input); color: var(--text-muted);">Verificando...</span>
         </div>
 
-        <div style="background: #27272a; padding: 12px; border-radius: 14px; text-align: left; font-size: 12px; display: flex; flex-direction: column; gap: 6px;">
+        <div style="background: var(--bg-input); padding: 12px; border-radius: 14px; text-align: left; font-size: 12px; display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border-color);">
           <div style="display: flex; justify-content: space-between;">
             <span>📦 Viajes en Celular:</span>
-            <strong id="statViajesTotal" style="color: #fff;">0</strong>
+            <strong id="statViajesTotal" style="color: var(--text-main);">0</strong>
           </div>
           <div style="display: flex; justify-content: space-between;">
             <span>⚠️ Pendientes de Subir:</span>
@@ -254,17 +356,17 @@
           </div>
           <div style="display: flex; justify-content: space-between;">
             <span>👥 Catálogo Offline:</span>
-            <strong id="statCatTotal" style="color: #10b981;">356 Trabajadores</strong>
+            <strong id="statCatTotal" style="color: var(--accent);">356 Trabajadores</strong>
           </div>
           <div style="display: flex; justify-content: space-between;">
             <span>🌐 Señal de Red:</span>
-            <strong id="netStatusText" style="color: #6ee7b7;">En Línea</strong>
+            <strong id="netStatusText" style="color: #10b981;">En Línea</strong>
           </div>
         </div>
 
         <!-- Consola de Registro en Vivo -->
         <div class="form-group" style="text-align: left;">
-          <label>Registro de Comunicación (Log en Vivo):</label>
+          <label>Registro de Comunicación:</label>
           <div id="syncLogConsole" class="log-console">
             [Sistema] App Choferes iniciada.<br>
             [Modo] Almacenamiento local operativo.
@@ -283,15 +385,48 @@
     </div>
   </main>
 
-  <!-- MODAL DE MANIFIESTO -->
+  <!-- ── MODAL DE ESCÁNER QR PANTALLA COMPLETA ── -->
+  <div id="scannerFullscreen">
+    <video id="scannerVideo" playsinline autoplay muted></video>
+    
+    <div class="scanner-overlay">
+      <!-- HUD Superior -->
+      <div class="scanner-header-hud">
+        <div>
+          <div style="font-size: 12px; font-weight: 900; color: #10b981;">ESCÁNER DE CREDENCIALES QR</div>
+          <div id="hudPasajerosCount" style="font-size: 11px; font-weight: 700; color: #fff;">👥 A Bordo: 0 trabajadores</div>
+        </div>
+        <button id="btnTorch" onclick="toggleTorch()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 6px 12px; border-radius: 12px; font-size: 12px; font-weight: 800; cursor: pointer;">
+          🔦 Luz
+        </button>
+      </div>
+
+      <!-- Zona de Apuntamiento Láser -->
+      <div class="scanner-target-zone">
+        <div class="scanner-laser"></div>
+        <span style="color: rgba(255,255,255,0.6); font-size: 10px; font-weight: 800; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 6px; pointer-events: none;">
+          Enfoca la credencial aquí
+        </span>
+      </div>
+
+      <!-- HUD Inferior -->
+      <div class="scanner-footer-hud">
+        <button class="btn btn-danger" style="flex: 1; padding: 14px; font-size: 14px;" onclick="cerrarEscanerPantallaCompleta()">
+          ✕ Terminar Escaneo y Ver Lista
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DE MANIFIESTO NOMINAL -->
   <div id="manifestModal" class="modal">
     <div class="modal-box">
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #27272a; padding-bottom: 8px;">
-        <div style="font-size: 14px; font-weight: 900; color: #fff;" id="modalTitle">Manifiesto de Pasajeros</div>
-        <button onclick="cerrarModal()" style="background: none; border: none; color: #a1a1aa; font-size: 18px; cursor: pointer;">✕</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid var(--border-color); padding-bottom: 8px;">
+        <div style="font-size: 14px; font-weight: 900; color: var(--text-main);" id="modalTitle">Manifiesto de Pasajeros</div>
+        <button onclick="cerrarModal()" style="background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer;">✕</button>
       </div>
       <div id="modalPassengers" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;"></div>
-      <div style="display: flex; gap: 8px; border-top: 1px solid #27272a; padding-top: 8px;">
+      <div style="display: flex; gap: 8px; border-top: 1.5px solid var(--border-color); padding-top: 8px;">
         <button class="btn btn-primary" style="flex: 1;" onclick="descargarPDFModal()">📄 Descargar PDF</button>
         <button class="btn btn-secondary" onclick="cerrarModal()">Cerrar</button>
       </div>
@@ -334,7 +469,7 @@
 
     const STORAGE_KEY = 'rh_bitacora_viajes_v2';
     const SESSION_KEY = 'rh_chofer_session_v2';
-    const BEEP_AUDIO_BASE64 = 'data:audio/wav;base64,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';
+    const THEME_KEY = 'rh_chofer_theme_v2';
 
     let pasajerosAboard = [];
     let viajesHistorial = [];
@@ -345,6 +480,7 @@
     let scanLoop = null;
     let selectedModalTrip = null;
     let isSyncing = false;
+    let torchActive = false;
 
     const CHECKLIST_ITEMS = [
       'Frenos de servicio y de mano',
@@ -365,19 +501,85 @@
       c.scrollTop = c.scrollHeight;
     }
 
+    /* ──────────────── MOTOR DE AUDIO PROFESIONAL Y ELEGANTE ──────────────── */
     function playBeep(success = true) {
       try {
-        if (success) {
-          const a = new Audio(BEEP_AUDIO_BASE64);
-          a.volume = 0.9;
-          a.play().catch(()=>{});
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          const now = ctx.currentTime;
+
+          if (success) {
+            // Chime melodioso ascendente de 2 notas (E6: 1318.5 Hz ➔ A6: 1760 Hz) tipo escáner premium
+            const osc1 = ctx.createOscillator();
+            const gain1 = ctx.createGain();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(1318.5, now);
+            gain1.gain.setValueAtTime(0.28, now);
+            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+            osc1.connect(gain1);
+            gain1.connect(ctx.destination);
+            osc1.start(now);
+            osc1.stop(now + 0.11);
+
+            const osc2 = ctx.createOscillator();
+            const gain2 = ctx.createGain();
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(1760.0, now + 0.08);
+            gain2.gain.setValueAtTime(0.32, now + 0.08);
+            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+            osc2.connect(gain2);
+            gain2.connect(ctx.destination);
+            osc2.start(now + 0.08);
+            osc2.stop(now + 0.22);
+          } else {
+            // Tono de advertencia suave (220 Hz)
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(260, now);
+            gain.gain.setValueAtTime(0.25, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.25);
+          }
         }
-        if (navigator.vibrate) navigator.vibrate(success ? [80, 50, 80] : [200]);
       } catch(_) {}
+
+      if (navigator.vibrate) {
+        navigator.vibrate(success ? [50, 30, 50] : [200]);
+      }
+    }
+
+    /* ──────────────── MODO SOL / MODO NOCHE (THEMES) ──────────────── */
+    function initTheme() {
+      const saved = localStorage.getItem(THEME_KEY) || 'dark';
+      applyTheme(saved);
+    }
+
+    function toggleTheme() {
+      const current = document.body.classList.contains('light-theme') ? 'light' : 'dark';
+      const next = current === 'light' ? 'dark' : 'light';
+      applyTheme(next);
+      localStorage.setItem(THEME_KEY, next);
+    }
+
+    function applyTheme(theme) {
+      const btn = document.getElementById('themeToggleBtn');
+      if (theme === 'light') {
+        document.body.classList.add('light-theme');
+        if (btn) btn.innerHTML = '🌙 Modo Noche';
+      } else {
+        document.body.classList.remove('light-theme');
+        if (btn) btn.innerHTML = '☀️ Modo Sol';
+      }
     }
 
     /* ──────────────── INICIALIZACIÓN ──────────────── */
     window.onload = () => {
+      initTheme();
       cargarSesion();
       cargarHistorial();
       renderChecklist();
@@ -403,12 +605,12 @@
       if (isOnline) {
         b.className = 'badge-status badge-online';
         b.innerHTML = '● En Línea';
-        if (netText) { netText.innerText = 'Conectado a Internet'; netText.style.color = '#6ee7b7'; }
+        if (netText) { netText.innerText = 'Conectado a Internet'; netText.style.color = '#10b981'; }
         actualizarCatalogoDesdeNube();
         autoSync();
       } else {
         b.className = 'badge-status badge-offline';
-        b.innerHTML = '● Modo Sierra';
+        b.innerHTML = '● Sierra';
         if (netText) { netText.innerText = 'Sin Internet (Modo Sierra)'; netText.style.color = '#fde68a'; }
       }
     }
@@ -590,14 +792,19 @@
       playBeep(true);
       mostrarAviso('success', `✅ REGISTRADO: ${nombre}`);
       renderPasajeros();
+
+      const hudCount = document.getElementById('hudPasajerosCount');
+      if (hudCount) hudCount.innerText = `👥 A Bordo: ${pasajerosAboard.length} | Último: ${nombre}`;
     }
 
     function mostrarAviso(tipo, texto) {
       const al = document.getElementById('scanAlert');
-      al.className = 'notice notice-' + (tipo === 'success' ? 'success' : 'dup');
-      al.innerText = texto;
-      al.style.display = 'block';
-      setTimeout(() => { al.style.display = 'none'; }, 2500);
+      if (al) {
+        al.className = 'notice notice-' + (tipo === 'success' ? 'success' : 'dup');
+        al.innerText = texto;
+        al.style.display = 'block';
+        setTimeout(() => { al.style.display = 'none'; }, 2500);
+      }
     }
 
     function agregarManual() {
@@ -612,16 +819,16 @@
       c.innerText = pasajerosAboard.length;
       const box = document.getElementById('listaPasajeros');
       if (pasajerosAboard.length === 0) {
-        box.innerHTML = '<div style="text-align: center; color: #71717a; font-size: 12px; padding: 12px;">Ningún trabajador escaneado aún.</div>';
+        box.innerHTML = '<div style="text-align: center; color: var(--text-muted); font-size: 12px; padding: 12px;">Ningún trabajador escaneado aún.</div>';
         return;
       }
       box.innerHTML = pasajerosAboard.map((p, idx) => `
         <div class="passenger-item">
           <div>
-            <div style="font-weight: 800; color: #fff;">${idx + 1}. ${p.nombre}</div>
-            <div style="font-size: 10px; color: #a1a1aa;">${p.puesto} • ${p.hora} (${p.metodo})</div>
+            <div style="font-weight: 800; color: var(--text-main);">${idx + 1}. ${p.nombre}</div>
+            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">${p.puesto} • ${p.hora} (${p.metodo})</div>
           </div>
-          <button onclick="quitarPasajero('${p.id}')" style="background: none; border: none; color: #ef4444; font-size: 14px; cursor: pointer;">✕</button>
+          <button onclick="quitarPasajero('${p.id}')" style="background: none; border: none; color: #ef4444; font-size: 16px; font-weight: 900; cursor: pointer; padding: 4px 8px;">✕</button>
         </div>
       `).join('');
     }
@@ -629,42 +836,60 @@
     function quitarPasajero(id) {
       pasajerosAboard = pasajerosAboard.filter(p => p.id !== id);
       renderPasajeros();
+      const hudCount = document.getElementById('hudPasajerosCount');
+      if (hudCount) hudCount.innerText = `👥 A Bordo: ${pasajerosAboard.length}`;
     }
 
-    /* ──────────────── CÁMARA QR ──────────────── */
-    async function toggleCamara() {
-      if (cameraActive) {
-        detenerCamara();
-      } else {
-        iniciarCamara();
-      }
-    }
+    /* ──────────────── CÁMARA QR PANTALLA COMPLETA ──────────────── */
+    async function abrirEscanerPantallaCompleta() {
+      const modal = document.getElementById('scannerFullscreen');
+      modal.style.display = 'flex';
+      const hudCount = document.getElementById('hudPasajerosCount');
+      if (hudCount) hudCount.innerText = `👥 A Bordo: ${pasajerosAboard.length} trabajadores`;
 
-    async function iniciarCamara() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
+          video: { 
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
           audio: false
         });
-        const v = document.getElementById('videoEl');
+        const v = document.getElementById('scannerVideo');
         v.srcObject = stream;
         await v.play();
         cameraActive = true;
-        document.getElementById('camBox').style.display = 'block';
-        document.getElementById('camBtnText').innerText = 'Apagar Cámara';
         scanLoop = requestAnimationFrame(tickScan);
       } catch(e) {
-        alert('Cámara no disponible. Puedes escribir la nómina manualmente.');
+        alert('Cámara no disponible. Asegúrate de dar permisos de cámara.');
+        cerrarEscanerPantallaCompleta();
       }
     }
 
-    function detenerCamara() {
+    function cerrarEscanerPantallaCompleta() {
       if (scanLoop) cancelAnimationFrame(scanLoop);
       if (stream) stream.getTracks().forEach(t => t.stop());
       stream = null;
       cameraActive = false;
-      document.getElementById('camBox').style.display = 'none';
-      document.getElementById('camBtnText').innerText = 'Abrir Cámara';
+      torchActive = false;
+      document.getElementById('scannerFullscreen').style.display = 'none';
+      renderPasajeros();
+    }
+
+    async function toggleTorch() {
+      if (!stream) return;
+      const track = stream.getVideoTracks()[0];
+      if (!track) return;
+      try {
+        torchActive = !torchActive;
+        await track.applyConstraints({
+          advanced: [{ torch: torchActive }]
+        });
+        document.getElementById('btnTorch').innerText = torchActive ? '🔦 Apagar' : '🔦 Luz';
+      } catch(_) {
+        alert('Linterna no soportada en esta cámara.');
+      }
     }
 
     let scanCooldown = false;
@@ -672,7 +897,7 @@
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
     function tickScan() {
-      const v = document.getElementById('videoEl');
+      const v = document.getElementById('scannerVideo');
       if (v && v.readyState >= 2 && window.jsQR) {
         if (canvas.width !== v.videoWidth || canvas.height !== v.videoHeight) {
           canvas.width = v.videoWidth;
@@ -685,7 +910,7 @@
         if (code && code.data && !scanCooldown) {
           scanCooldown = true;
           procesarScan(code.data, 'QR');
-          setTimeout(() => { scanCooldown = false; }, 850);
+          setTimeout(() => { scanCooldown = false; }, 600);
         }
       }
       if (cameraActive) scanLoop = requestAnimationFrame(tickScan);
@@ -696,7 +921,6 @@
       if (pasajerosAboard.length === 0) {
         if (!confirm('No has escaneado trabajadores. ¿Guardar viaje en ceros?')) return;
       }
-      detenerCamara();
       const nuevo = {
         id_viaje_local: 'local_' + Date.now(),
         chofer_nombre: document.getElementById('selChofer').value,
@@ -724,7 +948,6 @@
     }
 
     function iniciarRecorridoVivo() {
-      detenerCamara();
       viajeActivo = {
         id_viaje_local: 'local_' + Date.now(),
         chofer_nombre: document.getElementById('selChofer').value,
@@ -788,9 +1011,9 @@
     function renderChecklist() {
       const c = document.getElementById('checklistItems');
       c.innerHTML = CHECKLIST_ITEMS.map((item, i) => `
-        <label style="display: flex; align-items: center; justify-content: space-between; background: #27272a; padding: 10px 14px; border-radius: 12px; cursor: pointer;">
-          <span style="font-size: 12px; color: #fff;">${item}</span>
-          <input type="checkbox" checked style="width: 18px; height: 18px; accent-color: #10b981;">
+        <label style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-input); border: 1px solid var(--border-color); padding: 11px 14px; border-radius: 12px; cursor: pointer;">
+          <span style="font-size: 12px; color: var(--text-main); font-weight: 800;">${item}</span>
+          <input type="checkbox" checked style="width: 20px; height: 20px; accent-color: var(--accent);">
         </label>
       `).join('');
     }
@@ -816,19 +1039,19 @@
       });
 
       if (filtrados.length === 0) {
-        list.innerHTML = '<div style="text-align: center; color: #71717a; font-size: 12px; padding: 20px;">No hay viajes registrados aún.</div>';
+        list.innerHTML = '<div style="text-align: center; color: var(--text-muted); font-size: 12px; padding: 20px;">No hay viajes registrados aún.</div>';
         return;
       }
 
       list.innerHTML = filtrados.map(v => `
-        <div style="background: #27272a; border: 1px solid #3f3f46; border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="background: var(--bg-input); border: 1.5px solid var(--border-color); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
           <div style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div>
-              <div style="font-size: 13px; font-weight: 800; color: #fff;">🚌 ${v.ruta_origen} ➔ ${v.ruta_destino}</div>
-              <div style="font-size: 11px; color: #10b981; font-weight: 800;">👥 ${v.pasajeros.length} Pasajeros a Bordo</div>
-              <div style="font-size: 10px; color: #a1a1aa;">${v.hora_inicio ? v.hora_inicio.split('T')[0] : 'Hoy'} • Chofer: ${v.chofer_nombre}</div>
+              <div style="font-size: 13px; font-weight: 900; color: var(--text-main);">🚌 ${v.ruta_origen} ➔ ${v.ruta_destino}</div>
+              <div style="font-size: 11px; color: var(--accent); font-weight: 900;">👥 ${v.pasajeros.length} Pasajeros a Bordo</div>
+              <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">${v.hora_inicio ? v.hora_inicio.split('T')[0] : 'Hoy'} • Chofer: ${v.chofer_nombre}</div>
             </div>
-            <span style="font-size: 9px; font-weight: 800; padding: 3px 8px; border-radius: 999px; background: ${v.sincronizado ? '#064e3b; color: #6ee7b7;' : '#78350f; color: #fde68a;'}">
+            <span style="font-size: 9px; font-weight: 900; padding: 3px 8px; border-radius: 999px; background: ${v.sincronizado ? '#064e3b; color: #6ee7b7;' : '#78350f; color: #fde68a;'}">
               ${v.sincronizado ? '✓ En Oficina' : '💾 En Celular'}
             </span>
           </div>
@@ -837,7 +1060,7 @@
               👥 Ver Pasajeros (${v.pasajeros.length})
             </button>
             ${!v.sincronizado ? `
-              <button class="btn btn-primary" style="padding: 8px 10px; font-size: 11px; background-color: #059669;" onclick="subirViajeIndividual('${v.id_viaje_local}')">
+              <button class="btn btn-primary" style="padding: 8px 10px; font-size: 11px;" onclick="subirViajeIndividual('${v.id_viaje_local}')">
                 ☁️ Subir
               </button>
             ` : ''}
@@ -856,12 +1079,12 @@
       document.getElementById('modalTitle').innerText = `${v.ruta_origen} ➔ ${v.ruta_destino}`;
       const box = document.getElementById('modalPassengers');
       box.innerHTML = v.pasajeros.map((p, i) => `
-        <div style="background: #27272a; padding: 8px 12px; border-radius: 10px; font-size: 12px; display: flex; justify-content: space-between;">
+        <div style="background: var(--bg-input); border: 1px solid var(--border-color); padding: 8px 12px; border-radius: 10px; font-size: 12px; display: flex; justify-content: space-between;">
           <div>
-            <div style="font-weight: 800; color: #fff;">${i + 1}. ${p.nombre}</div>
-            <div style="font-size: 10px; color: #a1a1aa;">${p.puesto}</div>
+            <div style="font-weight: 800; color: var(--text-main);">${i + 1}. ${p.nombre}</div>
+            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">${p.puesto}</div>
           </div>
-          <span style="font-size: 10px; color: #10b981; font-weight: 700;">${p.hora}</span>
+          <span style="font-size: 10px; color: var(--accent); font-weight: 800;">${p.hora}</span>
         </div>
       `).join('');
       document.getElementById('manifestModal').style.display = 'flex';
@@ -989,7 +1212,7 @@
         }
       } catch(e) {}
 
-      // 2. Intento de respaldo a través del endpoint API de Vercel
+      // 2. Intento de respaldo a través de la API
       try {
         const res2 = await fetch('https://rh-system-master.vercel.app/api/choferes/sync', {
           method: 'POST',
