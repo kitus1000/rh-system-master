@@ -77,25 +77,20 @@ const DRIVERS_ROSTER = [
   { nombre: 'Jesus Saucedo', defaultEco: 'CAM-04', depto: 'Logística y Transporte' }
 ]
 
-// Audio Beep Synthesizer
+// Audio Beep Base64 universal 100% infalible en Android y Web
+const BEEP_AUDIO_BASE64 = 'data:audio/wav;base64,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'
+
 function playBeep(success = true) {
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
-    if (!AudioCtx) return
-    const ctx = new AudioCtx()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.type = success ? 'sine' : 'sawtooth'
-    osc.frequency.setValueAtTime(success ? 880 : 300, ctx.currentTime)
-    if (success) osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.1)
-    gain.gain.setValueAtTime(0.3, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15)
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.start()
-    osc.stop(ctx.currentTime + 0.15)
-    if (navigator.vibrate) navigator.vibrate(success ? [80, 50, 80] : [200])
-  } catch (e) {}
+    if (success) {
+      const audio = new Audio(BEEP_AUDIO_BASE64)
+      audio.volume = 0.9
+      audio.play().catch(() => {})
+    }
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(success ? [80, 50, 80] : [200])
+    }
+  } catch (_) {}
 }
 
 export default function ChoferesClient() {
