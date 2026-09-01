@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Choferes Bacis - App Offline</title>
   <meta name="theme-color" content="#10b981">
   <style>
@@ -20,7 +20,7 @@
       --card-shadow: 0 4px 20px rgba(0,0,0,0.5);
     }
 
-    /* MODO DÍA / ALTO CONTRASTE BAJO EL SOL */
+    /* MODO DÍA / ALTO CONTRASTE BAJO EL SOL DE LA SIERRA */
     body.light-theme {
       --bg-main: #f8fafc;
       --bg-card: #ffffff;
@@ -28,7 +28,7 @@
       --border-color: #cbd5e1;
       --text-main: #0f172a;
       --text-muted: #475569;
-      --text-label: #334155;
+      --text-label: #1e293b;
       --accent: #047857;
       --accent-hover: #065f46;
       --accent-text: #ffffff;
@@ -36,12 +36,12 @@
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
-    body { background-color: var(--bg-main); color: var(--text-main); display: flex; flex-direction: column; min-height: 100vh; padding-bottom: 80px; user-select: none; transition: background-color 0.2s, color 0.2s; }
+    body { background-color: var(--bg-main); color: var(--text-main); display: flex; flex-direction: column; min-height: 100vh; padding-bottom: 85px; user-select: none; transition: background-color 0.2s, color 0.2s; }
     header { background-color: var(--bg-card); border-bottom: 2px solid var(--border-color); position: sticky; top: 0; z-index: 40; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; }
     .badge-status { font-size: 11px; font-weight: 900; padding: 4px 10px; border-radius: 999px; display: flex; align-items: center; gap: 6px; }
     .badge-online { background-color: #064e3b; color: #6ee7b7; border: 1px solid #059669; }
     .badge-offline { background-color: #78350f; color: #fde68a; border: 1px solid #d97706; }
-    .theme-toggle-btn { background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-main); padding: 5px 10px; border-radius: 10px; font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+    .theme-toggle-btn { background: var(--bg-input); border: 1.5px solid var(--border-color); color: var(--text-main); padding: 6px 12px; border-radius: 12px; font-size: 11px; font-weight: 900; cursor: pointer; display: flex; align-items: center; gap: 4px; }
     main { max-width: 480px; width: 100%; margin: 0 auto; padding: 12px; flex: 1; display: flex; flex-direction: column; gap: 12px; }
     .card { background-color: var(--bg-card); border: 1.5px solid var(--border-color); border-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--card-shadow); }
     .card-title { font-size: 14px; font-weight: 900; color: var(--text-main); display: flex; align-items: center; gap: 8px; border-bottom: 1.5px solid var(--border-color); padding-bottom: 8px; }
@@ -55,7 +55,6 @@
     .btn-primary { background-color: var(--accent); color: var(--accent-text); }
     .btn-secondary { background-color: var(--bg-input); color: var(--text-main); border: 1.5px solid var(--border-color); }
     .btn-danger { background-color: #e11d48; color: #ffffff; }
-    .btn-cam { background-color: #047857; color: #ffffff; width: 100%; }
     .notice { padding: 10px; border-radius: 12px; font-size: 12px; font-weight: 900; text-align: center; }
     .notice-success { background-color: #064e3b; color: #6ee7b7; border: 1.5px solid #10b981; }
     .notice-dup { background-color: #78350f; color: #fde68a; border: 1.5px solid #d97706; }
@@ -71,73 +70,112 @@
     .modal-box { background-color: var(--bg-card); border: 2px solid var(--border-color); border-radius: 24px; max-width: 420px; width: 100%; max-height: 80vh; display: flex; flex-direction: column; padding: 16px; gap: 12px; color: var(--text-main); }
     .log-console { background: #000; border: 1px solid #3f3f46; border-radius: 12px; padding: 10px; font-family: monospace; font-size: 11px; color: #10b981; max-height: 140px; overflow-y: auto; text-align: left; line-height: 1.4; }
 
-    /* ── FULL SCREEN SCANNER MODAL ── */
+    /* ── FULL SCREEN SCANNER MODAL GIGANTE ── */
     #scannerFullscreen {
       position: fixed;
-      inset: 0;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100vw;
+      height: 100vh;
       background: #000000;
-      z-index: 100;
+      z-index: 99999;
       display: none;
       flex-direction: column;
       justify-content: space-between;
+      overflow: hidden;
     }
     #scannerVideo {
       position: absolute;
-      inset: 0;
+      top: 0;
+      left: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
+      z-index: 1;
     }
     .scanner-overlay {
       position: absolute;
       inset: 0;
+      z-index: 2;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      padding: 16px;
+      padding: max(16px, env(safe-area-inset-top, 16px)) 16px max(24px, env(safe-area-inset-bottom, 24px));
       pointer-events: none;
     }
     .scanner-header-hud {
       pointer-events: auto;
-      background: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      border-radius: 18px;
-      padding: 12px 16px;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(10px);
+      border: 1.5px solid rgba(255, 255, 255, 0.25);
+      border-radius: 20px;
+      padding: 12px 18px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      color: #fff;
+      box-shadow: 0 6px 25px rgba(0,0,0,0.6);
     }
     .scanner-target-zone {
       position: relative;
       align-self: center;
-      width: min(80vw, 290px);
-      height: min(80vw, 290px);
-      border: 3px solid #10b981;
-      border-radius: 24px;
-      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.65), 0 0 30px rgba(16, 185, 129, 0.6);
+      width: min(85vw, 320px);
+      height: min(85vw, 320px);
+      border: 2px solid rgba(16, 185, 129, 0.4);
+      border-radius: 28px;
       display: flex;
       align-items: center;
       justify-content: center;
       overflow: hidden;
+      pointer-events: none;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
     }
+    .scanner-corner {
+      position: absolute;
+      width: 32px;
+      height: 32px;
+      border-color: #10b981;
+      border-style: solid;
+      border-width: 0;
+    }
+    .scanner-corner.top-left { top: 0; left: 0; border-top-width: 4px; border-left-width: 4px; border-top-left-radius: 26px; }
+    .scanner-corner.top-right { top: 0; right: 0; border-top-width: 4px; border-right-width: 4px; border-top-right-radius: 26px; }
+    .scanner-corner.bottom-left { bottom: 0; left: 0; border-bottom-width: 4px; border-left-width: 4px; border-bottom-left-radius: 26px; }
+    .scanner-corner.bottom-right { bottom: 0; right: 0; border-bottom-width: 4px; border-right-width: 4px; border-bottom-right-radius: 26px; }
     .scanner-laser {
       position: absolute;
       width: 100%;
       height: 3px;
       background: #34d399;
-      box-shadow: 0 0 15px #10b981, 0 0 30px #34d399;
-      animation: scanLaser 1.8s infinite alternate ease-in-out;
+      box-shadow: 0 0 15px #10b981, 0 0 25px #34d399;
+      animation: scanLaser 1.5s infinite alternate ease-in-out;
     }
     @keyframes scanLaser {
-      0% { top: 8%; }
-      100% { top: 90%; }
+      0% { top: 10%; }
+      100% { top: 88%; }
+    }
+    .scanner-hint-text {
+      color: rgba(255, 255, 255, 0.95);
+      font-size: 12px;
+      font-weight: 900;
+      background: rgba(0, 0, 0, 0.75);
+      padding: 5px 12px;
+      border-radius: 10px;
+      position: absolute;
+      bottom: 14px;
+      letter-spacing: 0.3px;
     }
     .scanner-footer-hud {
       pointer-events: auto;
       display: flex;
       gap: 10px;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(10px);
+      border: 1.5px solid rgba(255, 255, 255, 0.25);
+      border-radius: 20px;
+      padding: 10px;
+      box-shadow: 0 6px 25px rgba(0,0,0,0.6);
     }
   </style>
 </head>
@@ -243,7 +281,7 @@
       <div class="card">
         <div class="card-title" style="justify-content: space-between;">
           <span>👥 Personal a Bordo (<span id="countPasajeros">0</span>)</span>
-          <span style="font-size: 11px; color: var(--accent); font-weight: 800;">✓ 356 en Memoria</span>
+          <span style="font-size: 11px; color: var(--accent); font-weight: 900;">✓ 356 en Memoria</span>
         </div>
 
         <!-- Botón Gigante de Apertura de Cámara -->
@@ -288,7 +326,7 @@
           👥 <span id="liveCount">0</span> Trabajadores a Bordo
         </div>
         <button class="btn btn-primary" style="background-color: #34d399; color: #000;" onclick="abrirEscanerPantallaCompleta()">
-          📷 Escanear en Carretera
+          📷 Escanear Pasajero Adicional
         </button>
         <button class="btn btn-primary" style="background-color: #ffffff; color: #000;" onclick="finalizarRecorridoVivo()">
           🏁 Finalizar Viaje en Destino
@@ -390,29 +428,36 @@
     <video id="scannerVideo" playsinline autoplay muted></video>
     
     <div class="scanner-overlay">
-      <!-- HUD Superior -->
+      <!-- HUD Superior Flotante -->
       <div class="scanner-header-hud">
         <div>
-          <div style="font-size: 12px; font-weight: 900; color: #10b981;">ESCÁNER DE CREDENCIALES QR</div>
-          <div id="hudPasajerosCount" style="font-size: 11px; font-weight: 700; color: #fff;">👥 A Bordo: 0 trabajadores</div>
+          <div style="font-size: 13px; font-weight: 900; color: #10b981;">ESCÁNER DE CREDENCIALES</div>
+          <div id="hudPasajerosCount" style="font-size: 11px; font-weight: 800; color: #fff;">👥 A Bordo: 0 trabajadores</div>
         </div>
-        <button id="btnTorch" onclick="toggleTorch()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 6px 12px; border-radius: 12px; font-size: 12px; font-weight: 800; cursor: pointer;">
-          🔦 Luz
+        <button id="btnTorch" onclick="toggleTorch()" style="background: rgba(255,255,255,0.25); border: 1.5px solid rgba(255,255,255,0.4); color: #fff; padding: 8px 14px; border-radius: 14px; font-size: 12px; font-weight: 900; cursor: pointer; pointer-events: auto;">
+          🔦 Linterna: OFF
         </button>
       </div>
 
-      <!-- Zona de Apuntamiento Láser -->
+      <!-- Zona de Apuntamiento Láser con Esquinas Luminosas -->
       <div class="scanner-target-zone">
+        <div class="scanner-corner top-left"></div>
+        <div class="scanner-corner top-right"></div>
+        <div class="scanner-corner bottom-left"></div>
+        <div class="scanner-corner bottom-right"></div>
         <div class="scanner-laser"></div>
-        <span style="color: rgba(255,255,255,0.6); font-size: 10px; font-weight: 800; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 6px; pointer-events: none;">
-          Enfoca la credencial aquí
+        <span class="scanner-hint-text">
+          Coloca el código QR dentro del marco
         </span>
       </div>
 
-      <!-- HUD Inferior -->
+      <!-- HUD Inferior con Botones Grandes Accesibles -->
       <div class="scanner-footer-hud">
-        <button class="btn btn-danger" style="flex: 1; padding: 14px; font-size: 14px;" onclick="cerrarEscanerPantallaCompleta()">
-          ✕ Terminar Escaneo y Ver Lista
+        <button class="btn btn-secondary" style="flex: 1; padding: 14px; font-size: 13px; background: rgba(39,39,42,0.9); border: 2px solid #52525b; color: #fff;" onclick="cerrarEscanerPantallaCompleta()">
+          ✕ Cerrar y Ver Lista
+        </button>
+        <button id="btnScannerFinalizar" class="btn btn-primary" style="display: none; flex: 1; padding: 14px; font-size: 13px; background: #10b981; color: #000;" onclick="cerrarYFinalizarDesdeScanner()">
+          🏁 Finalizar Viaje
         </button>
       </div>
     </div>
@@ -481,6 +526,13 @@
     let selectedModalTrip = null;
     let isSyncing = false;
     let torchActive = false;
+
+    let nativeBarcodeDetector = null;
+    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+      try {
+        nativeBarcodeDetector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'data_matrix'] });
+      } catch(_) {}
+    }
 
     const CHECKLIST_ITEMS = [
       'Frenos de servicio y de mano',
@@ -794,7 +846,7 @@
       renderPasajeros();
 
       const hudCount = document.getElementById('hudPasajerosCount');
-      if (hudCount) hudCount.innerText = `👥 A Bordo: ${pasajerosAboard.length} | Último: ${nombre}`;
+      if (hudCount) hudCount.innerText = `👥 A Bordo: ${pasajerosAboard.length} | ${nombre}`;
     }
 
     function mostrarAviso(tipo, texto) {
@@ -840,29 +892,46 @@
       if (hudCount) hudCount.innerText = `👥 A Bordo: ${pasajerosAboard.length}`;
     }
 
-    /* ──────────────── CÁMARA QR PANTALLA COMPLETA ──────────────── */
+    /* ──────────────── CÁMARA QR PANTALLA COMPLETA CON CAPTURA ULTRA-RÁPIDA ──────────────── */
     async function abrirEscanerPantallaCompleta() {
       const modal = document.getElementById('scannerFullscreen');
       modal.style.display = 'flex';
       const hudCount = document.getElementById('hudPasajerosCount');
       if (hudCount) hudCount.innerText = `👥 A Bordo: ${pasajerosAboard.length} trabajadores`;
 
+      const btnFin = document.getElementById('btnScannerFinalizar');
+      if (btnFin) {
+        btnFin.style.display = viajeActivo ? 'flex' : 'none';
+      }
+
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { 
             facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            width: { ideal: 1280, min: 640 },
+            height: { ideal: 720, min: 480 },
+            frameRate: { ideal: 30 }
           },
           audio: false
         });
+
+        // Intentar activar autofoco continuo si el dispositivo lo permite
+        try {
+          const track = stream.getVideoTracks()[0];
+          if (track && track.applyConstraints) {
+            track.applyConstraints({
+              advanced: [{ focusMode: 'continuous' }, { exposureMode: 'continuous' }]
+            }).catch(()=>{});
+          }
+        } catch(_) {}
+
         const v = document.getElementById('scannerVideo');
         v.srcObject = stream;
         await v.play();
         cameraActive = true;
         scanLoop = requestAnimationFrame(tickScan);
       } catch(e) {
-        alert('Cámara no disponible. Asegúrate de dar permisos de cámara.');
+        alert('Cámara no disponible. Verifica los permisos de cámara.');
         cerrarEscanerPantallaCompleta();
       }
     }
@@ -873,8 +942,15 @@
       stream = null;
       cameraActive = false;
       torchActive = false;
+      const bTorch = document.getElementById('btnTorch');
+      if (bTorch) bTorch.innerText = '🔦 Linterna: OFF';
       document.getElementById('scannerFullscreen').style.display = 'none';
       renderPasajeros();
+    }
+
+    function cerrarYFinalizarDesdeScanner() {
+      cerrarEscanerPantallaCompleta();
+      finalizarRecorridoVivo();
     }
 
     async function toggleTorch() {
@@ -886,33 +962,81 @@
         await track.applyConstraints({
           advanced: [{ torch: torchActive }]
         });
-        document.getElementById('btnTorch').innerText = torchActive ? '🔦 Apagar' : '🔦 Luz';
+        const bTorch = document.getElementById('btnTorch');
+        if (bTorch) bTorch.innerText = torchActive ? '🔦 Linterna: ON' : '🔦 Linterna: OFF';
       } catch(_) {
-        alert('Linterna no soportada en esta cámara.');
+        alert('Linterna no soportada o bloqueada en este sensor de cámara.');
       }
     }
 
     let scanCooldown = false;
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const cropCanvas = document.createElement('canvas');
+    const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
 
-    function tickScan() {
+    async function tickScan() {
       const v = document.getElementById('scannerVideo');
-      if (v && v.readyState >= 2 && window.jsQR) {
-        if (canvas.width !== v.videoWidth || canvas.height !== v.videoHeight) {
-          canvas.width = v.videoWidth;
-          canvas.height = v.videoHeight;
-        }
-        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
+      if (v && v.readyState >= 2) {
+        let detectedCode = null;
 
-        if (code && code.data && !scanCooldown) {
+        // 1. Motor Nativo Hardware BarcodeDetector de Android (3-5 milisegundos)
+        if (nativeBarcodeDetector) {
+          try {
+            const barcodes = await nativeBarcodeDetector.detect(v);
+            if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+              detectedCode = barcodes[0].rawValue;
+            }
+          } catch(_) {}
+        }
+
+        // 2. jsQR de Alta Densidad sobre el Área Central (Crop Central - 4x resolución efectiva)
+        if (!detectedCode && window.jsQR && v.videoWidth > 0 && v.videoHeight > 0) {
+          try {
+            const vw = v.videoWidth;
+            const vh = v.videoHeight;
+            const cropSize = Math.min(vw, vh) * 0.75;
+            const sx = (vw - cropSize) / 2;
+            const sy = (vh - cropSize) / 2;
+
+            if (cropCanvas.width !== 480 || cropCanvas.height !== 480) {
+              cropCanvas.width = 480;
+              cropCanvas.height = 480;
+            }
+
+            cropCtx.drawImage(v, sx, sy, cropSize, cropSize, 0, 0, 480, 480);
+            const imgData = cropCtx.getImageData(0, 0, 480, 480);
+            const code = jsQR(imgData.data, 480, 480, { inversionAttempts: 'attemptBoth' });
+
+            if (code && code.data) {
+              detectedCode = code.data;
+            }
+          } catch(_) {}
+        }
+
+        // 3. Fallback: jsQR sobre la imagen completa si no estaba exactamente en el centro
+        if (!detectedCode && window.jsQR && v.videoWidth > 0 && v.videoHeight > 0) {
+          try {
+            if (canvas.width !== 640 || canvas.height !== 360) {
+              canvas.width = 640;
+              canvas.height = 360;
+            }
+            ctx.drawImage(v, 0, 0, 640, 360);
+            const fullImg = ctx.getImageData(0, 0, 640, 360);
+            const codeFull = jsQR(fullImg.data, 640, 360, { inversionAttempts: 'dontInvert' });
+            if (codeFull && codeFull.data) {
+              detectedCode = codeFull.data;
+            }
+          } catch(_) {}
+        }
+
+        if (detectedCode && !scanCooldown) {
           scanCooldown = true;
-          procesarScan(code.data, 'QR');
-          setTimeout(() => { scanCooldown = false; }, 600);
+          procesarScan(detectedCode, 'QR');
+          setTimeout(() => { scanCooldown = false; }, 500);
         }
       }
+
       if (cameraActive) scanLoop = requestAnimationFrame(tickScan);
     }
 
@@ -1060,7 +1184,7 @@
               👥 Ver Pasajeros (${v.pasajeros.length})
             </button>
             ${!v.sincronizado ? `
-              <button class="btn btn-primary" style="padding: 8px 10px; font-size: 11px;" onclick="subirViajeIndividual('${v.id_viaje_local}')">
+              <button class="btn btn-primary" style="padding: 8px 10px; font-size: 11px; background-color: #059669;" onclick="subirViajeIndividual('${v.id_viaje_local}')">
                 ☁️ Subir
               </button>
             ` : ''}
