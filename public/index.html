@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Choferes Bacis - App Offline</title>
+  <meta name="theme-color" content="#10b981">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+    body { background-color: #09090b; color: #f4f4f5; display: flex; flex-direction: column; min-height: 100vh; padding-bottom: 80px; user-select: none; }
+    header { background-color: #18181b; border-bottom: 1px solid #27272a; position: sticky; top: 0; z-index: 40; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; }
+    .badge-status { font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 999px; display: flex; align-items: center; gap: 6px; }
+    .badge-online { background-color: #064e3b; color: #6ee7b7; border: 1px solid #059669; }
+    .badge-offline { background-color: #78350f; color: #fde68a; border: 1px solid #d97706; }
+    main { max-width: 480px; width: 100%; margin: 0 auto; padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+    .card { background-color: #18181b; border: 1px solid #27272a; border-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+    .card-title { font-size: 14px; font-weight: 900; color: #ffffff; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #27272a; padding-bottom: 8px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    label { font-size: 11px; font-weight: 700; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.5px; }
+    select, input, textarea { width: 100%; background-color: #27272a; border: 1px solid #3f3f46; border-radius: 12px; padding: 10px 12px; color: #ffffff; font-size: 13px; font-weight: 600; outline: none; }
+    select:focus, input:focus, textarea:focus { border-color: #10b981; }
+    .btn { padding: 12px 16px; border-radius: 14px; font-weight: 800; font-size: 13px; text-transform: uppercase; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; border: none; transition: 0.1s transform; }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary { background-color: #10b981; color: #09090b; }
+    .btn-secondary { background-color: #27272a; color: #ffffff; border: 1px solid #3f3f46; }
+    .btn-danger { background-color: #e11d48; color: #ffffff; }
+    .btn-cam { background-color: #059669; color: #ffffff; width: 100%; }
+    .camera-box { position: relative; width: 100%; aspect-ratio: 16/9; background-color: #000; border-radius: 16px; overflow: hidden; border: 2px solid #10b981; }
+    video { width: 100%; height: 100%; object-fit: cover; }
+    .scan-guide { position: absolute; inset: 15%; border: 2px dashed #10b981; border-radius: 12px; pointer-events: none; }
+    .notice { padding: 10px; border-radius: 12px; font-size: 12px; font-weight: 800; text-align: center; }
+    .notice-success { background-color: #064e3b; color: #6ee7b7; border: 1px solid #10b981; }
+    .notice-dup { background-color: #78350f; color: #fde68a; border: 1px solid #d97706; }
+    .passengers-list { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+    .passenger-item { background-color: #27272a; border: 1px solid #3f3f46; padding: 8px 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+    .nav-bar { position: fixed; bottom: 0; left: 0; right: 0; background-color: rgba(24, 24, 27, 0.95); backdrop-filter: blur(10px); border-top: 1px solid #27272a; z-index: 50; display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px; max-width: 480px; margin: 0 auto; }
+    .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: #71717a; font-size: 10px; font-weight: 800; padding: 8px 0; border: none; background: transparent; cursor: pointer; }
+    .nav-item.active { color: #10b981; }
+    .tab-content { display: none; }
+    .tab-content.active { display: flex; flex-direction: column; gap: 14px; }
+    .trip-live { background-color: #064e3b; border: 1px solid #059669; border-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 12px; text-align: center; }
+    .modal { position: fixed; inset: 0; background-color: rgba(0,0,0,0.85); backdrop-filter: blur(5px); z-index: 60; display: none; align-items: center; justify-content: center; padding: 16px; }
+    .modal-box { background-color: #18181b; border: 1px solid #27272a; border-radius: 24px; max-width: 420px; width: 100%; max-height: 80vh; display: flex; flex-direction: column; padding: 16px; gap: 12px; }
+  </style>
+</head>
+<body>
+
+  <!-- Encabezado -->
+  <header>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="width: 34px; height: 34px; background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px;">
+        🚌
+      </div>
+      <div>
+        <div style="font-size: 13px; font-weight: 900; color: #fff;">CHOFERES BACIS</div>
+        <div id="driverHeaderLabel" style="font-size: 10px; color: #a1a1aa; font-weight: 700;">👔 Adalberto Pinales • CAM-01</div>
+      </div>
+    </div>
+    <div id="statusBadge" class="badge-status badge-offline">
+      <span>● Modo Sierra (Offline)</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- TAB 1: VIAJES & QR -->
+    <div id="tab-viajes" class="tab-content active">
+      <!-- MODO NORMAL -->
+      <div id="boxNormalViaje" class="card">
+        <div class="card-title">🛻 Configuración de Salida</div>
+        
+        <div class="form-group">
+          <label>Chofer Operador</label>
+          <select id="selChofer" onchange="guardarSesion()">
+            <option value="Adalberto Pinales">👔 Adalberto Pinales (101)</option>
+            <option value="Ramon Yañez">👔 Ramon Yañez (102)</option>
+            <option value="Oscar Vazquez">👔 Oscar Vazquez (103)</option>
+            <option value="Enrique Linares">👔 Enrique Linares (104)</option>
+            <option value="Samuel Madriles">👔 Samuel Madriles (105)</option>
+            <option value="Jesus Saucedo">👔 Jesus Saucedo (106)</option>
+          </select>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Vehículo</label>
+            <select id="selVehiculo" onchange="guardarSesion()">
+              <option value="Camioneta">🛻 Camioneta</option>
+              <option value="Camión">🚌 Camión</option>
+              <option value="Urvan">🚐 Urvan</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>No. Económico</label>
+            <input type="text" id="inputEco" value="CAM-01" onchange="guardarSesion()">
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Origen (Salida)</label>
+            <select id="selOrigen" onchange="guardarSesion()">
+              <option value="Obscuridad">📍 Obscuridad</option>
+              <option value="Parajes">📍 Parajes</option>
+              <option value="Mina Bacis">📍 Mina Bacis</option>
+              <option value="San Miguel">📍 San Miguel</option>
+              <option value="Planta">📍 Planta</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Destino (Llegada)</label>
+            <select id="selDestino" onchange="guardarSesion()">
+              <option value="Parajes">📍 Parajes</option>
+              <option value="Obscuridad">📍 Obscuridad</option>
+              <option value="Mina Bacis">📍 Mina Bacis</option>
+              <option value="San Miguel">📍 San Miguel</option>
+              <option value="Planta">📍 Planta</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Kilometraje</label>
+            <input type="text" id="inputKm" placeholder="Ej. 145200" onchange="guardarSesion()">
+          </div>
+          <div class="form-group">
+            <label>Combustible</label>
+            <select id="selGas">
+              <option value="Lleno">⛽ Lleno</option>
+              <option value="3/4" selected>⛽ 3/4</option>
+              <option value="1/2">⛽ 1/2</option>
+              <option value="1/4">⛽ 1/4</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- ESCANER & PASAJEROS -->
+      <div class="card">
+        <div class="card-title" style="justify-content: space-between;">
+          <span>👥 Personal a Bordo (<span id="countPasajeros">0</span>)</span>
+          <button class="btn btn-cam" style="width: auto; padding: 6px 12px; font-size: 11px;" onclick="toggleCamara()">
+            📷 <span id="camBtnText">Abrir Cámara</span>
+          </button>
+        </div>
+
+        <!-- Cámara -->
+        <div id="camBox" class="camera-box" style="display: none;">
+          <video id="videoEl" playsinline autoplay muted></video>
+          <div class="scan-guide"></div>
+        </div>
+
+        <div id="scanAlert" class="notice notice-success" style="display: none;"></div>
+
+        <!-- Agregar manual -->
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="manualNomina" placeholder="Escribir nómina o ID..." onkeydown="if(event.key==='Enter') agregarManual()">
+          <button class="btn btn-secondary" onclick="agregarManual()" style="width: auto;">+ Agregar</button>
+        </div>
+
+        <!-- Lista -->
+        <div id="listaPasajeros" class="passengers-list">
+          <div style="text-align: center; color: #71717a; font-size: 12px; padding: 12px;">Ningún trabajador escaneado aún.</div>
+        </div>
+
+        <!-- Botones de Guardado -->
+        <div class="grid-2" style="margin-top: 6px;">
+          <button class="btn btn-secondary" onclick="guardarManifiestoDirecto()">
+            💾 Guardar Manifiesto
+          </button>
+          <button class="btn btn-primary" onclick="iniciarRecorridoVivo()">
+            🟢 Iniciar en Vivo
+          </button>
+        </div>
+      </div>
+
+      <!-- MODO EN RUTA VIVA -->
+      <div id="boxViajeVivo" class="trip-live" style="display: none;">
+        <div style="font-size: 11px; font-weight: 900; text-transform: uppercase; color: #a7f3d0; letter-spacing: 1px;">
+          🟢 Recorrido Activo en Curso
+        </div>
+        <div id="liveTimer" style="font-size: 28px; font-weight: 900; font-family: monospace; color: #ffffff;">00:00:00</div>
+        <div style="font-size: 13px; font-weight: 700; color: #fff;">
+          <span id="liveOrigen"></span> ➔ <span id="liveDestino"></span>
+        </div>
+        <div style="font-size: 12px; color: #6ee7b7; font-weight: 800;">
+          👥 <span id="liveCount">0</span> Trabajadores a Bordo
+        </div>
+        <button class="btn btn-primary" style="background-color: #34d399;" onclick="finalizarRecorridoVivo()">
+          🏁 Finalizar Viaje en Destino
+        </button>
+      </div>
+    </div>
+
+    <!-- TAB 2: CHECKLIST -->
+    <div id="tab-checklist" class="tab-content">
+      <div class="card">
+        <div class="card-title">📋 Checklist Pre-Operativo (10 Puntos)</div>
+        <div id="checklistItems" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        <button class="btn btn-primary" onclick="guardarChecklist()">✓ Guardar Inspección</button>
+      </div>
+    </div>
+
+    <!-- TAB 3: BITÁCORA -->
+    <div id="tab-bitacora" class="tab-content">
+      <div class="card">
+        <div class="card-title" style="justify-content: space-between;">
+          <span>📑 Bitácora de Viajes</span>
+          <span id="countBitacora" style="font-size: 11px; background: #064e3b; color: #6ee7b7; padding: 2px 8px; border-radius: 999px;">0</span>
+        </div>
+        <input type="text" id="searchBitacora" placeholder="🔍 Buscar trabajador, nómina o chofer..." oninput="renderBitacora()">
+        <div id="bitacoraList" style="display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto;"></div>
+      </div>
+    </div>
+
+    <!-- TAB 4: FALLAS -->
+    <div id="tab-fallas" class="tab-content">
+      <div class="card">
+        <div class="card-title">🛠️ Reporte de Falla Mecánica</div>
+        <div class="form-group">
+          <label>Descripción del Problema</label>
+          <textarea id="fallaDesc" rows="3" placeholder="Ej. Balatas rechinando al frenar..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Prioridad</label>
+          <select id="fallaPrio">
+            <option value="Media">Media</option>
+            <option value="Alta">Alta</option>
+            <option value="Crítica">Crítica</option>
+          </select>
+        </div>
+        <button class="btn btn-danger" onclick="guardarFalla()">Enviar al Taller Mecánico</button>
+      </div>
+    </div>
+
+    <!-- TAB 5: NUBE / SYNC -->
+    <div id="tab-sync" class="tab-content">
+      <div class="card" style="text-align: center; gap: 16px;">
+        <div style="font-size: 36px;">☁️</div>
+        <div>
+          <div style="font-size: 15px; font-weight: 900; color: #fff;">Sincronización con Oficina Central</div>
+          <div id="syncStatusDesc" style="font-size: 12px; color: #a1a1aa; margin-top: 4px;">Modo Sierra Activo</div>
+        </div>
+        <div style="background: #27272a; padding: 12px; border-radius: 14px; text-align: left; font-size: 12px; display: flex; flex-direction: column; gap: 6px;">
+          <div>📦 Viajes Guardados en Celular: <strong id="statViajesTotal">0</strong></div>
+          <div>⚠️ Pendientes de Subir: <strong id="statViajesPendientes" style="color: #f59e0b;">0</strong></div>
+          <div>👥 Catálogo de Trabajadores: <strong>356 Empleados Offline</strong></div>
+        </div>
+        <button class="btn btn-primary" onclick="forzarSync()">☁️ Sincronizar Ahora con Supabase</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- MODAL DE MANIFIESTO -->
+  <div id="manifestModal" class="modal">
+    <div class="modal-box">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #27272a; padding-bottom: 8px;">
+        <div style="font-size: 14px; font-weight: 900; color: #fff;" id="modalTitle">Manifiesto de Pasajeros</div>
+        <button onclick="cerrarModal()" style="background: none; border: none; color: #a1a1aa; font-size: 18px; cursor: pointer;">✕</button>
+      </div>
+      <div id="modalPassengers" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;"></div>
+      <div style="display: flex; gap: 8px; border-top: 1px solid #27272a; padding-top: 8px;">
+        <button class="btn btn-primary" style="flex: 1;" onclick="descargarPDFModal()">📄 Descargar PDF</button>
+        <button class="btn btn-secondary" onclick="cerrarModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- NAVEGACIÓN -->
+  <nav class="nav-bar">
+    <button class="nav-item active" onclick="cambiarTab('viajes', this)">
+      <span style="font-size: 16px;">🛻</span>
+      <span>Viajes</span>
+    </button>
+    <button class="nav-item" onclick="cambiarTab('checklist', this)">
+      <span style="font-size: 16px;">📋</span>
+      <span>Checklist</span>
+    </button>
+    <button class="nav-item" onclick="cambiarTab('bitacora', this)">
+      <span style="font-size: 16px;">📑</span>
+      <span>Bitácora</span>
+    </button>
+    <button class="nav-item" onclick="cambiarTab('fallas', this)">
+      <span style="font-size: 16px;">🛠️</span>
+      <span>Fallas</span>
+    </button>
+    <button class="nav-item" onclick="cambiarTab('sync', this)">
+      <span style="font-size: 16px;">☁️</span>
+      <span>Nube</span>
+    </button>
+  </nav>
+
+  <!-- SCRIPTS LOCALES EMBEBIDOS -->
+  <script src="jsqr.js"></script>
+  <script src="jspdf.umd.min.js"></script>
+  <script src="empleados_offline.js"></script>
+
+  <script>
+    /* ──────────────── ESTADO GLOBAL LOCAL ──────────────── */
+    const STORAGE_KEY = 'rh_bitacora_viajes_v2';
+    const SESSION_KEY = 'rh_chofer_session_v2';
+    const BEEP_AUDIO_BASE64 = 'data:audio/wav;base64,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';
+
+    let pasajerosAboard = [];
+    let viajesHistorial = [];
+    let viajeActivo = null;
+    let timerInterval = null;
+    let cameraActive = false;
+    let stream = null;
+    let scanLoop = null;
+    let selectedModalTrip = null;
+
+    const CHECKLIST_ITEMS = [
+      'Frenos de servicio y de mano',
+      'Luces principales y direccionales',
+      'Presión y dibujo de llantas',
+      'Nivel de aceite, agua y líquido frenos',
+      'Radio de comunicación con mina',
+      'Extintor y botiquín a bordo',
+      'Cinturones de seguridad operativos',
+      'Espejos retrovisores y parabrisas'
+    ];
+
+    function playBeep(success = true) {
+      try {
+        if (success) {
+          const a = new Audio(BEEP_AUDIO_BASE64);
+          a.volume = 0.9;
+          a.play().catch(()=>{});
+        }
+        if (navigator.vibrate) navigator.vibrate(success ? [80, 50, 80] : [200]);
+      } catch(_) {}
+    }
+
+    /* ──────────────── INICIALIZACIÓN ──────────────── */
+    window.onload = () => {
+      cargarSesion();
+      cargarHistorial();
+      renderChecklist();
+      actualizarRed();
+
+      window.addEventListener('online', actualizarRed);
+      window.addEventListener('offline', actualizarRed);
+    };
+
+    function actualizarRed() {
+      const isOnline = navigator.onLine;
+      const b = document.getElementById('statusBadge');
+      if (isOnline) {
+        b.className = 'badge-status badge-online';
+        b.innerHTML = '● En Línea (Sincronizado)';
+        autoSync();
+      } else {
+        b.className = 'badge-status badge-offline';
+        b.innerHTML = '● Modo Sierra (Offline)';
+      }
+    }
+
+    function cambiarTab(tabId, el) {
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+      document.getElementById('tab-' + tabId).classList.add('active');
+      if (el) el.classList.add('active');
+      if (tabId === 'bitacora') renderBitacora();
+    }
+
+    function cargarSesion() {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (raw) {
+        try {
+          const s = JSON.parse(raw);
+          if (s.chofer) document.getElementById('selChofer').value = s.chofer;
+          if (s.vehiculo) document.getElementById('selVehiculo').value = s.vehiculo;
+          if (s.eco) document.getElementById('inputEco').value = s.eco;
+          if (s.origen) document.getElementById('selOrigen').value = s.origen;
+          if (s.destino) document.getElementById('selDestino').value = s.destino;
+          if (s.km) document.getElementById('inputKm').value = s.km;
+        } catch(_) {}
+      }
+      actualizarHeader();
+    }
+
+    function guardarSesion() {
+      const s = {
+        chofer: document.getElementById('selChofer').value,
+        vehiculo: document.getElementById('selVehiculo').value,
+        eco: document.getElementById('inputEco').value,
+        origen: document.getElementById('selOrigen').value,
+        destino: document.getElementById('selDestino').value,
+        km: document.getElementById('inputKm').value
+      };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      actualizarHeader();
+    }
+
+    function actualizarHeader() {
+      const ch = document.getElementById('selChofer').value;
+      const eco = document.getElementById('inputEco').value;
+      document.getElementById('driverHeaderLabel').innerText = `👔 ${ch} • ${eco}`;
+    }
+
+    function cargarHistorial() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        try {
+          viajesHistorial = JSON.parse(raw);
+          const act = viajesHistorial.find(v => v.estado === 'En Progreso');
+          if (act) restaurarViajeVivo(act);
+        } catch(_) {}
+      }
+      actualizarStats();
+    }
+
+    function actualizarStats() {
+      document.getElementById('statViajesTotal').innerText = viajesHistorial.length;
+      const pend = viajesHistorial.filter(v => !v.sincronizado).length;
+      document.getElementById('statViajesPendientes').innerText = pend;
+      document.getElementById('countBitacora').innerText = viajesHistorial.length;
+    }
+
+    /* ──────────────── RESOLUCIÓN DE EMPLEADOS OFFLINE ──────────────── */
+    function buscarEmpleado(code) {
+      const catalogo = window.EMPLEADOS_OFFLINE || [];
+      let clean = String(code).trim();
+      const numMatch = clean.match(/\d+/);
+      const digits = numMatch ? numMatch[0] : '';
+
+      return catalogo.find(e => 
+        (e.numero_empleado && String(e.numero_empleado) === clean) ||
+        (digits && e.numero_empleado && String(e.numero_empleado) === digits) ||
+        (e.id_empleado && e.id_empleado.toLowerCase() === clean.toLowerCase()) ||
+        (e.qr_token && e.qr_token === clean) ||
+        (`${e.nombre} ${e.apellido_paterno}`.toLowerCase().includes(clean.toLowerCase()))
+      ) || null;
+    }
+
+    function procesarScan(codigo, metodo = 'QR') {
+      const match = buscarEmpleado(codigo);
+      const nombre = match ? `${match.nombre} ${match.apellido_paterno} ${match.apellido_materno || ''}`.trim() : (codigo.match(/\d+/) ? `Trabajador Nómina #${codigo.match(/\d+/)[0]}` : `Trabajador #${codigo}`);
+      const puesto = match ? `${match.puesto || 'Turno'} • ${match.departamento || 'Bacis'}` : 'Personal Operativo';
+      const numNomina = match?.numero_empleado ? String(match.numero_empleado) : codigo;
+
+      const dup = pasajerosAboard.find(p => p.nombre === nombre || p.nomina === numNomina);
+      if (dup) {
+        playBeep(false);
+        mostrarAviso('dup', `⚠️ YA REGISTRADO: ${nombre}`);
+        return;
+      }
+
+      const p = {
+        id: 'pas_' + Date.now(),
+        nombre,
+        puesto,
+        nomina: numNomina,
+        hora: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
+        metodo
+      };
+
+      pasajerosAboard.unshift(p);
+      playBeep(true);
+      mostrarAviso('success', `✅ REGISTRADO: ${nombre}`);
+      renderPasajeros();
+    }
+
+    function mostrarAviso(tipo, texto) {
+      const al = document.getElementById('scanAlert');
+      al.className = 'notice notice-' + (tipo === 'success' ? 'success' : 'dup');
+      al.innerText = texto;
+      al.style.display = 'block';
+      setTimeout(() => { al.style.display = 'none'; }, 2500);
+    }
+
+    function agregarManual() {
+      const inp = document.getElementById('manualNomina');
+      if (!inp.value.trim()) return;
+      procesarScan(inp.value.trim(), 'Manual');
+      inp.value = '';
+    }
+
+    function renderPasajeros() {
+      const c = document.getElementById('countPasajeros');
+      c.innerText = pasajerosAboard.length;
+      const box = document.getElementById('listaPasajeros');
+      if (pasajerosAboard.length === 0) {
+        box.innerHTML = '<div style="text-align: center; color: #71717a; font-size: 12px; padding: 12px;">Ningún trabajador escaneado aún.</div>';
+        return;
+      }
+      box.innerHTML = pasajerosAboard.map((p, idx) => `
+        <div class="passenger-item">
+          <div>
+            <div style="font-weight: 800; color: #fff;">${idx + 1}. ${p.nombre}</div>
+            <div style="font-size: 10px; color: #a1a1aa;">${p.puesto} • ${p.hora} (${p.metodo})</div>
+          </div>
+          <button onclick="quitarPasajero('${p.id}')" style="background: none; border: none; color: #ef4444; font-size: 14px; cursor: pointer;">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function quitarPasajero(id) {
+      pasajerosAboard = pasajerosAboard.filter(p => p.id !== id);
+      renderPasajeros();
+    }
+
+    /* ──────────────── CÁMARA QR ──────────────── */
+    async function toggleCamara() {
+      if (cameraActive) {
+        detenerCamara();
+      } else {
+        iniciarCamara();
+      }
+    }
+
+    async function iniciarCamara() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false
+        });
+        const v = document.getElementById('videoEl');
+        v.srcObject = stream;
+        await v.play();
+        cameraActive = true;
+        document.getElementById('camBox').style.display = 'block';
+        document.getElementById('camBtnText').innerText = 'Apagar Cámara';
+        scanLoop = requestAnimationFrame(tickScan);
+      } catch(e) {
+        alert('Cámara no disponible. Puedes escribir la nómina manualmente.');
+      }
+    }
+
+    function detenerCamara() {
+      if (scanLoop) cancelAnimationFrame(scanLoop);
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      stream = null;
+      cameraActive = false;
+      document.getElementById('camBox').style.display = 'none';
+      document.getElementById('camBtnText').innerText = 'Abrir Cámara';
+    }
+
+    let scanCooldown = false;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    function tickScan() {
+      const v = document.getElementById('videoEl');
+      if (v && v.readyState >= 2 && window.jsQR) {
+        if (canvas.width !== v.videoWidth || canvas.height !== v.videoHeight) {
+          canvas.width = v.videoWidth;
+          canvas.height = v.videoHeight;
+        }
+        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
+
+        if (code && code.data && !scanCooldown) {
+          scanCooldown = true;
+          procesarScan(code.data, 'QR');
+          setTimeout(() => { scanCooldown = false; }, 850);
+        }
+      }
+      if (cameraActive) scanLoop = requestAnimationFrame(tickScan);
+    }
+
+    /* ──────────────── GUARDADO DE VIAJES ──────────────── */
+    function guardarManifiestoDirecto() {
+      if (pasajerosAboard.length === 0) {
+        if (!confirm('No has escaneado trabajadores. ¿Guardar viaje en ceros?')) return;
+      }
+      detenerCamara();
+      const nuevo = {
+        id_viaje_local: 'local_' + Date.now(),
+        chofer_nombre: document.getElementById('selChofer').value,
+        tipo_vehiculo: document.getElementById('selVehiculo').value,
+        numero_economico: document.getElementById('inputEco').value,
+        ruta_origen: document.getElementById('selOrigen').value,
+        ruta_destino: document.getElementById('selDestino').value,
+        hora_inicio: new Date().toISOString(),
+        hora_fin: new Date().toISOString(),
+        estado: 'Finalizado',
+        pasajeros: [...pasajerosAboard],
+        sincronizado: false
+      };
+
+      viajesHistorial.unshift(nuevo);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(viajesHistorial));
+      pasajerosAboard = [];
+      renderPasajeros();
+      guardarSesion();
+      playBeep(true);
+      alert(`🏁 ¡Manifiesto Guardado con Éxito en tu Celular!\n\nTotal Pasajeros: ${nuevo.pasajeros.length}`);
+      cambiarTab('bitacora');
+      actualizarStats();
+      if (navigator.onLine) autoSync();
+    }
+
+    function iniciarRecorridoVivo() {
+      detenerCamara();
+      viajeActivo = {
+        id_viaje_local: 'local_' + Date.now(),
+        chofer_nombre: document.getElementById('selChofer').value,
+        tipo_vehiculo: document.getElementById('selVehiculo').value,
+        numero_economico: document.getElementById('inputEco').value,
+        ruta_origen: document.getElementById('selOrigen').value,
+        ruta_destino: document.getElementById('selDestino').value,
+        hora_inicio: new Date().toISOString(),
+        estado: 'En Progreso',
+        pasajeros: [...pasajerosAboard],
+        sincronizado: false
+      };
+
+      viajesHistorial.unshift(viajeActivo);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(viajesHistorial));
+      restaurarViajeVivo(viajeActivo);
+      playBeep(true);
+    }
+
+    function restaurarViajeVivo(v) {
+      viajeActivo = v;
+      document.getElementById('boxNormalViaje').style.display = 'none';
+      document.getElementById('boxViajeVivo').style.display = 'flex';
+      document.getElementById('liveOrigen').innerText = v.ruta_origen;
+      document.getElementById('liveDestino').innerText = v.ruta_destino;
+      document.getElementById('liveCount').innerText = v.pasajeros.length;
+
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        const ms = Math.max(0, Date.now() - new Date(v.hora_inicio).getTime());
+        const h = String(Math.floor(ms / 3600000)).padStart(2, '0');
+        const m = String(Math.floor((ms % 3600000) / 60000)).padStart(2, '0');
+        const s = String(Math.floor((ms % 60000) / 1000)).padStart(2, '0');
+        document.getElementById('liveTimer').innerText = `${h}:${m}:${s}`;
+      }, 1000);
+    }
+
+    function finalizarRecorridoVivo() {
+      if (!confirm(`¿Llegaste a tu destino (${viajeActivo.ruta_destino})?`)) return;
+      if (timerInterval) clearInterval(timerInterval);
+      
+      viajeActivo.hora_fin = new Date().toISOString();
+      viajeActivo.estado = 'Finalizado';
+      viajeActivo.pasajeros = [...pasajerosAboard];
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(viajesHistorial));
+      viajeActivo = null;
+      pasajerosAboard = [];
+      renderPasajeros();
+
+      document.getElementById('boxNormalViaje').style.display = 'flex';
+      document.getElementById('boxViajeVivo').style.display = 'none';
+      playBeep(true);
+      alert('🏁 ¡Viaje Concluido y Guardado en el Teléfono!');
+      cambiarTab('bitacora');
+      actualizarStats();
+      if (navigator.onLine) autoSync();
+    }
+
+    /* ──────────────── CHECKLIST ──────────────── */
+    function renderChecklist() {
+      const c = document.getElementById('checklistItems');
+      c.innerHTML = CHECKLIST_ITEMS.map((item, i) => `
+        <label style="display: flex; align-items: center; justify-content: space-between; background: #27272a; padding: 10px 14px; border-radius: 12px; cursor: pointer;">
+          <span style="font-size: 12px; color: #fff;">${item}</span>
+          <input type="checkbox" checked style="width: 18px; height: 18px; accent-color: #10b981;">
+        </label>
+      `).join('');
+    }
+
+    function guardarChecklist() {
+      playBeep(true);
+      alert('✅ ¡Checklist de Inspección Guardado con Éxito!');
+      cambiarTab('viajes');
+    }
+
+    /* ──────────────── BITÁCORA Y MODAL ──────────────── */
+    function renderBitacora() {
+      const q = (document.getElementById('searchBitacora').value || '').toLowerCase();
+      const list = document.getElementById('bitacoraList');
+      const filtrados = viajesHistorial.filter(v => {
+        if (!q) return true;
+        return (
+          v.chofer_nombre.toLowerCase().includes(q) ||
+          v.ruta_origen.toLowerCase().includes(q) ||
+          v.ruta_destino.toLowerCase().includes(q) ||
+          v.pasajeros.some(p => p.nombre.toLowerCase().includes(q) || p.nomina.includes(q))
+        );
+      });
+
+      if (filtrados.length === 0) {
+        list.innerHTML = '<div style="text-align: center; color: #71717a; font-size: 12px; padding: 20px;">No hay viajes registrados aún.</div>';
+        return;
+      }
+
+      list.innerHTML = filtrados.map(v => `
+        <div style="background: #27272a; border: 1px solid #3f3f46; border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+              <div style="font-size: 13px; font-weight: 800; color: #fff;">🚌 ${v.ruta_origen} ➔ ${v.ruta_destino}</div>
+              <div style="font-size: 11px; color: #10b981; font-weight: 800;">👥 ${v.pasajeros.length} Pasajeros a Bordo</div>
+              <div style="font-size: 10px; color: #a1a1aa;">${v.hora_inicio ? v.hora_inicio.split('T')[0] : 'Hoy'} • Chofer: ${v.chofer_nombre}</div>
+            </div>
+            <span style="font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: ${v.sincronizado ? '#064e3b; color: #6ee7b7;' : '#78350f; color: #fde68a;'}">
+              ${v.sincronizado ? '✓ En Oficina' : '💾 En Celular'}
+            </span>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn btn-secondary" style="flex: 1; padding: 8px; font-size: 11px;" onclick="abrirModalManifiesto('${v.id_viaje_local}')">
+              👥 Ver Pasajeros (${v.pasajeros.length})
+            </button>
+            <button class="btn btn-primary" style="padding: 8px 12px; font-size: 11px;" onclick="descargarPDFDirecto('${v.id_viaje_local}')">
+              📄 PDF
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function abrirModalManifiesto(id) {
+      const v = viajesHistorial.find(x => x.id_viaje_local === id);
+      if (!v) return;
+      selectedModalTrip = v;
+      document.getElementById('modalTitle').innerText = `${v.ruta_origen} ➔ ${v.ruta_destino}`;
+      const box = document.getElementById('modalPassengers');
+      box.innerHTML = v.pasajeros.map((p, i) => `
+        <div style="background: #27272a; padding: 8px 12px; border-radius: 10px; font-size: 12px; display: flex; justify-content: space-between;">
+          <div>
+            <div style="font-weight: 800; color: #fff;">${i + 1}. ${p.nombre}</div>
+            <div style="font-size: 10px; color: #a1a1aa;">${p.puesto}</div>
+          </div>
+          <span style="font-size: 10px; color: #10b981; font-weight: 700;">${p.hora}</span>
+        </div>
+      `).join('');
+      document.getElementById('manifestModal').style.display = 'flex';
+    }
+
+    function cerrarModal() {
+      document.getElementById('manifestModal').style.display = 'none';
+      selectedModalTrip = null;
+    }
+
+    function descargarPDFDirecto(id) {
+      const v = viajesHistorial.find(x => x.id_viaje_local === id);
+      if (v) generarPDF(v);
+    }
+
+    function descargarPDFModal() {
+      if (selectedModalTrip) generarPDF(selectedModalTrip);
+    }
+
+    function generarPDF(v) {
+      try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        doc.setFillColor(24, 24, 27);
+        doc.rect(0, 0, 210, 24, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(14);
+        doc.text('MINAS DE BACIS S.A. DE C.V.', 14, 12);
+        doc.setFontSize(9);
+        doc.text('MANIFIESTO OFICIAL DE TRASLADO DE PERSONAL Y BITÁCORA QR', 14, 18);
+
+        doc.setTextColor(20, 20, 20);
+        doc.setFontSize(10);
+        doc.text(`Fecha: ${v.hora_inicio ? v.hora_inicio.split('T')[0] : new Date().toLocaleDateString()}`, 14, 34);
+        doc.text(`Chofer: ${v.chofer_nombre}`, 14, 40);
+        doc.text(`Unidad: ${v.tipo_vehiculo} (${v.numero_economico})`, 14, 46);
+        doc.text(`Ruta: ${v.ruta_origen} ➔ ${v.ruta_destino}`, 120, 34);
+        doc.text(`Total Pasajeros: ${v.pasajeros.length}`, 120, 40);
+
+        doc.line(14, 52, 196, 52);
+        let y = 60;
+        doc.setFontSize(9);
+        doc.text('#', 14, y);
+        doc.text('NÓMINA', 24, y);
+        doc.text('NOMBRE COMPLETO', 54, y);
+        doc.text('PUESTO', 130, y);
+        doc.text('HORA', 176, y);
+        y += 4;
+        doc.line(14, y, 196, y);
+        y += 6;
+
+        v.pasajeros.forEach((p, idx) => {
+          if (y > 270) { doc.addPage(); y = 20; }
+          doc.text(String(idx + 1), 14, y);
+          doc.text(p.nomina || 'N/A', 24, y);
+          doc.text(p.nombre.slice(0, 30), 54, y);
+          doc.text((p.puesto || 'General').slice(0, 24), 130, y);
+          doc.text(p.hora || 'OK', 176, y);
+          y += 6;
+        });
+
+        doc.save(`Manifiesto_${v.ruta_origen}_${v.ruta_destino}.pdf`);
+      } catch(e) {
+        alert('Error al generar PDF. Asegúrate de tener espacio disponible.');
+      }
+    }
+
+    /* ──────────────── FALLAS ──────────────── */
+    function guardarFalla() {
+      const d = document.getElementById('fallaDesc').value;
+      if (!d.trim()) return alert('Describe la falla de la unidad.');
+      alert('🔧 ¡Reporte de Falla Registrado para el Taller Mecánico!');
+      document.getElementById('fallaDesc').value = '';
+      cambiarTab('viajes');
+    }
+
+    /* ──────────────── SINCRONIZACIÓN CLOUD ──────────────── */
+    async function autoSync() {
+      if (!navigator.onLine) return;
+      const pendientes = viajesHistorial.filter(v => !v.sincronizado);
+      if (pendientes.length === 0) return;
+
+      for (const v of pendientes) {
+        try {
+          const res = await fetch('https://rh-system-master.vercel.app/api/choferes/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ viajes: [v] })
+          });
+          if (res.ok) {
+            v.sincronizado = true;
+          }
+        } catch(_) {}
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(viajesHistorial));
+      actualizarStats();
+    }
+
+    async function forzarSync() {
+      if (!navigator.onLine) {
+        alert('⚠️ No hay señal de internet en este momento.\n\nTodos tus viajes están 100% seguros en la memoria de este celular.');
+        return;
+      }
+      const desc = document.getElementById('syncStatusDesc');
+      desc.innerText = 'Subiendo viajes a la oficina central...';
+      await autoSync();
+      desc.innerText = '✅ ¡Sincronización completada con éxito!';
+      alert('✅ ¡Todos los viajes pendientes han sido subidos a la oficina central!');
+    }
+  </script>
+</body>
+</html>

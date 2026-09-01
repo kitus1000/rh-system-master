@@ -2,10 +2,7 @@
   "appId": "com.minasbacis.choferes",
   "appName": "Choferes Bacis",
   "webDir": "public",
-  "server": {
-    "url": "https://rh-system-master.vercel.app/logistica/choferes",
-    "cleartext": true
-  },
+  "bundledWebRuntime": false,
   "android": {
     "allowMixedContent": true,
     "captureInput": true,
