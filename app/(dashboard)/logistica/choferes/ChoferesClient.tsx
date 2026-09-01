@@ -154,7 +154,9 @@ export default function ChoferesClient() {
   const [pasajerosA, setPasajerosA] = useState<number>(0)
   const [pasajerosB, setPasajerosB] = useState<number>(0)
   const [comentariosRuta, setComentariosRuta] = useState('')
-  
+  const [puntosMinaList, setPuntosMinaList] = useState<string[]>([
+    'Mina Bacis', 'Parajes', 'Cardos', 'Sapiuris', 'La obscuridad', 'Zona Norte', 'Nivel 15', 'San Miguel', 'Planta', 'Durango'
+  ])
   const [viajeRutaActivo, setViajeRutaActivo] = useState<ViajeRutaConcluido | null>(null)
   const [bitacoraRutasList, setBitacoraRutasList] = useState<ViajeRutaConcluido[]>([])
   const [rutasQrGlobal, setRutasQrGlobal] = useState<ViajeRutaConcluido[]>([])
@@ -318,15 +320,20 @@ export default function ChoferesClient() {
 
   const fetchChoferesYFlota = async () => {
     try {
-      const [pRes, eRes, cRes] = await Promise.all([
+      const [pRes, eRes, cRes, ptsRes] = await Promise.all([
         supabase.from('perfiles').select('id, nombre_completo, rol'),
         supabase.from('empleados').select('id_empleado, nombre, apellido_paterno, puesto, departamento'),
-        supabase.from('logistica_camiones').select('*').eq('activo', true).order('numero_economico')
+        supabase.from('logistica_camiones').select('*').eq('activo', true).order('numero_economico'),
+        supabase.from('logistica_puntos_mina').select('nombre_punto').order('nombre_punto')
       ])
 
       const pData = pRes.data || []
       const eData = eRes.data || []
       if (cRes.data) setVehiculosFlota(cRes.data)
+      if (ptsRes.data && ptsRes.data.length > 0) {
+        const ptsNames = ptsRes.data.map((x: any) => x.nombre_punto).filter(Boolean)
+        setPuntosMinaList(ptsNames)
+      }
 
       // Construir la lista con los 6 choferes oficiales
       const list: Chofer[] = DRIVERS_ROSTER.map(r => {
@@ -1555,13 +1562,9 @@ export default function ChoferesClient() {
                     onChange={e => setPuntoA(e.target.value)}
                     className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50 mb-1"
                   >
-                    <option value="Mina Bacis">📍 Mina Bacis</option>
-                    <option value="San Miguel">📍 San Miguel</option>
-                    <option value="Parajes">📍 Campamento Parajes</option>
-                    <option value="Obscuridad">📍 Obscuridad</option>
-                    <option value="Zona Norte">📍 Campamento Zona Norte</option>
-                    <option value="Planta">📍 Planta de Beneficio</option>
-                    <option value="Durango">📍 Durango / Ciudad</option>
+                    {puntosMinaList.map(pt => (
+                      <option key={'orig_' + pt} value={pt}>📍 {pt}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -1572,13 +1575,9 @@ export default function ChoferesClient() {
                     onChange={e => setPuntoB(e.target.value)}
                     className="w-full p-3 border border-zinc-200 rounded-2xl text-xs font-bold bg-zinc-50 mb-1"
                   >
-                    <option value="Parajes">📍 Campamento Parajes</option>
-                    <option value="Mina Bacis">📍 Mina Bacis</option>
-                    <option value="San Miguel">📍 San Miguel</option>
-                    <option value="Obscuridad">📍 Obscuridad</option>
-                    <option value="Zona Norte">📍 Campamento Zona Norte</option>
-                    <option value="Planta">📍 Planta de Beneficio</option>
-                    <option value="Durango">📍 Durango / Ciudad</option>
+                    {puntosMinaList.map(pt => (
+                      <option key={'dest_' + pt} value={pt}>📍 {pt}</option>
+                    ))}
                   </select>
                 </div>
               </div>

@@ -212,24 +212,13 @@
         
         <div class="form-group">
           <label>Chofer Operador</label>
-          <select id="selChofer" onchange="guardarSesion()">
-            <option value="Adalberto Pinales">👔 Adalberto Pinales (101)</option>
-            <option value="Ramon Yañez">👔 Ramon Yañez (102)</option>
-            <option value="Oscar Vazquez">👔 Oscar Vazquez (103)</option>
-            <option value="Enrique Linares">👔 Enrique Linares (104)</option>
-            <option value="Samuel Madriles">👔 Samuel Madriles (105)</option>
-            <option value="Jesus Saucedo">👔 Jesus Saucedo (106)</option>
-          </select>
+          <select id="selChofer" onchange="guardarSesion()"></select>
         </div>
 
         <div class="grid-2">
           <div class="form-group">
-            <label>Vehículo</label>
-            <select id="selVehiculo" onchange="guardarSesion()">
-              <option value="Camioneta">🛻 Camioneta</option>
-              <option value="Camión">🚌 Camión</option>
-              <option value="Urvan">🚐 Urvan</option>
-            </select>
+            <label>Vehículo / Tipo</label>
+            <select id="selVehiculo" onchange="guardarSesion()"></select>
           </div>
           <div class="form-group">
             <label>No. Económico</label>
@@ -239,24 +228,12 @@
 
         <div class="grid-2">
           <div class="form-group">
-            <label>Origen (Salida)</label>
-            <select id="selOrigen" onchange="guardarSesion()">
-              <option value="Obscuridad">📍 Obscuridad</option>
-              <option value="Parajes">📍 Parajes</option>
-              <option value="Mina Bacis">📍 Mina Bacis</option>
-              <option value="San Miguel">📍 San Miguel</option>
-              <option value="Planta">📍 Planta</option>
-            </select>
+            <label>Origen (Punto de Salida)</label>
+            <select id="selOrigen" onchange="guardarSesion()"></select>
           </div>
           <div class="form-group">
-            <label>Destino (Llegada)</label>
-            <select id="selDestino" onchange="guardarSesion()">
-              <option value="Parajes">📍 Parajes</option>
-              <option value="Obscuridad">📍 Obscuridad</option>
-              <option value="Mina Bacis">📍 Mina Bacis</option>
-              <option value="San Miguel">📍 San Miguel</option>
-              <option value="Planta">📍 Planta</option>
-            </select>
+            <label>Destino (Punto de Llegada)</label>
+            <select id="selDestino" onchange="guardarSesion()"></select>
           </div>
         </div>
 
@@ -281,7 +258,7 @@
       <div class="card">
         <div class="card-title" style="justify-content: space-between;">
           <span>👥 Personal a Bordo (<span id="countPasajeros">0</span>)</span>
-          <span style="font-size: 11px; color: var(--accent); font-weight: 900;">✓ 356 en Memoria</span>
+          <span id="catTrabajadoresCountBadge" style="font-size: 11px; color: var(--accent); font-weight: 900;">✓ 356 en Memoria</span>
         </div>
 
         <!-- Botón Gigante de Apertura de Cámara -->
@@ -375,7 +352,7 @@
       </div>
     </div>
 
-    <!-- TAB 5: NUBE / SYNC CON CONSOLA DE ESTADO -->
+    <!-- TAB 5: NUBE / SYNC CON CATÁLOGOS DINÁMICOS Y CONSOLA DE ESTADO -->
     <div id="tab-sync" class="tab-content">
       <div class="card" style="text-align: center; gap: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid var(--border-color); padding-bottom: 8px;">
@@ -393,6 +370,14 @@
             <strong id="statViajesPendientes" style="color: #f59e0b;">0</strong>
           </div>
           <div style="display: flex; justify-content: space-between;">
+            <span>📍 Puntos Estratégicos en Mina:</span>
+            <strong id="statPuntosCount" style="color: #10b981;">6 Puntos (Cardos, Sapiuris...)</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span>🛻 Unidades de Transporte:</span>
+            <strong id="statCamionesCount" style="color: #38bdf8;">8 Unidades</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
             <span>👥 Catálogo Offline:</span>
             <strong id="statCatTotal" style="color: var(--accent);">356 Trabajadores</strong>
           </div>
@@ -407,13 +392,16 @@
           <label>Registro de Comunicación:</label>
           <div id="syncLogConsole" class="log-console">
             [Sistema] App Choferes iniciada.<br>
-            [Modo] Almacenamiento local operativo.
+            [Modo] Catálogos cargados en memoria.
           </div>
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 8px;">
           <button id="btnSyncAll" class="btn btn-primary" onclick="forzarSync()">
             ☁️ Subir Viajes a Oficina (Supabase)
+          </button>
+          <button class="btn btn-secondary" onclick="actualizarCatalogosDesdeNubeManual()">
+            🔄 Descargar Nuevas Rutas, Puntos y Empleados
           </button>
           <button class="btn btn-secondary" onclick="probarConexionDB()">
             🔌 Probar Conexión con Supabase
@@ -515,6 +503,45 @@
     const STORAGE_KEY = 'rh_bitacora_viajes_v2';
     const SESSION_KEY = 'rh_chofer_session_v2';
     const THEME_KEY = 'rh_chofer_theme_v2';
+    const PUNTOS_CACHE_KEY = 'rh_puntos_mina_cache_v2';
+    const CAMIONES_CACHE_KEY = 'rh_camiones_cache_v2';
+    const CHOFERES_CACHE_KEY = 'rh_choferes_cache_v2';
+
+    // Puntos de salida/llegada por defecto
+    const DEFAULT_PUNTOS = [
+      { nombre_punto: 'Mina Bacis' },
+      { nombre_punto: 'Parajes' },
+      { nombre_punto: 'Cardos' },
+      { nombre_punto: 'Sapiuris' },
+      { nombre_punto: 'La obscuridad' },
+      { nombre_punto: 'Zona Norte' },
+      { nombre_punto: 'Nivel 15' },
+      { nombre_punto: 'San Miguel' },
+      { nombre_punto: 'Planta' },
+      { nombre_punto: 'Durango' }
+    ];
+
+    const DEFAULT_CAMIONES = [
+      { numero_economico: 'CAM-01', tipo: 'Camioneta' },
+      { numero_economico: 'CAM-02', tipo: 'Camioneta' },
+      { numero_economico: 'CAM-03', tipo: 'Camioneta' },
+      { numero_economico: 'ECO-01', tipo: 'Camioneta 4x4' },
+      { numero_economico: 'ECO-02', tipo: 'Hilux Durango-Bacis' },
+      { numero_economico: 'ECO-05', tipo: 'Autobús Personal' },
+      { numero_economico: 'ECO-08', tipo: 'Camión Nivel 16' },
+      { numero_economico: 'ECO-16', tipo: 'Camión General' },
+      { numero_economico: 'AMB-01', tipo: 'Ambulancia Emergencias' },
+      { numero_economico: 'URVAN-01', tipo: 'Urvan' }
+    ];
+
+    const DEFAULT_CHOFERES = [
+      'Adalberto Pinales',
+      'Ramon Yañez',
+      'Oscar Vazquez',
+      'Enrique Linares',
+      'Samuel Madriles',
+      'Jesus Saucedo'
+    ];
 
     let pasajerosAboard = [];
     let viajesHistorial = [];
@@ -629,9 +656,140 @@
       }
     }
 
+    /* ──────────────── GESTIÓN DE CATÁLOGOS DINÁMICOS ──────────────── */
+    function getPuntosCache() {
+      try {
+        const raw = localStorage.getItem(PUNTOS_CACHE_KEY);
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list) && list.length > 0) return list;
+        }
+      } catch(_) {}
+      return DEFAULT_PUNTOS;
+    }
+
+    function getCamionesCache() {
+      try {
+        const raw = localStorage.getItem(CAMIONES_CACHE_KEY);
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list) && list.length > 0) return list;
+        }
+      } catch(_) {}
+      return DEFAULT_CAMIONES;
+    }
+
+    function getChoferesCache() {
+      try {
+        const raw = localStorage.getItem(CHOFERES_CACHE_KEY);
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list) && list.length > 0) return list;
+        }
+      } catch(_) {}
+      return DEFAULT_CHOFERES;
+    }
+
+    function renderDropdowns() {
+      const puntos = getPuntosCache();
+      const camiones = getCamionesCache();
+      const choferes = getChoferesCache();
+
+      // Dropdowns de Origen y Destino
+      const selOrigen = document.getElementById('selOrigen');
+      const selDestino = document.getElementById('selDestino');
+      const curOrigen = selOrigen.value || 'Obscuridad';
+      const curDestino = selDestino.value || 'Parajes';
+
+      const optionsHtml = puntos.map(p => {
+        const nom = p.nombre_punto || p.nombre || p;
+        return `<option value="${nom}">📍 ${nom}</option>`;
+      }).join('');
+
+      selOrigen.innerHTML = optionsHtml;
+      selDestino.innerHTML = optionsHtml;
+
+      if (puntos.some(p => (p.nombre_punto || p.nombre || p) === curOrigen)) selOrigen.value = curOrigen;
+      if (puntos.some(p => (p.nombre_punto || p.nombre || p) === curDestino)) selDestino.value = curDestino;
+
+      // Dropdown de Choferes
+      const selChofer = document.getElementById('selChofer');
+      const curChofer = selChofer.value || 'Adalberto Pinales';
+      selChofer.innerHTML = choferes.map((ch, idx) => {
+        const nom = typeof ch === 'string' ? ch : (ch.nombre ? `${ch.nombre} ${ch.apellido_paterno || ''}`.trim() : `Chofer ${idx+1}`);
+        return `<option value="${nom}">👔 ${nom}</option>`;
+      }).join('');
+      if (choferes.some(c => (typeof c === 'string' ? c : c.nombre) === curChofer)) selChofer.value = curChofer;
+
+      // Dropdown de Vehículos
+      const selVehiculo = document.getElementById('selVehiculo');
+      const curVehiculo = selVehiculo.value || 'Camioneta';
+      const vehiculoTypes = ['Camioneta', 'Camión', 'Urvan', 'Ambulancia', 'Hilux', 'Autobús'];
+      selVehiculo.innerHTML = vehiculoTypes.map(t => `<option value="${t}">🛻 ${t}</option>`).join('');
+      selVehiculo.value = curVehiculo;
+
+      actualizarStats();
+    }
+
+    async function actualizarCatalogosDesdeNube() {
+      if (!navigator.onLine) return;
+      try {
+        // 1. Puntos Estratégicos en Mina
+        const resPuntos = await fetch(`${SUPABASE_URL}/rest/v1/logistica_puntos_mina?select=*&order=nombre_punto.asc`, {
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+        });
+        if (resPuntos.ok) {
+          const dataPuntos = await resPuntos.json();
+          if (Array.isArray(dataPuntos) && dataPuntos.length > 0) {
+            localStorage.setItem(PUNTOS_CACHE_KEY, JSON.stringify(dataPuntos));
+            logMsg(`📍 ${dataPuntos.length} Puntos Estratégicos descargados (Cardos, Sapiuris, Parajes...).`);
+          }
+        }
+
+        // 2. Catálogo de Camiones y Unidades
+        const resCamiones = await fetch(`${SUPABASE_URL}/rest/v1/logistica_camiones?select=*&order=numero_economico.asc`, {
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+        });
+        if (resCamiones.ok) {
+          const dataCamiones = await resCamiones.json();
+          if (Array.isArray(dataCamiones) && dataCamiones.length > 0) {
+            localStorage.setItem(CAMIONES_CACHE_KEY, JSON.stringify(dataCamiones));
+            logMsg(`🛻 ${dataCamiones.length} Unidades de transporte sincronizadas.`);
+          }
+        }
+
+        // 3. Catálogo de Empleados
+        const resEmps = await fetch(`${SUPABASE_URL}/rest/v1/empleados?select=id_empleado,nombre,apellido_paterno,apellido_materno,puesto,departamento,numero_empleado,qr_token`, {
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+        });
+        if (resEmps.ok) {
+          const emps = await resEmps.json();
+          if (Array.isArray(emps) && emps.length > 0) {
+            localStorage.setItem('rh_empleados_cache_updated', JSON.stringify(emps));
+            logMsg(`👥 ${emps.length} Trabajadores actualizados desde Supabase.`);
+          }
+        }
+
+        renderDropdowns();
+      } catch(err) {
+        logMsg(`⚠️ Nota: Sincronización de catálogos usó la memoria local.`);
+      }
+    }
+
+    async function actualizarCatalogosDesdeNubeManual() {
+      if (!navigator.onLine) {
+        alert('⚠️ No hay señal de internet en este momento.\n\nLa app está usando las rutas y empleados guardados en la memoria del teléfono.');
+        return;
+      }
+      logMsg('🔄 Descargando últimas rutas y puntos desde Supabase...');
+      await actualizarCatalogosDesdeNube();
+      alert('✅ ¡Catálogos Actualizados con Éxito!\n\nSe descargaron las últimas rutas (Cardos, Sapiuris, etc.), camiones y trabajadores.');
+    }
+
     /* ──────────────── INICIALIZACIÓN ──────────────── */
     window.onload = () => {
       initTheme();
+      renderDropdowns();
       cargarSesion();
       cargarHistorial();
       renderChecklist();
@@ -658,7 +816,7 @@
         b.className = 'badge-status badge-online';
         b.innerHTML = '● En Línea';
         if (netText) { netText.innerText = 'Conectado a Internet'; netText.style.color = '#10b981'; }
-        actualizarCatalogoDesdeNube();
+        actualizarCatalogosDesdeNube();
         autoSync();
       } else {
         b.className = 'badge-status badge-offline';
@@ -734,36 +892,33 @@
       return window.EMPLEADOS_OFFLINE || [];
     }
 
-    async function actualizarCatalogoDesdeNube() {
-      if (!navigator.onLine) return;
-      try {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/empleados?select=id_empleado,nombre,apellido_paterno,apellido_materno,puesto,departamento,numero_empleado,qr_token`, {
-          headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${SUPABASE_KEY}`
-          }
-        });
-        if (res.ok) {
-          const emps = await res.json();
-          if (Array.isArray(emps) && emps.length > 0) {
-            localStorage.setItem('rh_empleados_cache_updated', JSON.stringify(emps));
-            logMsg(`👥 Catálogo actualizado: ${emps.length} empleados desde Supabase.`);
-            actualizarStats();
-          }
-        }
-      } catch(_) {}
-    }
-
     function actualizarStats() {
       const total = viajesHistorial.length;
       const pend = viajesHistorial.filter(v => !v.sincronizado).length;
       const empsCount = getCatalogoActual().length;
+      const puntosCount = getPuntosCache().length;
+      const camionesCount = getCamionesCache().length;
 
-      document.getElementById('statViajesTotal').innerText = total;
-      document.getElementById('statViajesPendientes').innerText = pend;
-      document.getElementById('countBitacora').innerText = total;
+      const statTotal = document.getElementById('statViajesTotal');
+      if (statTotal) statTotal.innerText = total;
+
+      const statPend = document.getElementById('statViajesPendientes');
+      if (statPend) statPend.innerText = pend;
+
+      const countBit = document.getElementById('countBitacora');
+      if (countBit) countBit.innerText = total;
+
       const statCat = document.getElementById('statCatTotal');
       if (statCat) statCat.innerText = `${empsCount} Trabajadores`;
+
+      const statTrabBadge = document.getElementById('catTrabajadoresCountBadge');
+      if (statTrabBadge) statTrabBadge.innerText = `✓ ${empsCount} en Memoria`;
+
+      const statPuntos = document.getElementById('statPuntosCount');
+      if (statPuntos) statPuntos.innerText = `${puntosCount} Puntos (Cardos, Sapiuris...)`;
+
+      const statCam = document.getElementById('statCamionesCount');
+      if (statCam) statCam.innerText = `${camionesCount} Unidades`;
     }
 
     /* ──────────────── PROBAR CONEXIÓN SUPABASE ──────────────── */
@@ -915,7 +1070,6 @@
           audio: false
         });
 
-        // Intentar activar autofoco continuo si el dispositivo lo permite
         try {
           const track = stream.getVideoTracks()[0];
           if (track && track.applyConstraints) {
@@ -1014,7 +1168,7 @@
           } catch(_) {}
         }
 
-        // 3. Fallback: jsQR sobre la imagen completa si no estaba exactamente en el centro
+        // 3. Fallback: jsQR sobre la imagen completa
         if (!detectedCode && window.jsQR && v.videoWidth > 0 && v.videoHeight > 0) {
           try {
             if (canvas.width !== 640 || canvas.height !== 360) {
@@ -1430,6 +1584,7 @@
 
       logMsg('☁️ Sincronización manual forzada iniciada...');
       await probarConexionDB();
+      await actualizarCatalogosDesdeNube();
 
       const pendientes = viajesHistorial.filter(v => !v.sincronizado);
       if (pendientes.length === 0) {
