@@ -237,8 +237,33 @@ export default function ChoferApp() {
           setChoferesList(ch.length ? ch : DEFAULT_CHOFERES)
         }
       }
-      const savedNombre = localStorage.getItem('rh_chofer_nombre_guardado')
-      if (savedNombre) setChoferNombre(savedNombre)
+      const savedSession = localStorage.getItem('rh_chofer_session_v2')
+      if (savedSession) {
+        const sess = JSON.parse(savedSession)
+        if (sess.chofer_nombre) setChoferNombre(sess.chofer_nombre)
+        if (sess.chofer_id) setChoferId(sess.chofer_id)
+        if (sess.numero_economico) setNumeroEconomico(sess.numero_economico)
+        if (sess.tipo_vehiculo) setTipoVehiculo(sess.tipo_vehiculo)
+        if (sess.origen) setOrigen(sess.origen)
+        if (sess.destino) setDestino(sess.destino)
+      } else {
+        const savedNombre = localStorage.getItem('rh_chofer_nombre_guardado')
+        if (savedNombre) setChoferNombre(savedNombre)
+      }
+    } catch (_) {}
+  }
+
+  const guardarSesionChofer = (nombre: string, id: string, eco: string, tipo: string, orig: string, dest: string) => {
+    try {
+      localStorage.setItem('rh_chofer_session_v2', JSON.stringify({
+        chofer_nombre: nombre,
+        chofer_id: id,
+        numero_economico: eco,
+        tipo_vehiculo: tipo,
+        origen: orig,
+        destino: dest,
+        guardado_el: new Date().toISOString()
+      }))
     } catch (_) {}
   }
 
@@ -824,11 +849,17 @@ export default function ChoferApp() {
 
             {/* Chofer */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Chofer Operador</label>
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Chofer Operador</label>
+                <span className="text-[10px] text-emerald-400 font-bold">✓ Sesión Guardada</span>
+              </div>
               <select value={choferNombre} onChange={e => {
-                setChoferNombre(e.target.value)
-                const f = choferesList.find(c => `${c.nombre} ${c.apellido_paterno}`.trim() === e.target.value)
+                const val = e.target.value
+                setChoferNombre(val)
+                const f = choferesList.find(c => `${c.nombre} ${c.apellido_paterno}`.trim() === val)
+                const id = f ? f.id_empleado : choferId
                 if (f) setChoferId(f.id_empleado)
+                guardarSesionChofer(val, id, numeroEconomico, tipoVehiculo, origen, destino)
               }} className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-3.5 py-3 text-sm font-bold text-white focus:outline-none focus:border-emerald-500">
                 {choferesList.map(c => {
                   const n = `${c.nombre} ${c.apellido_paterno}`.trim()
@@ -841,7 +872,10 @@ export default function ChoferApp() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Vehículo</label>
-                <select value={tipoVehiculo} onChange={e => setTipoVehiculo(e.target.value)} className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-3 py-2.5 text-xs font-bold text-white focus:outline-none">
+                <select value={tipoVehiculo} onChange={e => {
+                  setTipoVehiculo(e.target.value)
+                  guardarSesionChofer(choferNombre, choferId, numeroEconomico, e.target.value, origen, destino)
+                }} className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-3 py-2.5 text-xs font-bold text-white focus:outline-none">
                   <option value="Camioneta">🛻 Camioneta</option>
                   <option value="Camión">🚌 Camión</option>
                   <option value="Urvan">🚐 Urvan</option>
@@ -849,7 +883,10 @@ export default function ChoferApp() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">No. Eco</label>
-                <input type="text" value={numeroEconomico} onChange={e => setNumeroEconomico(e.target.value)} className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-3 py-2 text-xs font-mono font-bold text-white focus:outline-none" />
+                <input type="text" value={numeroEconomico} onChange={e => {
+                  setNumeroEconomico(e.target.value)
+                  guardarSesionChofer(choferNombre, choferId, e.target.value, tipoVehiculo, origen, destino)
+                }} className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-3 py-2 text-xs font-mono font-bold text-white focus:outline-none" />
               </div>
             </div>
 
@@ -858,7 +895,15 @@ export default function ChoferApp() {
               {(['origen', 'destino'] as const).map(campo => (
                 <div key={campo} className="space-y-1.5">
                   <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{campo === 'origen' ? 'Origen' : 'Destino'}</label>
-                  <select value={campo === 'origen' ? origen : destino} onChange={e => campo === 'origen' ? setOrigen(e.target.value) : setDestino(e.target.value)} className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-3 py-2 text-xs font-bold text-white">
+                  <select value={campo === 'origen' ? origen : destino} onChange={e => {
+                    if (campo === 'origen') {
+                      setOrigen(e.target.value)
+                      guardarSesionChofer(choferNombre, choferId, numeroEconomico, tipoVehiculo, e.target.value, destino)
+                    } else {
+                      setDestino(e.target.value)
+                      guardarSesionChofer(choferNombre, choferId, numeroEconomico, tipoVehiculo, origen, e.target.value)
+                    }
+                  }} className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-3 py-2 text-xs font-bold text-white">
                     {['Obscuridad', 'Parajes', 'Mina Bacis', 'San Miguel', 'Planta'].map(l => <option key={l} value={l}>📍 {l}</option>)}
                   </select>
                 </div>
