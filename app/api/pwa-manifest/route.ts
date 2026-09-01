@@ -37,6 +37,7 @@ export async function GET() {
   return new NextResponse(JSON.stringify(manifestData, null, 2), {
     headers: {
       'Content-Type': 'application/manifest+json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
       'Cache-Control': 'public, max-age=3600'
     }
   })
