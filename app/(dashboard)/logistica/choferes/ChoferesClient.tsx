@@ -165,6 +165,7 @@ export default function ChoferesClient() {
   const [selectedViaje, setSelectedViaje] = useState('')
   const [miHistorial, setMiHistorial] = useState<any[]>([])
   const [selectedReporteModal, setSelectedReporteModal] = useState<any | null>(null)
+  const [filtroTrabajador, setFiltroTrabajador] = useState('')
 
   // Checklist de Vehículo
   const [checklistCamioneta, setChecklistCamioneta] = useState({
@@ -2032,6 +2033,17 @@ export default function ChoferesClient() {
           {/* VISTA 1: HISTORIAL DE RUTAS Y PASAJEROS QR */}
           {subTabHistorial === 'rutas_qr' && (
             <div className="space-y-4">
+              {/* Buscador de Trabajador / Nómina / Chofer */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={filtroTrabajador}
+                  onChange={e => setFiltroTrabajador(e.target.value)}
+                  placeholder="🔍 Buscar trabajador, número de nómina, chofer o ruta..."
+                  className="w-full p-3.5 border border-zinc-300 rounded-2xl text-xs font-bold bg-white text-zinc-900 focus:outline-none focus:border-emerald-500 shadow-xs"
+                />
+              </div>
+
               {rutasQrGlobal.length === 0 ? (
                 <div className="text-center p-12 text-zinc-400 font-bold text-xs space-y-2 border-2 border-dashed rounded-2xl">
                   <Users className="w-8 h-8 mx-auto text-zinc-300" />
@@ -2042,7 +2054,18 @@ export default function ChoferesClient() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {rutasQrGlobal.map((r, i) => (
+                  {rutasQrGlobal
+                    .filter(r => {
+                      if (!filtroTrabajador.trim()) return true
+                      const q = filtroTrabajador.toLowerCase()
+                      return (
+                        r.chofer_nombre.toLowerCase().includes(q) ||
+                        r.punto_a.toLowerCase().includes(q) ||
+                        r.punto_b.toLowerCase().includes(q) ||
+                        r.pasajeros_lista?.some(p => p.nombre.toLowerCase().includes(q) || p.id.toLowerCase().includes(q))
+                      )
+                    })
+                    .map((r, i) => (
                     <div 
                       key={r.id_bitacora || i} 
                       className="border border-zinc-200 rounded-2xl p-4 bg-zinc-50 hover:bg-white hover:border-emerald-300 transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs shadow-xs"
