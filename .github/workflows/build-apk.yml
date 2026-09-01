@@ -1,19 +1,13 @@
-name: Compilar APK Android Choferes Bacis
+name: Compilar APK Android Choferes Bacis (100% Offline)
 
-# Solo se ejecuta de forma manual cuando el usuario presione 'Run workflow' (Cero gasto de minutos automáticos)
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-
-    env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
     steps:
       - name: Descargar Código Fuente
@@ -43,7 +37,7 @@ jobs:
       - name: Dar permisos de ejecución a Gradle
         run: chmod +x android/gradlew
 
-      - name: Compilar APK con Gradle (Build Real de Android)
+      - name: Compilar APK con Gradle (Build Real de Android 100% Offline)
         run: |
           cd android
           ./gradlew assembleDebug --stacktrace
@@ -51,6 +45,6 @@ jobs:
       - name: Subir Archivo APK para Descarga
         uses: actions/upload-artifact@v4
         with:
-          name: ChoferesBacis-App-Android
+          name: ChoferesBacis-100-Offline-Android
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
