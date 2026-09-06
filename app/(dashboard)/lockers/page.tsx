@@ -7,7 +7,8 @@ import {
   FolderLock, Smartphone, Printer, Search, Filter, RefreshCw, 
   CheckCircle2, AlertTriangle, XCircle, Key, Lock, Wrench, 
   UserPlus, UserCheck, AlertCircle, Sparkles, Building2, ChevronRight,
-  Layers, Info, ShieldAlert, ArrowUpDown, X, Save, Trash2, Edit3
+  Layers, Info, ShieldAlert, ArrowUpDown, X, Save, Trash2, Edit3,
+  Tag, FileText
 } from 'lucide-react'
 
 interface Empleado {
@@ -363,10 +364,26 @@ export default function LockersPage() {
 
           <Link
             href="/lockers/fichas"
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-semibold text-sm transition-all active:scale-95"
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-semibold text-xs sm:text-sm transition-all active:scale-95"
           >
             <Printer className="w-4 h-4 text-sky-400" />
             <span>Fichas Media Carta</span>
+          </Link>
+
+          <Link
+            href="/lockers/tiras"
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-semibold text-xs sm:text-sm transition-all active:scale-95"
+          >
+            <Tag className="w-4 h-4 text-emerald-400" />
+            <span>Tiras & Etiquetas</span>
+          </Link>
+
+          <Link
+            href="/lockers/reporte"
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-semibold text-xs sm:text-sm transition-all active:scale-95"
+          >
+            <FileText className="w-4 h-4 text-amber-400" />
+            <span>Padrón / Lista</span>
           </Link>
 
           <button
