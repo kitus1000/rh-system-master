@@ -110,6 +110,7 @@ const navigationGroups = [
         defaultExpanded: true,
         items: [
             { name: 'Campamentos', href: '/campamentos', icon: Home, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Encargado de Campamento y Comedor'] },
+            { name: 'Lockers y Casilleros', href: '/lockers', icon: FolderLock, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Encargado de Campamento y Comedor', 'Sistemas', 'Supervisor'] },
             { name: 'Comedor', href: '/comedor', icon: Coffee, roles: ['Administrativo', 'Superintendente', 'Encargado de Campamento y Comedor'] },
             { name: 'Evaluaciones', href: '/evaluaciones', icon: Award, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Documentos', href: '/documentos', icon: Files, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
