@@ -6,7 +6,8 @@ import { useAuth } from '@/components/AuthProvider'
 import { jsPDF } from 'jspdf'
 import { 
     Hospital, Plus, Search, Users, Trash2, ShieldAlert,
-    Printer, Plane, Stethoscope, Building, Lock, Unlock, FolderLock
+    Printer, Plane, Stethoscope, Building, Lock, Unlock, FolderLock,
+    Copy, Check, FileSpreadsheet
 } from 'lucide-react'
 
 // Helper function to normalize parentesco and extract worker name if input is like "hijo de ..."
@@ -1321,9 +1322,33 @@ export default function PasesPage() {
         return matchText
     })
 
+    const [copiedExcel, setCopiedExcel] = useState(false)
+    const handleCopyPasesForExcel = async () => {
+        if (filteredPases.length === 0) return alert('No hay pases médicos para copiar')
+        const headers = ['Folio', 'Fecha Salida', 'Fecha Retorno', 'Paciente', 'Parentesco', 'Trabajador Titular', 'Acompañante', 'Destino', 'Servicio / Motivo', 'Medio Transporte', 'Estatus']
+        const tsvRows = filteredPases.map((p: any) => [
+            p.folio || '',
+            p.fecha_salida || '',
+            p.fecha_retorno || '',
+            p.pacientes?.nombre_completo || '',
+            p.parentesco || '',
+            p.nombre_trabajador || '',
+            p.acompanante || '',
+            p.clinica_destino?.nombre || p.unidad_se_refiere || '',
+            p.servicio_se_envia || p.motivo || '',
+            p.medio_transporte || '',
+            p.estatus || ''
+        ].map((val: any) => String(val || '').replace(/\t/g, ' ').replace(/\r?\n/g, ' ')).join('\t'))
+        
+        const tsv = [headers.join('\t'), ...tsvRows].join('\n')
+        await navigator.clipboard.writeText(tsv)
+        setCopiedExcel(true)
+        setTimeout(() => setCopiedExcel(false), 2500)
+    }
+
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-zinc-100">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-6 rounded-2xl shadow-sm border border-zinc-100 gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-zinc-800 flex items-center gap-2">
                         <Hospital className="w-6 h-6 text-amber-500" />
@@ -1331,23 +1356,38 @@ export default function PasesPage() {
                     </h1>
                     <p className="text-zinc-500 text-sm mt-1">Generación y exportación de pases de traslado y viáticos</p>
                 </div>
-                <button
-                    onClick={() => {
-                        const nextShow = !showForm
-                        setShowForm(nextShow)
-                        if (nextShow) {
-                            setEditFolioManual(false)
-                            setFormData(prev => ({
-                                ...prev,
-                                folio: prev.folio || generateNextFolio(pases)
-                            }))
-                        }
-                    }}
-                    className="bg-zinc-900 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-zinc-800 transition-colors"
-                >
-                    <Plus className="w-4 h-4" />
-                    {showForm ? 'Cancelar' : 'Generar Pase'}
-                </button>
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                    <button
+                        type="button"
+                        onClick={handleCopyPasesForExcel}
+                        className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-xs ${
+                            copiedExcel
+                                ? 'bg-green-600 text-white'
+                                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        }`}
+                        title="Copiar tabla para pegar directamente en Excel (Ctrl + V)"
+                    >
+                        {copiedExcel ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        <span>{copiedExcel ? '¡Copiado para Excel!' : 'Copiar para Excel'}</span>
+                    </button>
+                    <button
+                        onClick={() => {
+                            const nextShow = !showForm
+                            setShowForm(nextShow)
+                            if (nextShow) {
+                                setEditFolioManual(false)
+                                setFormData(prev => ({
+                                    ...prev,
+                                    folio: prev.folio || generateNextFolio(pases)
+                                }))
+                            }
+                        }}
+                        className="bg-zinc-900 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-zinc-800 transition-colors"
+                    >
+                        <Plus className="w-4 h-4" />
+                        {showForm ? 'Cancelar' : 'Generar Pase'}
+                    </button>
+                </div>
             </div>
 
             {showForm && (

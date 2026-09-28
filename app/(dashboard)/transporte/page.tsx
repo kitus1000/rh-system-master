@@ -5,11 +5,14 @@ import { supabase } from '@/utils/supabase/client'
 import { 
     Bus, Plane, Car, Plus, Calendar, Clock, MapPin, Users, ArrowRight, 
     ExternalLink, Copy, Check, FileText, Send, User, Armchair, HelpCircle, Printer,
-    Filter, Search, CheckSquare, Square, Trash2, XCircle, CheckCircle2, RotateCcw, X
+    Filter, Search, CheckSquare, Square, Trash2, XCircle, CheckCircle2, RotateCcw, X,
+    Hospital, AlertTriangle
 } from 'lucide-react'
 import Link from 'next/link'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import PasesMedicosTab from './PasesMedicosTab'
+import SobrecupoModal from './SobrecupoModal'
 
 interface Viaje {
     id_viaje: string
@@ -45,8 +48,27 @@ export default function TransporteDashboard() {
     const [loading, setLoading] = useState(true)
     const [logoBase64, setLogoBase64] = useState<string | null>(null)
     
-    // Tab switching: 'viajes' | 'solicitudes'
-    const [adminTab, setAdminTab] = useState<'viajes' | 'solicitudes'>('viajes')
+    // Tab switching: 'viajes' | 'solicitudes' | 'pases'
+    const [adminTab, setAdminTab] = useState<'viajes' | 'solicitudes' | 'pases'>('viajes')
+    const [pasesMedicos, setPasesMedicos] = useState<any[]>([])
+    const [loadingPases, setLoadingPases] = useState(false)
+
+    // Sobrecupo modal state
+    const [sobrecupoModalOpen, setSobrecupoModalOpen] = useState(false)
+    const [sobrecupoViajeOrigen, setSobrecupoViajeOrigen] = useState<Viaje | null>(null)
+    const [sobrecupoInitialSolicitudes, setSobrecupoInitialSolicitudes] = useState<Solicitud[]>([])
+
+    const handleOpenSobrecupoFromViaje = (v: Viaje) => {
+        setSobrecupoViajeOrigen(v)
+        setSobrecupoInitialSolicitudes([])
+        setSobrecupoModalOpen(true)
+    }
+
+    const handleOpenSobrecupoFromSolicitudes = (sols?: Solicitud[]) => {
+        setSobrecupoViajeOrigen(null)
+        setSobrecupoInitialSolicitudes(sols || [])
+        setSobrecupoModalOpen(true)
+    }
 
     // Link share feedback state
     const [copied, setCopied] = useState(false)
@@ -139,13 +161,42 @@ export default function TransporteDashboard() {
         }
     }
 
+    const fetchPasesMedicos = async () => {
+        setLoadingPases(true)
+        try {
+            const { data, error } = await supabase
+                .from('pases_medicos')
+                .select(`
+                    *,
+                    pacientes (nombre_completo, parentesco, es_poblacion_general, id_empleado),
+                    clinica_destino:cat_clinicas!pases_medicos_id_clinica_destino_fkey (nombre, ubicacion)
+                `)
+                .order('fecha_salida', { ascending: false })
+
+            if (error) {
+                console.warn("Fallback fetching pases medicos without foreign keys:", error)
+                const fallback = await supabase
+                    .from('pases_medicos')
+                    .select('*, pacientes(nombre_completo, parentesco, es_poblacion_general, id_empleado)')
+                    .order('fecha_salida', { ascending: false })
+                if (fallback.data) setPasesMedicos(fallback.data)
+            } else if (data) {
+                setPasesMedicos(data)
+            }
+        } catch (err) {
+            console.error("Error fetching pases medicos:", err)
+        } finally {
+            setLoadingPases(false)
+        }
+    }
+
     const loadData = async () => {
         setLoading(true)
         const fetchLogo = async () => {
             const { data } = await supabase.from('configuracion_empresa').select('logo_base64').single()
             if (data?.logo_base64) setLogoBase64(data.logo_base64)
         }
-        await Promise.all([fetchViajes(), fetchSolicitudes(), fetchEmpleados(), fetchLogo()])
+        await Promise.all([fetchViajes(), fetchSolicitudes(), fetchEmpleados(), fetchPasesMedicos(), fetchLogo()])
         setLoading(false)
     }
 
@@ -721,7 +772,14 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                     </h1>
                     <p className="text-zinc-500 mt-1 font-medium font-mono text-xs">SISTEMA INTEGRAL DE RUTAS Y AUTO-SERVICIO / BACIS</p>
                 </div>
-                <div className="flex gap-2.5">
+                <div className="flex flex-wrap gap-2.5">
+                    <button 
+                        onClick={() => handleOpenSobrecupoFromSolicitudes()}
+                        className="bg-amber-500 hover:bg-amber-600 text-black font-black px-4 py-2.5 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 text-sm"
+                        title="Gestionar personal rezagado o que no alcanzó camión"
+                    >
+                        <Send className="w-4 h-4" /> Notificar Sobrecupo
+                    </button>
                     <Link
                         href="/transporte/calendario"
                         className="bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 text-sm"
@@ -776,10 +834,10 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
             </div>
 
             {/* Tab Navigation */}
-            <div className="flex border-b border-zinc-200 gap-4">
+            <div className="flex border-b border-zinc-200 gap-4 overflow-x-auto">
                 <button
                     onClick={() => setAdminTab('viajes')}
-                    className={`py-2 px-4 text-sm font-black border-b-2 transition-all uppercase tracking-wider
+                    className={`py-2 px-4 text-sm font-black border-b-2 transition-all uppercase tracking-wider whitespace-nowrap
                         ${adminTab === 'viajes'
                             ? 'border-indigo-600 text-indigo-600'
                             : 'border-transparent text-zinc-500 hover:text-black'}`}
@@ -788,12 +846,22 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                 </button>
                 <button
                     onClick={() => setAdminTab('solicitudes')}
-                    className={`py-2 px-4 text-sm font-black border-b-2 transition-all uppercase tracking-wider
+                    className={`py-2 px-4 text-sm font-black border-b-2 transition-all uppercase tracking-wider whitespace-nowrap
                         ${adminTab === 'solicitudes'
                             ? 'border-indigo-600 text-indigo-600'
                             : 'border-transparent text-zinc-500 hover:text-black'}`}
                 >
                     Solicitudes de Personal ({solicitudes.length})
+                </button>
+                <button
+                    onClick={() => setAdminTab('pases')}
+                    className={`py-2 px-4 text-sm font-black border-b-2 transition-all uppercase tracking-wider whitespace-nowrap flex items-center gap-2
+                        ${adminTab === 'pases'
+                            ? 'border-emerald-600 text-emerald-600'
+                            : 'border-transparent text-zinc-500 hover:text-black'}`}
+                >
+                    <Hospital className="w-4 h-4 text-emerald-600" />
+                    <span>Pases Médicos ({pasesMedicos.length})</span>
                 </button>
             </div>
 
@@ -1107,6 +1175,16 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                                                     >
                                                         <Trash2 className="w-3.5 h-3.5" />
                                                     </button>
+                                                    {v.tipo_vehiculo === 'Autobús' && (
+                                                        <button 
+                                                            onClick={() => handleOpenSobrecupoFromViaje(v)}
+                                                            className="w-full mt-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 font-bold px-3 py-1.5 rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+                                                            title="Gestionar personal en espera o que no alcanzó lugar en este autobús"
+                                                        >
+                                                            <Send className="w-3.5 h-3.5 text-amber-700" />
+                                                            <span>Reasignar Sobrecupo (Camioneta / Combi)</span>
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
                                         )
@@ -1145,20 +1223,31 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                                             <span>Filtros y Agrupación de Solicitudes</span>
                                         </div>
 
-                                        {(solicitudesSearch || solicitudesTipoFilter !== 'TODOS' || solicitudesEstatusFilter !== 'TODOS' || viajesDateStart || viajesDateEnd) && (
-                                            <button 
-                                                onClick={() => {
-                                                    setSolicitudesSearch('')
-                                                    setSolicitudesTipoFilter('TODOS')
-                                                    setSolicitudesEstatusFilter('TODOS')
-                                                    setViajesDateStart('')
-                                                    setViajesDateEnd('')
-                                                }}
-                                                className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleOpenSobrecupoFromSolicitudes()}
+                                                className="bg-amber-500 hover:bg-amber-600 text-black px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-2xs"
+                                                title="Gestionar a trabajadores que no alcanzaron lugar en autobús"
                                             >
-                                                <X className="w-3.5 h-3.5" /> Limpiar Filtros
+                                                <Send className="w-3.5 h-3.5" />
+                                                <span>Avisar a Rezagados / Sobrecupo</span>
                                             </button>
-                                        )}
+                                            {(solicitudesSearch || solicitudesTipoFilter !== 'TODOS' || solicitudesEstatusFilter !== 'TODOS' || viajesDateStart || viajesDateEnd) && (
+                                                <button 
+                                                    onClick={() => {
+                                                        setSolicitudesSearch('')
+                                                        setSolicitudesTipoFilter('TODOS')
+                                                        setSolicitudesEstatusFilter('TODOS')
+                                                        setViajesDateStart('')
+                                                        setViajesDateEnd('')
+                                                    }}
+                                                    className="bg-zinc-100 hover:bg-zinc-200 text-zinc-600 px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                                                >
+                                                    <X className="w-3.5 h-3.5" /> Limpiar Filtros
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -1235,6 +1324,17 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                                         </span>
 
                                         <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    const selected = solicitudes.filter(s => selectedSolicitudIds.includes(s.id_solicitud))
+                                                    handleOpenSobrecupoFromSolicitudes(selected)
+                                                }}
+                                                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md transition-all transform hover:scale-105"
+                                                title="Avisar por sobrecupo y reasignar a Camioneta o Combi"
+                                            >
+                                                <Send className="w-4 h-4 text-amber-300" />
+                                                <span>Avisar Sobrecupo ({selectedSolicitudIds.length})</span>
+                                            </button>
                                             <button
                                                 onClick={handleBulkCancelSolicitudes}
                                                 className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md transition-all transform hover:scale-105"
@@ -1403,6 +1503,16 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                             </div>
                         )
                     })()}
+
+                    {/* TAB PASES MÉDICOS */}
+                    {adminTab === 'pases' && (
+                        <PasesMedicosTab
+                            pases={pasesMedicos}
+                            empleados={empleados}
+                            loading={loadingPases}
+                            onRefresh={fetchPasesMedicos}
+                        />
+                    )}
                 </>
             )}
 
@@ -1592,6 +1702,23 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                     </div>
                 </div>
             )}
+
+            {/* Modal de Sobrecupo y Notificación Global */}
+            <SobrecupoModal
+                isOpen={sobrecupoModalOpen}
+                onClose={() => {
+                    setSobrecupoModalOpen(false)
+                    setSobrecupoViajeOrigen(null)
+                    setSobrecupoInitialSolicitudes([])
+                }}
+                viajeOrigen={sobrecupoViajeOrigen}
+                allSolicitudes={solicitudes}
+                initialSelectedSolicitudes={sobrecupoInitialSolicitudes}
+                onSuccess={() => {
+                    fetchViajes()
+                    fetchSolicitudes()
+                }}
+            />
         </div>
     )
 }
