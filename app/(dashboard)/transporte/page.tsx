@@ -1712,6 +1712,7 @@ Te recordamos amablemente que por tu seguridad, los únicos vehículos autorizad
                     setSobrecupoInitialSolicitudes([])
                 }}
                 viajeOrigen={sobrecupoViajeOrigen}
+                allViajes={viajes}
                 allSolicitudes={solicitudes}
                 initialSelectedSolicitudes={sobrecupoInitialSolicitudes}
                 onSuccess={() => {
