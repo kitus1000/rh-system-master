@@ -7,7 +7,7 @@ import { supabase } from '@/utils/supabase/client'
 import { 
   Printer, ArrowLeft, RefreshCw, Scissors, Layers, Tag, 
   Building2, CheckCircle2, AlertTriangle, QrCode, FileText, 
-  FolderLock, Smartphone, ChevronRight
+  FolderLock, Smartphone, ChevronRight, Globe, ExternalLink
 } from 'lucide-react'
 
 interface Empleado {
@@ -53,12 +53,23 @@ export default function TirasPlanogramaPage() {
   const [modulos, setModulos] = useState<LockerModulo[]>([])
   const [qrCodes, setQrCodes] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
+  const [baseUrl, setBaseUrl] = useState('https://rh-system-master.vercel.app')
 
   // Tipo de Tira: 'PLANOGRAMA' (Tira de módulos continua) | 'CHICAS_CASILLERO' (Etiquetas chicas de puerta)
   const [tipoTira, setTipoTira] = useState<'PLANOGRAMA' | 'CHICAS_CASILLERO'>('PLANOGRAMA')
   const [filtroBateria, setFiltroBateria] = useState('TODAS')
   const [filtroEstatus, setFiltroEstatus] = useState('TODOS')
   const [modoPreCenso, setModoPreCenso] = useState(false)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin
+      if (origin && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+        setBaseUrl(origin)
+      }
+    }
+    cargarDatos()
+  }, [])
 
   // Cargar datos
   const cargarDatos = async () => {
@@ -80,12 +91,6 @@ export default function TirasPlanogramaPage() {
 
       if (modData) {
         setModulos(modData)
-        // Generar QRs para cada casillero
-        const allCas: LockerCasillero[] = []
-        modData.forEach(m => {
-          if (m.lockers_casilleros) allCas.push(...m.lockers_casilleros)
-        })
-        generarQRs(allCas)
       }
     } catch (err) {
       console.error('Error cargando módulos:', err)
@@ -94,26 +99,34 @@ export default function TirasPlanogramaPage() {
     }
   }
 
-  const generarQRs = async (lista: LockerCasillero[]) => {
-    const map: Record<string, string> = {}
-    for (const c of lista) {
-      try {
-        const url = await QRCode.toDataURL(c.codigo_casillero, {
-          width: 90,
-          margin: 0,
-          color: { dark: '#000000', light: '#ffffff' }
-        })
-        map[c.codigo_casillero] = url
-      } catch (e) {
-        console.error('Error QR', e)
-      }
-    }
-    setQrCodes(map)
-  }
-
+  // Generar QRs apuntando a /registro-locker?locker=...
   useEffect(() => {
-    cargarDatos()
-  }, [])
+    if (modulos.length === 0) return
+    const allCas: LockerCasillero[] = []
+    modulos.forEach(m => {
+      if (m.lockers_casilleros) allCas.push(...m.lockers_casilleros)
+    })
+
+    const generarQRs = async () => {
+      const map: Record<string, string> = {}
+      const cleanBase = baseUrl.replace(/\/+$/, '')
+      for (const c of allCas) {
+        try {
+          const qrTargetUrl = `${cleanBase}/registro-locker?locker=${encodeURIComponent(c.codigo_casillero)}`
+          const url = await QRCode.toDataURL(qrTargetUrl, {
+            width: 110,
+            margin: 0,
+            color: { dark: '#000000', light: '#ffffff' }
+          })
+          map[c.codigo_casillero] = url
+        } catch (e) {
+          console.error('Error QR', e)
+        }
+      }
+      setQrCodes(map)
+    }
+    generarQRs()
+  }, [modulos, baseUrl])
 
   // Modulos filtrados
   const modulosFiltrados = useMemo(() => {
@@ -167,10 +180,10 @@ export default function TirasPlanogramaPage() {
             <div>
               <h1 className="text-xl font-black text-zinc-900 dark:text-white flex items-center gap-2">
                 <Tag className="w-5 h-5 text-amber-500" />
-                Impresión de Tiras de Planograma y Etiquetas de Casillero
+                Impresión de Tiras de Planograma y Etiquetas con QR
               </h1>
               <p className="text-xs text-zinc-500">
-                Elige entre tiras horizontales para el copete/pared o tiras chicas para la puerta de cada casillero.
+                Cada etiqueta QR dirige al trabajador a la página de autorregistro y resguardo de su casillero.
               </p>
             </div>
           </div>
@@ -184,8 +197,33 @@ export default function TirasPlanogramaPage() {
           </button>
         </div>
 
+        {/* Configuración del Enlace QR */}
+        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 flex-1">
+            <Globe className="w-4 h-4 text-amber-500 shrink-0" />
+            <span className="font-bold text-zinc-700 dark:text-zinc-300 shrink-0">
+              Dominio Web para los QRs:
+            </span>
+            <input
+              type="text"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              className="flex-1 px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-800 border border-amber-500/40 font-mono text-xs text-zinc-900 dark:text-white"
+              placeholder="https://rh-system-master.vercel.app"
+            />
+          </div>
+          <Link
+            href="/registro-locker?locker=PB-M01-A"
+            target="_blank"
+            className="px-3 py-1.5 rounded-lg bg-zinc-900 text-amber-400 hover:bg-zinc-800 font-bold text-xs flex items-center gap-1.5 shrink-0"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            <span>Probar Formulario QR (PB-M01-A)</span>
+          </Link>
+        </div>
+
         {/* Selector de Tipo de Formato */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-slate-100 dark:border-zinc-800">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-zinc-800">
           <button
             type="button"
             onClick={() => setTipoTira('PLANOGRAMA')}
@@ -215,9 +253,9 @@ export default function TirasPlanogramaPage() {
           >
             <Tag className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
             <div>
-              <p className="font-bold text-xs uppercase tracking-wider">2. Tiras Chicas de Puerta (Etiquetas)</p>
+              <p className="font-bold text-xs uppercase tracking-wider">2. Tiras Chicas de Puerta con QR (Etiquetas)</p>
               <p className="text-[11px] opacity-80 mt-0.5">
-                Etiquetas rectangulares compactas con número de casillero, nombre, puesto, ubicación y QR mini para pegar en la puerta o ranura portaetiquetas.
+                Etiquetas rectangulares compactas con número de casillero, nombre, puesto, ubicación y QR interactivo para pegar en la puerta.
               </p>
             </div>
           </button>
@@ -405,7 +443,7 @@ export default function TirasPlanogramaPage() {
               return (
                 <div
                   key={casillero.id_casillero}
-                  className="etiqueta-chica bg-white text-zinc-900 border-2 border-zinc-900 rounded-lg p-2.5 flex items-center justify-between gap-2 shadow-sm print:shadow-none min-h-[92px] max-h-[110px]"
+                  className="etiqueta-chica bg-white text-zinc-900 border-2 border-zinc-900 rounded-lg p-2.5 flex items-center justify-between gap-2 shadow-sm print:shadow-none min-h-[96px] max-h-[115px]"
                   style={{ pageBreakInside: 'avoid' }}
                 >
                   {/* Datos del Casillero y Trabajador */}
@@ -442,24 +480,29 @@ export default function TirasPlanogramaPage() {
                             {casillero.nombre_provisional}
                           </p>
                           <p className="text-[9px] text-amber-600 font-bold">
-                            (Provisional #{casillero.numero_empleado_provisional || 'N/A'})
+                            (Ficha #{casillero.numero_empleado_provisional || 'N/A'})
                           </p>
                         </div>
                       ) : (
                         <p className="font-bold text-emerald-700 text-[10px]">
-                          🟢 DISPONIBLE / LIBRE
+                          🟢 ESCANEA EL QR PARA REGISTRAR
                         </p>
                       )}
                     </div>
                   </div>
 
                   {/* QR Mini a la derecha */}
-                  <div className="w-16 h-16 shrink-0 border border-zinc-900 rounded p-0.5 bg-white flex items-center justify-center">
-                    {qr ? (
-                      <img src={qr} alt="QR" className="w-full h-full object-contain" />
-                    ) : (
-                      <QrCode className="w-6 h-6 text-zinc-400" />
-                    )}
+                  <div className="w-[70px] shrink-0 flex flex-col items-center">
+                    <div className="w-16 h-16 border border-zinc-900 rounded p-0.5 bg-white flex items-center justify-center">
+                      {qr ? (
+                        <img src={qr} alt="QR" className="w-full h-full object-contain" />
+                      ) : (
+                        <QrCode className="w-6 h-6 text-zinc-400" />
+                      )}
+                    </div>
+                    <span className="text-[6.5px] font-black uppercase text-zinc-700 mt-0.5 leading-none text-center">
+                      ESCANEA QR RH
+                    </span>
                   </div>
                 </div>
               )

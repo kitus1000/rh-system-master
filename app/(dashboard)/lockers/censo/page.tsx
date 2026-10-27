@@ -2,7 +2,13 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
+import jsQR from 'jsqr'
 import { supabase } from '@/utils/supabase/client'
+import {
+  parseLockerObservaciones,
+  serializeLockerObservaciones,
+  generarFolioResguardo
+} from '@/utils/lockerMeta'
 import { 
   FolderLock, ChevronLeft, ChevronRight, Search, CheckCircle2, 
   AlertTriangle, XCircle, Key, Lock, Wrench, UserPlus, Save, 
@@ -64,6 +70,7 @@ export default function CensoMovilPage() {
   const [nombreProvisional, setNombreProvisional] = useState('')
   const [numEmpleadoProvisional, setNumEmpleadoProvisional] = useState('')
   const [condicionLlave, setCondicionLlave] = useState('Tiene Llave')
+  const [dejaLlaveRh, setDejaLlaveRh] = useState<'Si' | 'No' | 'Ya Entregada'>('Si')
   const [numeroLlave, setNumeroLlave] = useState('')
   const [descripcionDano, setDescripcionDano] = useState('')
   const [observaciones, setObservaciones] = useState('')
@@ -72,10 +79,11 @@ export default function CensoMovilPage() {
   const [searchEmp, setSearchEmp] = useState('')
   const [soloBeneficio, setSoloBeneficio] = useState(false)
 
-  // Escáner de Cámara QR
+  // Escáner de Cámara QR Universal (jsQR)
   const [showScanner, setShowScanner] = useState(false)
   const [cameraError, setCameraError] = useState('')
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const qrCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const scanLoopRef = useRef<number | null>(null)
 
@@ -83,7 +91,6 @@ export default function CensoMovilPage() {
   const cargarDatos = async () => {
     setLoading(true)
     try {
-      // 1. Empleados
       const { data: empData } = await supabase
         .from('empleados')
         .select('id_empleado, nombre, apellido_paterno, apellido_materno, numero_empleado, departamento, puesto')
@@ -91,8 +98,7 @@ export default function CensoMovilPage() {
 
       if (empData) setEmpleados(empData)
 
-      // 2. Casilleros ordenados por código
-      const { data: casData, error: casErr } = await supabase
+      const { data: casData } = await supabase
         .from('lockers_casilleros')
         .select(`
           *,
@@ -115,6 +121,7 @@ export default function CensoMovilPage() {
 
   useEffect(() => {
     cargarDatos()
+    return () => detenerCamara()
   }, [])
 
   // Sincronizar formulario al cambiar de casillero
@@ -127,7 +134,13 @@ export default function CensoMovilPage() {
     setCondicionLlave(c.condicion_llave || 'Tiene Llave')
     setNumeroLlave(c.numero_llave || '')
     setDescripcionDano(c.descripcion_dano || '')
-    setObservaciones(c.observaciones || '')
+
+    const { notasLimpias, meta } = parseLockerObservaciones(c.observaciones)
+    setObservaciones(notasLimpias)
+    if (meta.deja_llave_rh === 'No') setDejaLlaveRh('No')
+    else if (meta.deja_llave_rh === 'Ya Entregada' || c.condicion_llave === 'Copia en RH') setDejaLlaveRh('Ya Entregada')
+    else setDejaLlaveRh('Si')
+
     setSearchEmp('')
   }
 
@@ -166,6 +179,18 @@ export default function CensoMovilPage() {
         finalNumProv = null
       }
 
+      const prevParsed = parseLockerObservaciones(currentCasillero.observaciones)
+      const obsSerializada =
+        finalEstatus === 'Disponible'
+          ? observaciones.trim() || null
+          : serializeLockerObservaciones(observaciones, {
+              ...prevParsed.meta,
+              deja_llave_rh: dejaLlaveRh,
+              estatus_resguardo: prevParsed.meta.estatus_resguardo === 'Firmado' ? 'Firmado' : 'Pendiente Firma en RH',
+              folio_resguardo: prevParsed.meta.folio_resguardo || generarFolioResguardo(currentCasillero.codigo_casillero),
+              origen_registro: 'Censo Movil'
+            })
+
       const payload = {
         estatus: finalEstatus,
         id_empleado: finalIdEmp,
@@ -174,7 +199,7 @@ export default function CensoMovilPage() {
         condicion_llave: condicionLlave,
         numero_llave: numeroLlave.trim() || null,
         descripcion_dano: (finalEstatus === 'En Reparacion' || finalEstatus === 'Inservible') ? descripcionDano : null,
-        observaciones: observaciones.trim() || null,
+        observaciones: obsSerializada,
         fecha_asignacion: (finalIdEmp || finalNomProv) ? (currentCasillero.fecha_asignacion || new Date().toISOString()) : null,
         fecha_reporte_dano: (finalEstatus === 'En Reparacion' || finalEstatus === 'Inservible') ? (currentCasillero.fecha_reporte_dano || new Date().toISOString()) : null,
         actualizado_el: new Date().toISOString()
@@ -187,7 +212,6 @@ export default function CensoMovilPage() {
 
       if (error) throw error
 
-      // Actualizar en el estado local
       const updatedList = [...casilleros]
       updatedList[currentIndex] = {
         ...currentCasillero,
@@ -198,7 +222,6 @@ export default function CensoMovilPage() {
 
       mostrarToast(`✅ ${currentCasillero.codigo_casillero} guardado`)
 
-      // Auto-avanzar al siguiente casillero si está activado
       if (autoAvanzar && currentIndex < casilleros.length - 1) {
         handleIrACasillero(currentIndex + 1)
       }
@@ -237,7 +260,7 @@ export default function CensoMovilPage() {
     return { total, mapeados, pct }
   }, [casilleros])
 
-  // Escáner QR de Cámara
+  // Escáner QR de Cámara con jsQR (Compatible 100% iOS Safari y Android)
   const iniciarCamara = async () => {
     setShowScanner(true)
     setCameraError('')
@@ -253,7 +276,7 @@ export default function CensoMovilPage() {
         await videoRef.current.play()
         bucleEscaneo()
       }
-    } catch (err) {
+    } catch {
       setCameraError('No se pudo acceder a la cámara. Revisa los permisos.')
     }
   }
@@ -268,15 +291,27 @@ export default function CensoMovilPage() {
   }
 
   const bucleEscaneo = () => {
-    if (!videoRef.current || !streamRef.current) return
+    const video = videoRef.current
+    if (!video || !streamRef.current) return
 
-    if ('BarcodeDetector' in window) {
-      const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] })
-      detector.detect(videoRef.current).then((barcodes: any[]) => {
-        if (barcodes.length > 0) {
-          const raw = barcodes[0].rawValue.trim()
-          // Buscar casillero por código
-          const foundIdx = casilleros.findIndex(c => c.codigo_casillero.toLowerCase() === raw.toLowerCase() || raw.includes(c.codigo_casillero))
+    if (video.readyState === video.HAVE_ENOUGH_DATA && qrCanvasRef.current) {
+      const canvas = qrCanvasRef.current
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+        const qr = jsQR(imgData.data, imgData.width, imgData.height, {
+          inversionAttempts: 'attemptBoth'
+        })
+        if (qr && qr.data) {
+          const raw = qr.data.trim()
+          const foundIdx = casilleros.findIndex(
+            c =>
+              c.codigo_casillero.toLowerCase() === raw.toLowerCase() ||
+              raw.toUpperCase().includes(c.codigo_casillero.toUpperCase())
+          )
           if (foundIdx !== -1) {
             detenerCamara()
             handleIrACasillero(foundIdx)
@@ -284,14 +319,10 @@ export default function CensoMovilPage() {
             return
           }
         }
-        scanLoopRef.current = requestAnimationFrame(bucleEscaneo)
-      }).catch(() => {
-        scanLoopRef.current = requestAnimationFrame(bucleEscaneo)
-      })
-    } else {
-      // Fallback
-      scanLoopRef.current = requestAnimationFrame(bucleEscaneo)
+      }
     }
+
+    scanLoopRef.current = requestAnimationFrame(bucleEscaneo)
   }
 
   if (loading) {
@@ -323,6 +354,8 @@ export default function CensoMovilPage() {
 
   return (
     <div className="max-w-md mx-auto pb-28 pt-2 px-3 select-none text-zinc-900 dark:text-zinc-100">
+      <canvas ref={qrCanvasRef} className="hidden" />
+
       {/* Toast Flotante */}
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-zinc-900 text-amber-400 border border-amber-500/50 px-4 py-2 rounded-full font-bold text-xs shadow-2xl animate-in fade-in slide-in-from-top-2">
@@ -427,7 +460,7 @@ export default function CensoMovilPage() {
 
       {/* Formulario de Captura Rápida */}
       <div className="space-y-4">
-        {/* 1. Selector de Estado (Botones Grandes de 1 Tap) */}
+        {/* 1. Selector de Estado */}
         <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-sm space-y-2">
           <label className="text-xs font-black uppercase tracking-wider text-zinc-500 block">
             1. Estado del Casillero
@@ -435,9 +468,7 @@ export default function CensoMovilPage() {
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => {
-                setEstatus('Asignado')
-              }}
+              onClick={() => setEstatus('Asignado')}
               className={`p-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border transition-all active:scale-95 ${
                 estatus === 'Asignado'
                   ? 'bg-sky-500 text-white border-sky-600 shadow-md shadow-sky-500/20'
@@ -543,7 +574,6 @@ export default function CensoMovilPage() {
               </button>
             </div>
 
-            {/* Trabajador ya asignado */}
             {selectedEmpleado && !esNuevoTrabajador && (
               <div className="p-3 bg-sky-500/10 border border-sky-500/30 rounded-xl flex items-center justify-between">
                 <div>
@@ -565,7 +595,6 @@ export default function CensoMovilPage() {
               </div>
             )}
 
-            {/* Búsqueda en catálogo */}
             {!esNuevoTrabajador && !selectedEmpleado && (
               <div className="space-y-2">
                 <div className="relative">
@@ -591,7 +620,6 @@ export default function CensoMovilPage() {
                   </label>
                 </div>
 
-                {/* Lista de sugerencias */}
                 {empleadosSugeridos.length > 0 && (
                   <div className="max-h-44 overflow-y-auto space-y-1 divide-y divide-slate-100 dark:divide-zinc-800 bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-1 border border-slate-200 dark:border-zinc-700">
                     {empleadosSugeridos.map(emp => (
@@ -621,7 +649,6 @@ export default function CensoMovilPage() {
               </div>
             )}
 
-            {/* Alta Rápida de Nuevo Trabajador */}
             {esNuevoTrabajador && (
               <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2">
                 <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
@@ -649,17 +676,17 @@ export default function CensoMovilPage() {
           </div>
         )}
 
-        {/* 4. Condición de Llave */}
+        {/* 4. Condición de Llave y Copia en RH */}
         <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-sm space-y-2.5">
           <label className="text-xs font-black uppercase tracking-wider text-zinc-500 block">
-            3. Condición de Llave / Candado
+            3. Condición de Llave y Copia en RH
           </label>
           <div className="grid grid-cols-2 gap-2">
             {[
-              { id: 'Tiene Llave', label: '🔑 Tiene Llave', color: 'emerald' },
-              { id: 'Candado Personal', label: '🔒 Candado Propio', color: 'sky' },
-              { id: 'Sin Llave', label: '⚠️ Sin Llave / Falta', color: 'orange' },
-              { id: 'Copia en RH', label: '🏛️ Copia en RH', color: 'purple' }
+              { id: 'Tiene Llave', label: '🔑 Tiene Llave' },
+              { id: 'Candado Personal', label: '🔒 Candado Propio' },
+              { id: 'Sin Llave', label: '⚠️ Sin Llave / Falta' },
+              { id: 'Copia en RH', label: '🏛️ Copia en RH' }
             ].map(item => (
               <button
                 key={item.id}
@@ -676,6 +703,32 @@ export default function CensoMovilPage() {
             ))}
           </div>
 
+          <div className="pt-1">
+            <span className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">
+              ¿Deja copia de llave en Recursos Humanos?
+            </span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {[
+                { id: 'Si', label: '✅ Sí deja' },
+                { id: 'No', label: '❌ No deja' },
+                { id: 'Ya Entregada', label: '🏛️ Entregada' }
+              ].map(opt => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setDejaLlaveRh(opt.id as any)}
+                  className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border ${
+                    dejaLlaveRh === opt.id
+                      ? 'bg-amber-500 text-zinc-950 border-amber-600 font-black'
+                      : 'bg-slate-50 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700 text-zinc-500'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <input
             type="text"
             placeholder="Número de llave o código grabado (opcional)"
@@ -686,7 +739,7 @@ export default function CensoMovilPage() {
         </div>
       </div>
 
-      {/* Barra Inferior Fija de Acción (Apta para Pulgar) */}
+      {/* Barra Inferior Fija de Acción */}
       <div className="fixed bottom-0 left-0 right-0 p-3 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border-t border-slate-200 dark:border-zinc-800 shadow-2xl z-40">
         <div className="max-w-md mx-auto flex items-center gap-2">
           <label className="flex items-center gap-1.5 text-[11px] font-bold text-zinc-500 select-none cursor-pointer">
@@ -740,7 +793,7 @@ export default function CensoMovilPage() {
           )}
 
           <div className="w-full pb-6 text-center text-xs text-zinc-400">
-            Apunta la cámara a la ficha pegada en el casillero
+            Apunta la cámara a la ficha o etiqueta pegada en el casillero
           </div>
         </div>
       )}

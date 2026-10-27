@@ -4,10 +4,11 @@ import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import QRCode from 'qrcode'
 import { supabase } from '@/utils/supabase/client'
+import { parseLockerObservaciones } from '@/utils/lockerMeta'
 import { 
   Printer, ArrowLeft, RefreshCw, Filter, Scissors, QrCode, 
   Building2, Key, CheckCircle2, AlertTriangle, ShieldCheck, 
-  FolderLock, UserCheck, Layers, FileText
+  FolderLock, UserCheck, Layers, FileText, ExternalLink, Globe
 } from 'lucide-react'
 
 interface Empleado {
@@ -44,17 +45,28 @@ export default function FichasImprimiblesPage() {
   const [casilleros, setCasilleros] = useState<LockerCasillero[]>([])
   const [qrCodes, setQrCodes] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
+  const [baseUrl, setBaseUrl] = useState('https://rh-system-master.vercel.app')
 
   // Filtros
   const [filtroBateria, setFiltroBateria] = useState('TODAS')
   const [filtroEstatus, setFiltroEstatus] = useState('TODOS')
-  const [modoPreCenso, setModoPreCenso] = useState(false) // Deja líneas en blanco para rellenar a mano si se desea
+  const [modoPreCenso, setModoPreCenso] = useState(false)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin
+      if (origin && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+        setBaseUrl(origin)
+      }
+    }
+    cargarCasilleros()
+  }, [])
 
   // Cargar datos
   const cargarCasilleros = async () => {
     setLoading(true)
     try {
-      const { data: modData, error } = await supabase
+      const { data: modData } = await supabase
         .from('lockers_modulos')
         .select(`
           id_modulo, codigo_modulo, bateria, tipo_modulo,
@@ -83,7 +95,6 @@ export default function FichasImprimiblesPage() {
           }
         }
         setCasilleros(flat)
-        generarQRs(flat)
       }
     } catch (err) {
       console.error('Error cargando fichas:', err)
@@ -92,31 +103,32 @@ export default function FichasImprimiblesPage() {
     }
   }
 
-  // Generar QRs para cada casillero
-  const generarQRs = async (lista: LockerCasillero[]) => {
-    const map: Record<string, string> = {}
-    for (const c of lista) {
-      try {
-        // Generamos un QR que contiene el código único del casillero
-        const dataUrl = await QRCode.toDataURL(c.codigo_casillero, {
-          width: 140,
-          margin: 1,
-          color: {
-            dark: '#000000',
-            light: '#ffffff'
-          }
-        })
-        map[c.codigo_casillero] = dataUrl
-      } catch (e) {
-        console.error('Error QR', e)
-      }
-    }
-    setQrCodes(map)
-  }
-
+  // Generar QRs con la URL directa al formulario de autorregistro y resguardo
   useEffect(() => {
-    cargarCasilleros()
-  }, [])
+    if (casilleros.length === 0) return
+    const generarQRs = async () => {
+      const map: Record<string, string> = {}
+      const cleanBase = baseUrl.replace(/\/+$/, '')
+      for (const c of casilleros) {
+        try {
+          const qrTargetUrl = `${cleanBase}/registro-locker?locker=${encodeURIComponent(c.codigo_casillero)}`
+          const dataUrl = await QRCode.toDataURL(qrTargetUrl, {
+            width: 150,
+            margin: 1,
+            color: {
+              dark: '#000000',
+              light: '#ffffff'
+            }
+          })
+          map[c.codigo_casillero] = dataUrl
+        } catch (e) {
+          console.error('Error QR', e)
+        }
+      }
+      setQrCodes(map)
+    }
+    generarQRs()
+  }, [casilleros, baseUrl])
 
   // Filtrado de fichas
   const casillerosFiltrados = useMemo(() => {
@@ -159,10 +171,10 @@ export default function FichasImprimiblesPage() {
             <div>
               <h1 className="text-xl font-black text-zinc-900 dark:text-white flex items-center gap-2">
                 <Printer className="w-5 h-5 text-amber-500" />
-                Impresión de Fichas de Lockers (Media Carta)
+                Impresión de Fichas de Lockers (Media Carta con QR Interactivo)
               </h1>
               <p className="text-xs text-zinc-500">
-                Formato optimizado para 2 fichas por hoja tamaño carta con guía de corte.
+                Cada código QR lleva directamente al formulario de autorregistro y resguardo de ese casillero en RH System.
               </p>
             </div>
           </div>
@@ -178,8 +190,33 @@ export default function FichasImprimiblesPage() {
           </div>
         </div>
 
+        {/* Configuración del Enlace QR */}
+        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 flex-1">
+            <Globe className="w-4 h-4 text-amber-500 shrink-0" />
+            <span className="font-bold text-zinc-700 dark:text-zinc-300 shrink-0">
+              Dominio Web para los QRs:
+            </span>
+            <input
+              type="text"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              className="flex-1 px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-800 border border-amber-500/40 font-mono text-xs text-zinc-900 dark:text-white"
+              placeholder="https://rh-system-master.vercel.app"
+            />
+          </div>
+          <Link
+            href="/registro-locker?locker=PB-M01-A"
+            target="_blank"
+            className="px-3 py-1.5 rounded-lg bg-zinc-900 text-amber-400 hover:bg-zinc-800 font-bold text-xs flex items-center gap-1.5 shrink-0"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            <span>Probar Formulario QR (PB-M01-A)</span>
+          </Link>
+        </div>
+
         {/* Filtros de Impresión */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-100 dark:border-zinc-800 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 dark:border-zinc-800 text-xs">
           <div>
             <label className="font-bold text-zinc-500 block mb-1">Filtrar por Batería:</label>
             <select
@@ -319,6 +356,7 @@ function TarjetaFicha({
 }) {
   const emp = casillero.empleados
   const esGrande = casillero.posicion_nivel.includes('Grande') || casillero.tipo_modulo === '2_niveles'
+  const { meta } = parseLockerObservaciones(casillero.observaciones)
 
   return (
     <div className="h-full flex flex-col justify-between text-zinc-900">
@@ -387,13 +425,13 @@ function TarjetaFicha({
                   {casillero.nombre_provisional}
                 </p>
                 <p className="text-xs font-bold text-amber-700">
-                  (Nuevo Ingreso · Folio: #{casillero.numero_empleado_provisional || 'N/A'})
+                  (Ficha: #{casillero.numero_empleado_provisional || 'N/A'} · {meta.puesto_provisional || 'Planta de Beneficio'})
                 </p>
               </div>
             ) : (
               <div className="mt-1">
                 <p className="text-sm font-black text-emerald-700">
-                  🟢 CASILLERO DISPONIBLE / LIBRE
+                  🟢 CASILLERO DISPONIBLE · ESCANEA EL QR PARA REGISTRARTE
                 </p>
                 <div className="border-b border-dotted border-zinc-300 mt-1 h-4" />
               </div>
@@ -401,7 +439,7 @@ function TarjetaFicha({
           </div>
         </div>
 
-        {/* QR Escaneable para Auditoría Móvil */}
+        {/* QR Escaneable para Autorregistro y Resguardo */}
         <div className="col-span-4 flex flex-col items-center justify-center p-2 border-2 border-zinc-900 rounded-xl bg-zinc-50 text-center">
           {qrUrl ? (
             <img
@@ -414,8 +452,8 @@ function TarjetaFicha({
               <QrCode className="w-8 h-8 text-zinc-400" />
             </div>
           )}
-          <span className="text-[9px] font-black uppercase text-zinc-700 tracking-tight mt-1">
-            Escaneo Móvil RH
+          <span className="text-[8.5px] font-black uppercase text-zinc-900 tracking-tight mt-1 leading-tight">
+            Escanea para Registro y Resguardo en RH
           </span>
         </div>
       </div>
@@ -434,7 +472,7 @@ function TarjetaFicha({
               [{casillero.condicion_llave === 'Candado Personal' ? 'X' : ' '}] Candado Propio
             </span>
             <span className="px-1.5 py-0.5 border border-zinc-400 rounded">
-              [{casillero.condicion_llave === 'Copia en RH' ? 'X' : ' '}] Copia en RH
+              [{casillero.condicion_llave === 'Copia en RH' || meta.deja_llave_rh === 'Si' || meta.deja_llave_rh === 'Ya Entregada' ? 'X' : ' '}] Deja Copia en RH
             </span>
           </div>
           {casillero.numero_llave && (
@@ -450,7 +488,7 @@ function TarjetaFicha({
             Firma de Resguardo / Conformidad del Titular
           </span>
           <p className="text-[8px] text-zinc-500 leading-none mt-0.5">
-            El trabajador es responsable de la integridad y limpieza de este casillero.
+            El trabajador debe acudir a RH a firmar su resguardo oficial.
           </p>
         </div>
       </div>
