@@ -9,6 +9,7 @@ import {
   parseLockerObservaciones,
   serializeLockerObservaciones,
   generarFolioResguardo,
+  getAreaTheme,
   type LockerExtendedMeta
 } from '@/utils/lockerMeta'
 import {
@@ -58,6 +59,7 @@ interface LockerCasillero {
 function RegistroLockerContent() {
   const searchParams = useSearchParams()
   const lockerParam = searchParams.get('locker') || searchParams.get('codigo') || ''
+  const areaParam = searchParams.get('area') || ''
 
   const [casilleros, setCasilleros] = useState<LockerCasillero[]>([])
   const [empleados, setEmpleados] = useState<Empleado[]>([])
@@ -69,6 +71,7 @@ function RegistroLockerContent() {
   // Vista: 'selector' | 'form' | 'already_assigned' | 'success_notice'
   const [viewMode, setViewMode] = useState<'selector' | 'form' | 'already_assigned' | 'success_notice'>('selector')
   const [searchLockerCode, setSearchLockerCode] = useState(lockerParam)
+  const [filtroAreaSelector, setFiltroAreaSelector] = useState(areaParam || 'TODAS')
 
   // Modo de captura de empleado: 'catalogo' | 'manual'
   const [modoCapturaEmp, setModoCapturaEmp] = useState<'catalogo' | 'manual'>('catalogo')
@@ -79,7 +82,7 @@ function RegistroLockerContent() {
   const [nombreCompleto, setNombreCompleto] = useState('')
   const [numeroFicha, setNumeroFicha] = useState('')
   const [puesto, setPuesto] = useState('')
-  const [departamento, setDepartamento] = useState('Planta de Beneficio')
+  const [departamento, setDepartamento] = useState(areaParam || 'Planta de Beneficio')
   const [telefono, setTelefono] = useState('')
 
   // Llave y cerradura
@@ -186,6 +189,7 @@ function RegistroLockerContent() {
     setSelectedCasillero(cas)
     setErrorMsg('')
     const { notasLimpias, meta } = parseLockerObservaciones(cas.observaciones)
+    const lockerArea = cas.lockers_modulos?.area || areaParam || 'Planta de Beneficio'
 
     // Pre-cargar datos existentes si los hay
     if (cas.empleados) {
@@ -194,7 +198,7 @@ function RegistroLockerContent() {
       setNombreCompleto(`${cas.empleados.nombre} ${cas.empleados.apellido_paterno} ${cas.empleados.apellido_materno || ''}`.trim())
       setNumeroFicha(String(cas.empleados.numero_empleado || ''))
       setPuesto(cas.empleados.puesto || meta.puesto_provisional || '')
-      setDepartamento(cas.empleados.departamento || meta.departamento_provisional || 'Planta de Beneficio')
+      setDepartamento(cas.empleados.departamento || meta.departamento_provisional || lockerArea)
       setTelefono(meta.telefono_contacto || cas.empleados.telefono || localStorage.getItem('rh_locker_telefono') || '')
     } else if (cas.nombre_provisional) {
       setSelectedEmpleado(null)
@@ -202,7 +206,7 @@ function RegistroLockerContent() {
       setNombreCompleto(cas.nombre_provisional)
       setNumeroFicha(cas.numero_empleado_provisional || '')
       setPuesto(meta.puesto_provisional || '')
-      setDepartamento(meta.departamento_provisional || 'Planta de Beneficio')
+      setDepartamento(meta.departamento_provisional || lockerArea)
       setTelefono(meta.telefono_contacto || localStorage.getItem('rh_locker_telefono') || '')
     } else {
       setSelectedEmpleado(null)
@@ -210,7 +214,7 @@ function RegistroLockerContent() {
       setNombreCompleto('')
       setNumeroFicha('')
       setPuesto('')
-      setDepartamento('Planta de Beneficio')
+      setDepartamento(lockerArea)
     }
 
     if (cas.condicion_llave === 'Candado Personal') {
@@ -389,6 +393,8 @@ function RegistroLockerContent() {
         }
       }
 
+      const casilleroArea = selectedCasillero.lockers_modulos?.area || areaParam || 'Planta de Beneficio'
+
       const newMeta: LockerExtendedMeta = {
         ...existingParsed.meta,
         deja_llave_rh: dejaLlaveRh,
@@ -396,7 +402,7 @@ function RegistroLockerContent() {
         folio_resguardo: folio,
         telefono_contacto: cleanTel || undefined,
         puesto_provisional: puesto.trim() || selectedEmpleado?.puesto || undefined,
-        departamento_provisional: departamento.trim() || selectedEmpleado?.departamento || 'Planta de Beneficio',
+        departamento_provisional: departamento.trim() || selectedEmpleado?.departamento || casilleroArea,
         firma_trabajador: firmaDataUrl,
         fecha_registro_qr: new Date().toISOString(),
         origen_registro: 'QR Trabajador'
@@ -431,12 +437,12 @@ function RegistroLockerContent() {
 
       setSavedNoticeData({
         codigo_casillero: selectedCasillero.codigo_casillero,
-        bateria: selectedCasillero.lockers_modulos?.bateria || 'Vestidor Planta de Beneficio',
+        bateria: selectedCasillero.lockers_modulos?.bateria || `Vestidor ${casilleroArea}`,
         posicion_nivel: selectedCasillero.posicion_nivel,
         titular: finalName,
         ficha: selectedEmpleado ? String(selectedEmpleado.numero_empleado) : (numeroFicha.trim() || 'S/N'),
         puesto: puesto.trim() || selectedEmpleado?.puesto || 'Operativo',
-        departamento: departamento.trim() || selectedEmpleado?.departamento || 'Planta de Beneficio',
+        departamento: departamento.trim() || selectedEmpleado?.departamento || casilleroArea,
         telefono: cleanTel,
         tipo_cerradura: tipoCerradura,
         deja_llave_rh:
@@ -548,15 +554,25 @@ function RegistroLockerContent() {
     scanLoopRef.current = requestAnimationFrame(bucleEscaneo)
   }
 
+  const areasDisponibles = useMemo(() => {
+    const set = new Set(casilleros.map(c => c.lockers_modulos?.area || 'Planta de Beneficio'))
+    return Array.from(set).sort()
+  }, [casilleros])
+
   const casillerosFiltradosSelector = useMemo(() => {
+    let list = casilleros
+    if (filtroAreaSelector !== 'TODAS') {
+      list = list.filter(c => (c.lockers_modulos?.area || 'Planta de Beneficio') === filtroAreaSelector)
+    }
     const q = searchLockerCode.trim().toLowerCase()
-    if (!q) return casilleros
-    return casilleros.filter(c => {
+    if (!q) return list
+    return list.filter(c => {
       const cod = c.codigo_casillero.toLowerCase()
       const bat = (c.lockers_modulos?.bateria || '').toLowerCase()
-      return cod.includes(q) || bat.includes(q)
+      const ar = (c.lockers_modulos?.area || '').toLowerCase()
+      return cod.includes(q) || bat.includes(q) || ar.includes(q)
     })
-  }, [casilleros, searchLockerCode])
+  }, [casilleros, filtroAreaSelector, searchLockerCode])
 
   const currentMeta = useMemo(() => {
     return parseLockerObservaciones(selectedCasillero?.observaciones)
@@ -567,7 +583,7 @@ function RegistroLockerContent() {
       <div className="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-6">
         <RefreshCw className="w-10 h-10 text-amber-500 animate-spin mb-4" />
         <p className="font-black text-base tracking-wide uppercase">Cargando Portal de Casilleros RH...</p>
-        <p className="text-xs text-zinc-400 mt-1">Minas de Bacis · Planta de Beneficio</p>
+        <p className="text-xs text-zinc-400 mt-1">Minas de Bacis · Control de Casilleros y Lockers</p>
       </div>
     )
   }
@@ -668,11 +684,52 @@ function RegistroLockerContent() {
               </button>
             </div>
 
+            {/* Pestañas por Departamento / Área */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400 block">
+                Filtrar por Departamento:
+              </label>
+              <div className="flex flex-wrap gap-1.5 pb-1">
+                <button
+                  type="button"
+                  onClick={() => setFiltroAreaSelector('TODAS')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                    filtroAreaSelector === 'TODAS'
+                      ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                      : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Todas ({casilleros.length})
+                </button>
+                {areasDisponibles.map(area => {
+                  const count = casilleros.filter(c => (c.lockers_modulos?.area || 'Planta de Beneficio') === area).length
+                  const theme = getAreaTheme(area)
+                  const active = filtroAreaSelector === area
+                  return (
+                    <button
+                      key={area}
+                      type="button"
+                      onClick={() => setFiltroAreaSelector(area)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                        active
+                          ? `${theme.accentBg} ${theme.accentText} shadow-md`
+                          : 'bg-zinc-800 text-zinc-300 hover:text-white'
+                      }`}
+                    >
+                      <span>{theme.icon}</span>
+                      <span>{area}</span>
+                      <span className="text-[10px] opacity-75 font-mono">({count})</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
             <div className="relative">
               <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-3" />
               <input
                 type="text"
-                placeholder="Buscar casillero (ej. PB-M01-A, M15, Batería 2)..."
+                placeholder="Buscar casillero (ej. PB-M01-A, MIN-M01, Batería 2)..."
                 value={searchLockerCode}
                 onChange={(e) => setSearchLockerCode(e.target.value)}
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white font-mono focus:outline-none focus:border-amber-500"
@@ -686,6 +743,8 @@ function RegistroLockerContent() {
                 const empNombre = c.empleados
                   ? `${c.empleados.apellido_paterno} ${c.empleados.nombre.split(' ')[0]}`
                   : c.nombre_provisional
+                const areaCas = c.lockers_modulos?.area || 'Planta de Beneficio'
+                const areaTh = getAreaTheme(areaCas)
 
                 return (
                   <button
@@ -700,13 +759,20 @@ function RegistroLockerContent() {
                         : 'bg-zinc-800/60 border-zinc-700 opacity-75'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono font-black text-sm text-white">
-                        {c.codigo_casillero}
-                      </span>
-                      <span className="text-[10px] font-bold text-zinc-400">
-                        {c.posicion_nivel}
-                      </span>
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-black text-sm text-white">
+                          {c.codigo_casillero}
+                        </span>
+                        <span className="text-[10px] font-bold text-zinc-400">
+                          {c.posicion_nivel}
+                        </span>
+                      </div>
+                      {filtroAreaSelector === 'TODAS' && (
+                        <span className="text-[9px] font-bold text-zinc-400 block mt-0.5 truncate">
+                          {areaTh.icon} {areaCas}
+                        </span>
+                      )}
                     </div>
                     <div className="mt-1.5 truncate">
                       {empNombre ? (
@@ -859,6 +925,40 @@ function RegistroLockerContent() {
               </p>
             </div>
 
+            {/* Banner Destacado del Departamento y Ubicación */}
+            {(() => {
+              const casArea = selectedCasillero.lockers_modulos?.area || areaParam || 'Planta de Beneficio'
+              const casTheme = getAreaTheme(casArea)
+              return (
+                <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 ${casTheme.badgeBg}`}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl p-2 rounded-xl bg-zinc-950/40 border border-white/10 shrink-0">
+                      {casTheme.icon}
+                    </span>
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-zinc-300 block">
+                        Departamento de Adscripción
+                      </span>
+                      <h4 className="text-base sm:text-lg font-black uppercase text-white tracking-tight">
+                        {casArea}
+                      </h4>
+                      <p className="text-xs text-zinc-300 font-medium mt-0.5">
+                        {selectedCasillero.lockers_modulos?.bateria || 'Vestidor'} · Nivel {selectedCasillero.posicion_nivel}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono text-xl font-black text-white block">
+                      {selectedCasillero.codigo_casillero}
+                    </span>
+                    <span className="text-[10px] uppercase font-bold text-emerald-400">
+                      En Registro
+                    </span>
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* SECCIÓN 1: DATOS DEL TRABAJADOR */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -933,7 +1033,7 @@ function RegistroLockerContent() {
                                 setNombreCompleto(`${emp.apellido_paterno} ${emp.apellido_materno || ''} ${emp.nombre}`.trim())
                                 setNumeroFicha(String(emp.numero_empleado || ''))
                                 setPuesto(emp.puesto || '')
-                                setDepartamento(emp.departamento || 'Planta de Beneficio')
+                                setDepartamento(emp.departamento || selectedCasillero?.lockers_modulos?.area || 'Planta de Beneficio')
                                 if (emp.telefono && !telefono) setTelefono(emp.telefono)
                                 setSearchEmp('')
                               }}
@@ -1292,7 +1392,7 @@ function RegistroLockerContent() {
               <div className="flex items-center justify-between border-b-2 border-zinc-900 pb-3">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                    MINAS DE BACIS · PLANTA DE BENEFICIO
+                    MINAS DE BACIS · {savedNoticeData.departamento.toUpperCase()}
                   </p>
                   <h3 className="text-base font-black uppercase text-zinc-950">
                     Pase para Firma de Resguardo en RH
@@ -1368,6 +1468,8 @@ function RegistroLockerContent() {
               <a
                 href={`https://wa.me/?text=${encodeURIComponent(
                   `📋 *COMPROBANTE DE REGISTRO DE CASILLERO - MINAS DE BACIS*\n\n` +
+                  `• *Departamento:* ${savedNoticeData.departamento}\n` +
+                  `• *Ubicación:* ${savedNoticeData.bateria}\n` +
                   `• *Folio:* ${savedNoticeData.folio_resguardo}\n` +
                   `• *Casillero:* ${savedNoticeData.codigo_casillero} (${savedNoticeData.posicion_nivel})\n` +
                   `• *Trabajador:* ${savedNoticeData.titular} (Ficha #${savedNoticeData.ficha})\n` +

@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import QRCode from 'qrcode'
 import { supabase } from '@/utils/supabase/client'
-import { parseLockerObservaciones } from '@/utils/lockerMeta'
+import { parseLockerObservaciones, buildLockerQrUrl, getAreaTheme } from '@/utils/lockerMeta'
 import { 
   Printer, ArrowLeft, RefreshCw, Filter, Scissors, QrCode, 
   Building2, Key, CheckCircle2, AlertTriangle, ShieldCheck, 
@@ -38,6 +38,7 @@ interface LockerCasillero {
   fecha_asignacion: string | null
   empleados?: Empleado | null
   modulo_bateria?: string
+  modulo_area?: string
   tipo_modulo?: string
 }
 
@@ -48,6 +49,7 @@ export default function FichasImprimiblesPage() {
   const [baseUrl, setBaseUrl] = useState('https://rh-system-master.vercel.app')
 
   // Filtros
+  const [filtroArea, setFiltroArea] = useState('TODAS')
   const [filtroBateria, setFiltroBateria] = useState('TODAS')
   const [filtroEstatus, setFiltroEstatus] = useState('TODOS')
   const [modoPreCenso, setModoPreCenso] = useState(false)
@@ -69,7 +71,7 @@ export default function FichasImprimiblesPage() {
       const { data: modData } = await supabase
         .from('lockers_modulos')
         .select(`
-          id_modulo, codigo_modulo, bateria, tipo_modulo,
+          id_modulo, codigo_modulo, area, bateria, tipo_modulo,
           lockers_casilleros (
             *,
             empleados:id_empleado (
@@ -77,7 +79,6 @@ export default function FichasImprimiblesPage() {
             )
           )
         `)
-        .eq('area', 'Planta de Beneficio')
         .order('orden', { ascending: true })
 
       if (modData) {
@@ -89,6 +90,7 @@ export default function FichasImprimiblesPage() {
               flat.push({
                 ...c,
                 modulo_bateria: mod.bateria,
+                modulo_area: mod.area || 'Planta de Beneficio',
                 tipo_modulo: mod.tipo_modulo
               })
             })
@@ -103,17 +105,16 @@ export default function FichasImprimiblesPage() {
     }
   }
 
-  // Generar QRs con la URL directa al formulario de autorregistro y resguardo
+  // Generar QRs con la URL directa que incluye el área y el código
   useEffect(() => {
     if (casilleros.length === 0) return
     const generarQRs = async () => {
       const map: Record<string, string> = {}
-      const cleanBase = baseUrl.replace(/\/+$/, '')
       for (const c of casilleros) {
         try {
-          const qrTargetUrl = `${cleanBase}/registro-locker?locker=${encodeURIComponent(c.codigo_casillero)}`
+          const qrTargetUrl = buildLockerQrUrl(baseUrl, c.codigo_casillero, c.modulo_area)
           const dataUrl = await QRCode.toDataURL(qrTargetUrl, {
-            width: 150,
+            width: 160,
             margin: 1,
             color: {
               dark: '#000000',
@@ -130,14 +131,30 @@ export default function FichasImprimiblesPage() {
     generarQRs()
   }, [casilleros, baseUrl])
 
+  // Obtener áreas dinámicas presentes en los casilleros
+  const areasDisponibles = useMemo(() => {
+    const list = Array.from(new Set(casilleros.map(c => c.modulo_area || 'Planta de Beneficio')))
+    return list.sort()
+  }, [casilleros])
+
+  // Baterías disponibles según el área seleccionada
+  const bateriasDisponibles = useMemo(() => {
+    const filtradosPorArea = filtroArea === 'TODAS'
+      ? casilleros
+      : casilleros.filter(c => c.modulo_area === filtroArea)
+    const list = Array.from(new Set(filtradosPorArea.map(c => c.modulo_bateria || 'General')))
+    return list.sort()
+  }, [casilleros, filtroArea])
+
   // Filtrado de fichas
   const casillerosFiltrados = useMemo(() => {
     return casilleros.filter(c => {
+      if (filtroArea !== 'TODAS' && c.modulo_area !== filtroArea) return false
       if (filtroBateria !== 'TODAS' && c.modulo_bateria !== filtroBateria) return false
       if (filtroEstatus !== 'TODOS' && c.estatus !== filtroEstatus) return false
       return true
     })
-  }, [casilleros, filtroBateria, filtroEstatus])
+  }, [casilleros, filtroArea, filtroBateria, filtroEstatus])
 
   // Agrupar en pares de 2 para cada hoja Carta (Media Carta cada una)
   const hojasCarta = useMemo(() => {
@@ -216,7 +233,30 @@ export default function FichasImprimiblesPage() {
         </div>
 
         {/* Filtros de Impresión */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 dark:border-zinc-800 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-100 dark:border-zinc-800 text-xs">
+          <div>
+            <label className="font-bold text-zinc-500 block mb-1">Departamento / Área:</label>
+            <select
+              value={filtroArea}
+              onChange={(e) => {
+                setFiltroArea(e.target.value)
+                setFiltroBateria('TODAS')
+              }}
+              className="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 border border-amber-500/40 font-bold text-zinc-900 dark:text-amber-300"
+            >
+              <option value="TODAS">Todos los Departamentos ({casilleros.length})</option>
+              {areasDisponibles.map(area => {
+                const count = casilleros.filter(c => c.modulo_area === area).length
+                const theme = getAreaTheme(area)
+                return (
+                  <option key={area} value={area}>
+                    {theme.icon} {area} ({count})
+                  </option>
+                )
+              })}
+            </select>
+          </div>
+
           <div>
             <label className="font-bold text-zinc-500 block mb-1">Filtrar por Batería:</label>
             <select
@@ -224,11 +264,10 @@ export default function FichasImprimiblesPage() {
               onChange={(e) => setFiltroBateria(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 font-semibold"
             >
-              <option value="TODAS">Todas las Baterías ({casilleros.length})</option>
-              <option value="Batería 1">Batería 1 (PB-M01 a M12)</option>
-              <option value="Batería 2">Batería 2 (PB-M13 a M24)</option>
-              <option value="Batería 3">Batería 3 (PB-M25 a M36)</option>
-              <option value="Batería 4 (Módulos Dobles Grandes)">Batería 4 - Módulos Grandes 2 Niv. (PB-M37 a M42)</option>
+              <option value="TODAS">Todas las Baterías</option>
+              {bateriasDisponibles.map(b => (
+                <option key={b} value={b}>{b}</option>
+              ))}
             </select>
           </div>
 
@@ -254,7 +293,7 @@ export default function FichasImprimiblesPage() {
                 onChange={(e) => setModoPreCenso(e.target.checked)}
                 className="rounded text-amber-500 focus:ring-amber-400"
               />
-              <span>Modo Pre-Censo (Líneas en blanco para rellenar en campo)</span>
+              <span>Modo Pre-Censo (Líneas en blanco)</span>
             </label>
           </div>
         </div>
@@ -357,20 +396,28 @@ function TarjetaFicha({
   const emp = casillero.empleados
   const esGrande = casillero.posicion_nivel.includes('Grande') || casillero.tipo_modulo === '2_niveles'
   const { meta } = parseLockerObservaciones(casillero.observaciones)
+  const areaName = casillero.modulo_area || 'Planta de Beneficio'
+  const areaTheme = getAreaTheme(areaName)
 
   return (
     <div className="h-full flex flex-col justify-between text-zinc-900">
-      {/* 1. Header de Ficha */}
+      {/* 1. Header de Ficha con Área y Departamento */}
       <div className="flex items-start justify-between border-b-2 border-zinc-900 pb-3">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 mb-1">
             <span className="font-black text-sm tracking-widest text-zinc-900 uppercase">
-              RECURSOS HUMANOS · CONTROL DE BIENES
+              RECURSOS HUMANOS · CONTROL DE CASILLEROS
             </span>
           </div>
-          <p className="text-xs font-bold text-zinc-600 mt-0.5">
-            ÁREA: <span className="text-zinc-950 font-black">PLANTA DE BENEFICIO</span> · {casillero.modulo_bateria || 'BATERÍA VESTIDOR'}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-black uppercase bg-zinc-950 text-white shadow-sm">
+              <span>{areaTheme.icon}</span>
+              <span>DEPARTAMENTO: {areaName}</span>
+            </span>
+            <span className="text-xs font-bold text-zinc-600">
+              · {casillero.modulo_bateria || 'BATERÍA VESTIDOR'}
+            </span>
+          </div>
         </div>
 
         <div className="text-right">
@@ -389,9 +436,14 @@ function TarjetaFicha({
       <div className="grid grid-cols-12 gap-4 my-auto py-2 items-center">
         {/* Código Locker Gigante */}
         <div className="col-span-8 space-y-2">
-          <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500">
-            CÓDIGO DE CASILLERO
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500">
+              CÓDIGO DE CASILLERO
+            </span>
+            <span className="text-[10px] font-black px-1.5 py-0.2 rounded bg-zinc-200 text-zinc-800">
+              {areaName}
+            </span>
+          </div>
           <div className="text-4xl font-black font-mono tracking-tight text-zinc-950 border-b border-zinc-300 pb-1">
             {casillero.codigo_casillero}
           </div>
@@ -425,7 +477,7 @@ function TarjetaFicha({
                   {casillero.nombre_provisional}
                 </p>
                 <p className="text-xs font-bold text-amber-700">
-                  (Ficha: #{casillero.numero_empleado_provisional || 'N/A'} · {meta.puesto_provisional || 'Planta de Beneficio'})
+                  (Ficha: #{casillero.numero_empleado_provisional || 'N/A'} · {meta.puesto_provisional || areaName})
                 </p>
               </div>
             ) : (
@@ -441,6 +493,9 @@ function TarjetaFicha({
 
         {/* QR Escaneable para Autorregistro y Resguardo */}
         <div className="col-span-4 flex flex-col items-center justify-center p-2 border-2 border-zinc-900 rounded-xl bg-zinc-50 text-center">
+          <span className="text-[9px] font-black uppercase tracking-wider text-zinc-950 px-2 py-0.5 rounded bg-zinc-200 border border-zinc-400 mb-1.5 w-full text-center truncate">
+            {areaTheme.icon} {areaName}
+          </span>
           {qrUrl ? (
             <img
               src={qrUrl}
@@ -453,7 +508,7 @@ function TarjetaFicha({
             </div>
           )}
           <span className="text-[8.5px] font-black uppercase text-zinc-900 tracking-tight mt-1 leading-tight">
-            Escanea para Registro y Resguardo en RH
+            Escanea para Registro y Resguardo
           </span>
         </div>
       </div>

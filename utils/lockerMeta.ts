@@ -92,3 +92,74 @@ export function generarFolioResguardo(codigoCasillero: string): string {
   const randomDigits = Math.floor(1000 + Math.random() * 9000)
   return `RES-${codigoCasillero.toUpperCase()}-${randomDigits}`
 }
+
+export function buildLockerQrUrl(baseUrl: string, codigoCasillero: string, area?: string): string {
+  const cleanBase = (baseUrl || 'https://rh-system-master.vercel.app').replace(/\/+$/, '')
+  const params = new URLSearchParams()
+  params.set('locker', codigoCasillero.trim().toUpperCase())
+  if (area && area.trim()) {
+    params.set('area', area.trim())
+  }
+  return `${cleanBase}/registro-locker?${params.toString()}`
+}
+
+export interface AreaTheme {
+  name: string
+  icon: string
+  badgeBg: string
+  badgeText: string
+  badgeBorder: string
+  cardBorder: string
+  accentBg: string
+  accentText: string
+  bannerGradient: string
+  headerColor: string
+}
+
+export function getAreaTheme(areaName?: string | null): AreaTheme {
+  const normalized = (areaName || '').trim().toLowerCase()
+
+  if (normalized.includes('mina')) {
+    return {
+      name: areaName?.trim() || 'Mina',
+      icon: '⛏️',
+      badgeBg: 'bg-amber-500/15 text-amber-300 border-amber-500/40',
+      badgeText: 'text-amber-400',
+      badgeBorder: 'border-amber-500/30',
+      cardBorder: 'border-amber-500/30 hover:border-amber-400',
+      accentBg: 'bg-amber-500',
+      accentText: 'text-amber-950',
+      bannerGradient: 'from-amber-950/80 via-zinc-900 to-amber-950/40',
+      headerColor: 'text-amber-400'
+    }
+  }
+
+  if (normalized.includes('beneficio') || normalized.includes('planta')) {
+    return {
+      name: areaName?.trim() || 'Planta de Beneficio',
+      icon: '🏭',
+      badgeBg: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40',
+      badgeText: 'text-emerald-400',
+      badgeBorder: 'border-emerald-500/30',
+      cardBorder: 'border-emerald-500/30 hover:border-emerald-400',
+      accentBg: 'bg-emerald-500',
+      accentText: 'text-emerald-950',
+      bannerGradient: 'from-emerald-950/80 via-zinc-900 to-emerald-950/40',
+      headerColor: 'text-emerald-400'
+    }
+  }
+
+  // Cualquier otra área creada dinámicamente (ej. Mantenimiento, Geología, Laboratorio, etc.)
+  return {
+    name: areaName?.trim() || 'General',
+    icon: '🏢',
+    badgeBg: 'bg-sky-500/15 text-sky-300 border-sky-500/40',
+    badgeText: 'text-sky-400',
+    badgeBorder: 'border-sky-500/30',
+    cardBorder: 'border-sky-500/30 hover:border-sky-400',
+    accentBg: 'bg-sky-500',
+    accentText: 'text-sky-950',
+    bannerGradient: 'from-sky-950/80 via-zinc-900 to-sky-950/40',
+    headerColor: 'text-sky-400'
+  }
+}

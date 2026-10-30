@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import QRCode from 'qrcode'
 import { supabase } from '@/utils/supabase/client'
+import { buildLockerQrUrl, getAreaTheme } from '@/utils/lockerMeta'
 import { 
   Printer, ArrowLeft, RefreshCw, Scissors, Layers, Tag, 
   Building2, CheckCircle2, AlertTriangle, QrCode, FileText, 
@@ -57,6 +58,7 @@ export default function TirasPlanogramaPage() {
 
   // Tipo de Tira: 'PLANOGRAMA' (Tira de módulos continua) | 'CHICAS_CASILLERO' (Etiquetas chicas de puerta)
   const [tipoTira, setTipoTira] = useState<'PLANOGRAMA' | 'CHICAS_CASILLERO'>('PLANOGRAMA')
+  const [filtroArea, setFiltroArea] = useState('TODAS')
   const [filtroBateria, setFiltroBateria] = useState('TODAS')
   const [filtroEstatus, setFiltroEstatus] = useState('TODOS')
   const [modoPreCenso, setModoPreCenso] = useState(false)
@@ -86,7 +88,6 @@ export default function TirasPlanogramaPage() {
             )
           )
         `)
-        .eq('area', 'Planta de Beneficio')
         .order('orden', { ascending: true })
 
       if (modData) {
@@ -99,28 +100,26 @@ export default function TirasPlanogramaPage() {
     }
   }
 
-  // Generar QRs apuntando a /registro-locker?locker=...
+  // Generar QRs con URL que incluye el área y el código
   useEffect(() => {
     if (modulos.length === 0) return
-    const allCas: LockerCasillero[] = []
-    modulos.forEach(m => {
-      if (m.lockers_casilleros) allCas.push(...m.lockers_casilleros)
-    })
 
     const generarQRs = async () => {
       const map: Record<string, string> = {}
-      const cleanBase = baseUrl.replace(/\/+$/, '')
-      for (const c of allCas) {
-        try {
-          const qrTargetUrl = `${cleanBase}/registro-locker?locker=${encodeURIComponent(c.codigo_casillero)}`
-          const url = await QRCode.toDataURL(qrTargetUrl, {
-            width: 110,
-            margin: 0,
-            color: { dark: '#000000', light: '#ffffff' }
-          })
-          map[c.codigo_casillero] = url
-        } catch (e) {
-          console.error('Error QR', e)
+      for (const m of modulos) {
+        if (!m.lockers_casilleros) continue
+        for (const c of m.lockers_casilleros) {
+          try {
+            const qrTargetUrl = buildLockerQrUrl(baseUrl, c.codigo_casillero, m.area)
+            const url = await QRCode.toDataURL(qrTargetUrl, {
+              width: 120,
+              margin: 0,
+              color: { dark: '#000000', light: '#ffffff' }
+            })
+            map[c.codigo_casillero] = url
+          } catch (e) {
+            console.error('Error QR', e)
+          }
         }
       }
       setQrCodes(map)
@@ -128,13 +127,29 @@ export default function TirasPlanogramaPage() {
     generarQRs()
   }, [modulos, baseUrl])
 
+  // Áreas dinámicas
+  const areasDisponibles = useMemo(() => {
+    const list = Array.from(new Set(modulos.map(m => m.area || 'Planta de Beneficio')))
+    return list.sort()
+  }, [modulos])
+
+  // Baterías disponibles según el área seleccionada
+  const bateriasDisponibles = useMemo(() => {
+    const filtrados = filtroArea === 'TODAS'
+      ? modulos
+      : modulos.filter(m => m.area === filtroArea)
+    const list = Array.from(new Set(filtrados.map(m => m.bateria || 'General')))
+    return list.sort()
+  }, [modulos, filtroArea])
+
   // Modulos filtrados
   const modulosFiltrados = useMemo(() => {
     return modulos.filter(m => {
+      if (filtroArea !== 'TODAS' && m.area !== filtroArea) return false
       if (filtroBateria !== 'TODAS' && m.bateria !== filtroBateria) return false
       return true
     })
-  }, [modulos, filtroBateria])
+  }, [modulos, filtroArea, filtroBateria])
 
   // Tiras de Planograma agrupadas (ej. 6 módulos por tira horizontal de papel)
   const tirasPlanograma = useMemo(() => {
@@ -262,7 +277,30 @@ export default function TirasPlanogramaPage() {
         </div>
 
         {/* Filtros */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 text-xs">
+          <div>
+            <label className="font-bold text-zinc-500 block mb-1">Departamento / Área:</label>
+            <select
+              value={filtroArea}
+              onChange={(e) => {
+                setFiltroArea(e.target.value)
+                setFiltroBateria('TODAS')
+              }}
+              className="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 border border-amber-500/40 font-bold text-zinc-900 dark:text-amber-300"
+            >
+              <option value="TODAS">Todos los Departamentos ({modulos.length} Módulos)</option>
+              {areasDisponibles.map(area => {
+                const count = modulos.filter(m => m.area === area).length
+                const theme = getAreaTheme(area)
+                return (
+                  <option key={area} value={area}>
+                    {theme.icon} {area} ({count} Mód.)
+                  </option>
+                )
+              })}
+            </select>
+          </div>
+
           <div>
             <label className="font-bold text-zinc-500 block mb-1">Filtrar por Batería:</label>
             <select
@@ -270,11 +308,10 @@ export default function TirasPlanogramaPage() {
               onChange={(e) => setFiltroBateria(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 font-semibold"
             >
-              <option value="TODAS">Todas las Baterías ({modulos.length} Módulos)</option>
-              <option value="Batería 1">Batería 1 (M01 a M12)</option>
-              <option value="Batería 2">Batería 2 (M13 a M24)</option>
-              <option value="Batería 3">Batería 3 (M25 a M36)</option>
-              <option value="Batería 4 (Módulos Dobles Grandes)">Batería 4 - Módulos Grandes (M37 a M42)</option>
+              <option value="TODAS">Todas las Baterías</option>
+              {bateriasDisponibles.map(b => (
+                <option key={b} value={b}>{b}</option>
+              ))}
             </select>
           </div>
 
@@ -331,8 +368,11 @@ export default function TirasPlanogramaPage() {
                   <span className="font-black font-mono bg-zinc-900 text-white px-2 py-0.5 rounded text-[11px]">
                     TIRA DE PLANOGRAMA #{indexTira + 1}
                   </span>
-                  <span className="font-black uppercase tracking-wider text-zinc-800">
-                    PLANTA DE BENEFICIO · {grupoModulos[0]?.bateria}
+                  <span className="font-black uppercase tracking-wider text-zinc-900 flex items-center gap-1.5">
+                    <span>{getAreaTheme(grupoModulos[0]?.area).icon}</span>
+                    <span>{grupoModulos[0]?.area || 'DEPARTAMENTO'}</span>
+                    <span>·</span>
+                    <span>{grupoModulos[0]?.bateria}</span>
                   </span>
                 </div>
                 <span className="text-[10px] font-bold text-zinc-600">
@@ -450,8 +490,11 @@ export default function TirasPlanogramaPage() {
                   <div className="flex-1 min-w-0 flex flex-col justify-between h-full">
                     {/* Header Mini */}
                     <div className="flex items-center justify-between text-[8px] font-black text-zinc-500 uppercase leading-none border-b border-zinc-200 pb-1">
-                      <span>PLANTA DE BENEFICIO · {modulo.bateria.split(' ')[0]} {modulo.bateria.split(' ')[1]}</span>
-                      <span className="font-mono text-zinc-900 font-bold">{casillero.posicion_nivel}</span>
+                      <span className="truncate flex items-center gap-1 font-bold text-zinc-800">
+                        <span>{getAreaTheme(modulo.area).icon}</span>
+                        <span>{modulo.area || 'GENERAL'} · {modulo.bateria.split(' ')[0]} {modulo.bateria.split(' ')[1] || ''}</span>
+                      </span>
+                      <span className="font-mono text-zinc-900 font-bold shrink-0">{casillero.posicion_nivel}</span>
                     </div>
 
                     {/* Código de Casillero en Grande */}
@@ -500,8 +543,8 @@ export default function TirasPlanogramaPage() {
                         <QrCode className="w-6 h-6 text-zinc-400" />
                       )}
                     </div>
-                    <span className="text-[6.5px] font-black uppercase text-zinc-700 mt-0.5 leading-none text-center">
-                      ESCANEA QR RH
+                    <span className="text-[6.5px] font-black uppercase text-zinc-900 mt-0.5 leading-none text-center truncate max-w-[68px]">
+                      {modulo.area || 'RH'}
                     </span>
                   </div>
                 </div>

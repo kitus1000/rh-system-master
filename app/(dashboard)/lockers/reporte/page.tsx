@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/utils/supabase/client'
-import { parseLockerObservaciones } from '@/utils/lockerMeta'
+import { parseLockerObservaciones, getAreaTheme } from '@/utils/lockerMeta'
 import { 
   Printer, ArrowLeft, RefreshCw, Download, Search, Filter, 
   FileSpreadsheet, FileText, CheckCircle2, AlertTriangle, 
@@ -39,6 +39,7 @@ interface LockerCasillero {
   fecha_asignacion: string | null
   empleados?: Empleado | null
   modulo_codigo?: string
+  modulo_area?: string
   modulo_bateria?: string
   modulo_tipo?: string
   modulo_ubicacion?: string
@@ -50,6 +51,7 @@ export default function ReporteLockersPage() {
 
   // Filtros
   const [search, setSearch] = useState('')
+  const [filtroArea, setFiltroArea] = useState('TODAS')
   const [filtroBateria, setFiltroBateria] = useState('TODAS')
   const [filtroEstatus, setFiltroEstatus] = useState('TODOS')
 
@@ -59,7 +61,7 @@ export default function ReporteLockersPage() {
       const { data: modData } = await supabase
         .from('lockers_modulos')
         .select(`
-          id_modulo, codigo_modulo, bateria, tipo_modulo, ubicacion_detalle, orden,
+          id_modulo, codigo_modulo, area, bateria, tipo_modulo, ubicacion_detalle, orden,
           lockers_casilleros (
             *,
             empleados:id_empleado (
@@ -67,7 +69,6 @@ export default function ReporteLockersPage() {
             )
           )
         `)
-        .eq('area', 'Planta de Beneficio')
         .order('orden', { ascending: true })
 
       if (modData) {
@@ -79,9 +80,10 @@ export default function ReporteLockersPage() {
               flat.push({
                 ...c,
                 modulo_codigo: mod.codigo_modulo,
+                modulo_area: mod.area || 'Planta de Beneficio',
                 modulo_bateria: mod.bateria,
                 modulo_tipo: mod.tipo_modulo === '2_niveles' ? '2 Niveles (Grande)' : '3 Niveles',
-                modulo_ubicacion: mod.ubicacion_detalle || 'Planta de Beneficio'
+                modulo_ubicacion: mod.ubicacion_detalle || mod.area || 'Planta de Beneficio'
               })
             })
           }
@@ -99,9 +101,25 @@ export default function ReporteLockersPage() {
     cargarDatos()
   }, [])
 
+  // Áreas dinámicas
+  const areasDisponibles = useMemo(() => {
+    const list = Array.from(new Set(casilleros.map(c => c.modulo_area || 'Planta de Beneficio')))
+    return list.sort()
+  }, [casilleros])
+
+  // Baterías disponibles según el área seleccionada
+  const bateriasDisponibles = useMemo(() => {
+    const filtrados = filtroArea === 'TODAS'
+      ? casilleros
+      : casilleros.filter(c => c.modulo_area === filtroArea)
+    const list = Array.from(new Set(filtrados.map(c => c.modulo_bateria || 'General')))
+    return list.sort()
+  }, [casilleros, filtroArea])
+
   // Filtrado
   const itemsFiltrados = useMemo(() => {
     return casilleros.filter(item => {
+      if (filtroArea !== 'TODAS' && item.modulo_area !== filtroArea) return false
       if (filtroBateria !== 'TODAS' && item.modulo_bateria !== filtroBateria) return false
       const { meta } = parseLockerObservaciones(item.observaciones)
 
@@ -117,14 +135,15 @@ export default function ReporteLockersPage() {
       const q = search.toLowerCase()
       const cod = (item.codigo_casillero || '').toLowerCase()
       const mod = (item.modulo_codigo || '').toLowerCase()
+      const ar = (item.modulo_area || '').toLowerCase()
       const prov = (item.nombre_provisional || '').toLowerCase()
       const emp = item.empleados
         ? `${item.empleados.nombre} ${item.empleados.apellido_paterno} ${item.empleados.apellido_materno || ''} ${item.empleados.numero_empleado} ${item.empleados.puesto} ${item.empleados.departamento}`.toLowerCase()
         : ''
 
-      return cod.includes(q) || mod.includes(q) || prov.includes(q) || emp.includes(q)
+      return cod.includes(q) || mod.includes(q) || ar.includes(q) || prov.includes(q) || emp.includes(q)
     })
-  }, [casilleros, filtroBateria, filtroEstatus, search])
+  }, [casilleros, filtroArea, filtroBateria, filtroEstatus, search])
 
   // Estadísticas del reporte
   const stats = useMemo(() => {
@@ -168,6 +187,7 @@ export default function ReporteLockersPage() {
 
       return {
         '#': index + 1,
+        'Área / Departamento': item.modulo_area || 'Planta de Beneficio',
         'Locker (Módulo)': item.modulo_codigo,
         'Batería / Ubicación': item.modulo_bateria,
         'Código Casillero': item.codigo_casillero,
@@ -176,7 +196,7 @@ export default function ReporteLockersPage() {
         'Ficha #': ficha,
         'Nombre del Trabajador': nombreTrabajador,
         'Puesto': emp?.puesto || meta.puesto_provisional || '',
-        'Departamento': emp?.departamento || meta.departamento_provisional || (item.nombre_provisional ? 'Planta de Beneficio' : ''),
+        'Departamento': emp?.departamento || meta.departamento_provisional || item.modulo_area || 'Planta de Beneficio',
         'Teléfono': meta.telefono_contacto || emp?.telefono || '',
         'Condición de Llave': item.condicion_llave || 'N/A',
         '¿Deja Copia Llave en RH?': dejaCopiaStr,
@@ -241,7 +261,7 @@ export default function ReporteLockersPage() {
                 Padrón Oficial de Asignación, Llaves y Resguardos de Lockers
               </h1>
               <p className="text-xs text-zinc-500">
-                Planta de Beneficio · Control de titulares, copia de llave en RH y estatus de firma de resguardo.
+                Control General y por Departamento · Titulares, copia de llave en RH y estatus de resguardo.
               </p>
             </div>
           </div>
@@ -290,7 +310,7 @@ export default function ReporteLockersPage() {
         </div>
 
         {/* Filtros y Buscador */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2 text-xs">
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-3" />
             <input
@@ -304,15 +324,36 @@ export default function ReporteLockersPage() {
 
           <div>
             <select
+              value={filtroArea}
+              onChange={(e) => {
+                setFiltroArea(e.target.value)
+                setFiltroBateria('TODAS')
+              }}
+              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-zinc-800 border border-amber-500/40 text-xs font-bold text-zinc-900 dark:text-amber-300"
+            >
+              <option value="TODAS">Todos los Departamentos ({casilleros.length})</option>
+              {areasDisponibles.map(area => {
+                const count = casilleros.filter(c => c.modulo_area === area).length
+                const theme = getAreaTheme(area)
+                return (
+                  <option key={area} value={area}>
+                    {theme.icon} {area} ({count})
+                  </option>
+                )
+              })}
+            </select>
+          </div>
+
+          <div>
+            <select
               value={filtroBateria}
               onChange={(e) => setFiltroBateria(e.target.value)}
               className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-xs font-semibold"
             >
               <option value="TODAS">Todas las Baterías</option>
-              <option value="Batería 1">Batería 1 (M01 a M12)</option>
-              <option value="Batería 2">Batería 2 (M13 a M24)</option>
-              <option value="Batería 3">Batería 3 (M25 a M36)</option>
-              <option value="Batería 4 (Módulos Dobles Grandes)">Batería 4 - Dobles Grandes (M37 a M42)</option>
+              {bateriasDisponibles.map(b => (
+                <option key={b} value={b}>{b}</option>
+              ))}
             </select>
           </div>
 
@@ -348,7 +389,7 @@ export default function ReporteLockersPage() {
               Padrón de Asignación, Copia de Llaves y Resguardos de Lockers
             </h2>
             <p className="text-xs text-zinc-600 font-medium">
-              Planta de Beneficio · Total mostrados: <strong>{itemsFiltrados.length}</strong> | Asignados: <strong>{stats.asignados}</strong> | Libres: <strong>{stats.disponibles}</strong>
+              Control General de Lockers · Total mostrados: <strong>{itemsFiltrados.length}</strong> | Asignados: <strong>{stats.asignados}</strong> | Libres: <strong>{stats.disponibles}</strong>
             </p>
           </div>
 
@@ -375,6 +416,7 @@ export default function ReporteLockersPage() {
                 <tr className="bg-zinc-900 text-white font-black text-[10px] uppercase tracking-wider print:bg-zinc-200 print:text-zinc-900">
                   <th className="p-2 border border-zinc-800 print:border-zinc-400 text-center w-8">#</th>
                   <th className="p-2 border border-zinc-800 print:border-zinc-400">Casillero</th>
+                  <th className="p-2 border border-zinc-800 print:border-zinc-400">Área</th>
                   <th className="p-2 border border-zinc-800 print:border-zinc-400">Nivel</th>
                   <th className="p-2 border border-zinc-800 print:border-zinc-400">Estado</th>
                   <th className="p-2 border border-zinc-800 print:border-zinc-400 text-center">Ficha</th>
@@ -408,6 +450,13 @@ export default function ReporteLockersPage() {
                       <td className="p-2 border border-zinc-200">
                         <span className="font-mono font-black text-zinc-950">{item.codigo_casillero}</span>
                         <span className="block text-[9px] text-zinc-500">{item.modulo_bateria?.split(' ')[0]} {item.modulo_bateria?.split(' ')[1]}</span>
+                      </td>
+
+                      <td className="p-2 border border-zinc-200">
+                        <span className="inline-flex items-center gap-1 font-bold text-[10px] text-zinc-800">
+                          <span>{getAreaTheme(item.modulo_area).icon}</span>
+                          <span className="truncate max-w-[110px]">{item.modulo_area || 'Planta de Beneficio'}</span>
+                        </span>
                       </td>
 
                       <td className="p-2 border border-zinc-200">
@@ -508,7 +557,7 @@ export default function ReporteLockersPage() {
         <div className="hidden print:grid grid-cols-3 gap-8 pt-12 text-center text-xs mt-6 border-t-2 border-zinc-400">
           <div>
             <div className="border-t border-zinc-800 pt-1 font-black uppercase">
-              Superintendente Planta de Beneficio
+              Superintendente / Responsable de Área
             </div>
             <span className="text-[10px] text-zinc-500">Revisión y Aprobación</span>
           </div>

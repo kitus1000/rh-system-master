@@ -7,7 +7,8 @@ import { supabase } from '@/utils/supabase/client'
 import {
   parseLockerObservaciones,
   serializeLockerObservaciones,
-  generarFolioResguardo
+  generarFolioResguardo,
+  getAreaTheme
 } from '@/utils/lockerMeta'
 import { 
   FolderLock, ChevronLeft, ChevronRight, Search, CheckCircle2, 
@@ -43,6 +44,13 @@ interface LockerCasillero {
   fecha_asignacion: string | null
   fecha_reporte_dano: string | null
   empleados?: Empleado | null
+  lockers_modulos?: {
+    codigo_modulo: string
+    bateria: string
+    area: string
+    tipo_modulo: string
+    ubicacion_detalle: string
+  } | null
 }
 
 const DANOS_COMUNES = [
@@ -104,6 +112,9 @@ export default function CensoMovilPage() {
           *,
           empleados:id_empleado (
             id_empleado, nombre, apellido_paterno, apellido_materno, numero_empleado, departamento, puesto
+          ),
+          lockers_modulos:id_modulo (
+            codigo_modulo, bateria, area, tipo_modulo, ubicacion_detalle
           )
         `)
         .order('codigo_casillero', { ascending: true })
@@ -412,8 +423,10 @@ export default function CensoMovilPage() {
           </button>
 
           <div className="text-center flex-1">
-            <span className="text-[10px] uppercase tracking-widest text-amber-400 font-bold">
-              Casillero {currentIndex + 1} de {casilleros.length}
+            <span className="text-[10px] uppercase tracking-widest text-amber-400 font-bold flex items-center justify-center gap-1.5">
+              <span>{getAreaTheme(currentCasillero?.lockers_modulos?.area).icon}</span>
+              <span>{currentCasillero?.lockers_modulos?.area || 'Planta de Beneficio'}</span>
+              <span>· {currentIndex + 1} de {casilleros.length}</span>
             </span>
             <h2 className="text-3xl font-black tracking-tight font-mono text-white mt-0.5">
               {currentCasillero?.codigo_casillero}

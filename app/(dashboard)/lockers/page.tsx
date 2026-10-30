@@ -7,6 +7,8 @@ import {
   parseLockerObservaciones,
   serializeLockerObservaciones,
   generarFolioResguardo,
+  buildLockerQrUrl,
+  getAreaTheme,
   type LockerExtendedMeta
 } from '@/utils/lockerMeta'
 import { 
@@ -15,7 +17,7 @@ import {
   UserPlus, UserCheck, AlertCircle, Sparkles, Building2, ChevronRight,
   Layers, Info, ShieldAlert, ArrowUpDown, X, Save, Trash2, Edit3,
   Tag, FileText, FileSignature, MessageCircle, ShieldCheck, BellRing,
-  Copy, Check, ExternalLink, Phone
+  Copy, Check, ExternalLink, Phone, PlusCircle, Database, Plus, Code
 } from 'lucide-react'
 
 interface Empleado {
@@ -46,6 +48,9 @@ interface LockerCasillero {
   fecha_asignacion: string | null
   fecha_reporte_dano: string | null
   empleados?: Empleado | null
+  modulo_area?: string
+  modulo_bateria?: string
+  modulo_codigo?: string
 }
 
 interface LockerModulo {
@@ -68,9 +73,23 @@ export default function LockersPage() {
   
   // Filtros
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedArea, setSelectedArea] = useState('TODAS')
   const [selectedBateria, setSelectedBateria] = useState('TODAS')
   const [selectedEstatus, setSelectedEstatus] = useState('TODOS')
   const [selectedTipo, setSelectedTipo] = useState('TODOS')
+
+  // Modal para Generar Nueva Área y Módulos
+  const [isCreateAreaModalOpen, setIsCreateAreaModalOpen] = useState(false)
+  const [newAreaName, setNewAreaName] = useState('Mina')
+  const [newPrefix, setNewPrefix] = useState('MIN-M')
+  const [newBateria, setNewBateria] = useState('Batería 1 (Vestidor Mina)')
+  const [newUbicacion, setNewUbicacion] = useState('Vestidores Mina Nivel 0')
+  const [newModulosCount, setNewModulosCount] = useState(10)
+  const [newModuloInicio, setNewModuloInicio] = useState(1)
+  const [newTipoModulo, setNewTipoModulo] = useState<'3_niveles' | '2_niveles'>('3_niveles')
+  const [creatingArea, setCreatingArea] = useState(false)
+  const [verSqlModal, setVerSqlModal] = useState(false)
+  const [copiedSql, setCopiedSql] = useState(false)
 
   // Modal de edición de casillero
   const [selectedCasillero, setSelectedCasillero] = useState<LockerCasillero | null>(null)
@@ -121,7 +140,7 @@ export default function LockersPage() {
         setEmpleados(empData)
       }
 
-      // 2. Obtener módulos y casilleros
+      // 2. Obtener módulos y casilleros de TODOS los departamentos
       const { data: modData, error: modErr } = await supabase
         .from('lockers_modulos')
         .select(`
@@ -133,7 +152,6 @@ export default function LockersPage() {
             )
           )
         `)
-        .eq('area', 'Planta de Beneficio')
         .order('orden', { ascending: true })
 
       if (modErr) {
@@ -153,7 +171,14 @@ export default function LockersPage() {
         modData.forEach(m => {
           if (m.lockers_casilleros) {
             const ordenados = [...m.lockers_casilleros].sort((a, b) => a.numero_en_modulo - b.numero_en_modulo)
-            allCasilleros.push(...ordenados)
+            ordenados.forEach(c => {
+              allCasilleros.push({
+                ...c,
+                modulo_area: m.area || 'Planta de Beneficio',
+                modulo_bateria: m.bateria,
+                modulo_codigo: m.codigo_modulo
+              })
+            })
           }
         })
         setCasilleros(allCasilleros)
@@ -227,11 +252,14 @@ export default function LockersPage() {
         ? ' y *entregar la copia de la llave de tu casillero*'
         : ''
 
+    const depArea = selectedCasillero.modulo_area || 'Planta de Beneficio'
+
     return (
       `📋 *AVISO DE RECURSOS HUMANOS - MINAS DE BACIS*\n\n` +
-      `Hola *${nombreTitular}*, te notificamos que tu casillero *${selectedCasillero.codigo_casillero}* (${selectedCasillero.posicion_nivel}) ha sido registrado en el sistema.\n\n` +
+      `Hola *${nombreTitular}*, te notificamos que tu casillero *${selectedCasillero.codigo_casillero}* (${selectedCasillero.posicion_nivel}) en el área de *${depArea}* ha sido registrado en el sistema.\n\n` +
       `⚠️ *PASO OBLIGATORIO:* Debes pasar personalmente a la oficina de *Recursos Humanos* para *FIRMAR TU RESGUARDO OFICIAL*${textoLlave}.\n\n` +
       `• *Folio de Resguardo:* ${editFolioResguardo}\n` +
+      `• *Departamento / Área:* ${depArea}\n` +
       `• *Casillero:* ${selectedCasillero.codigo_casillero}\n` +
       `• *Deja copia de llave en RH:* ${editDejaLlaveRh === 'Si' ? 'Sí' : editDejaLlaveRh === 'Ya Entregada' ? 'Ya entregada' : 'No'}`
     )
@@ -252,6 +280,176 @@ export default function LockersPage() {
     navigator.clipboard.writeText(msg)
     setCopiedNotice(true)
     setTimeout(() => setCopiedNotice(false), 2500)
+  }
+
+  // Generador de SQL para el Modal de Creación de Área
+  const generarSqlArea = () => {
+    const cleanArea = newAreaName.trim() || 'Mina'
+    const cleanPrefix = (newPrefix.trim() || 'MIN-M').toUpperCase()
+    const cleanBat = newBateria.trim() || 'Batería 1'
+    const cleanUbicacion = newUbicacion.trim() || `${cleanArea} - Vestidor Principal`
+    const inicio = newModuloInicio
+    const fin = newModuloInicio + newModulosCount - 1
+    const tipo = newTipoModulo
+
+    if (tipo === '3_niveles') {
+      return `-- SCRIPT SQL PARA CREAR ${newModulosCount} MÓDULOS (3 NIVELES = ${newModulosCount * 3} CASILLEROS) EN ${cleanArea.toUpperCase()}
+DO $$
+DECLARE
+    v_mod_id UUID;
+    v_mod_num INT;
+    v_mod_code VARCHAR(50);
+BEGIN
+    FOR v_mod_num IN ${inicio}..${fin} LOOP
+        v_mod_code := '${cleanPrefix}' || LPAD(v_mod_num::text, 2, '0');
+        
+        INSERT INTO lockers_modulos (codigo_modulo, area, bateria, tipo_modulo, ubicacion_detalle, orden)
+        VALUES (v_mod_code, '${cleanArea}', '${cleanBat}', '3_niveles', '${cleanUbicacion}', v_mod_num)
+        ON CONFLICT (codigo_modulo) DO UPDATE 
+            SET area = '${cleanArea}', bateria = '${cleanBat}'
+        RETURNING id_modulo INTO v_mod_id;
+
+        IF v_mod_id IS NULL THEN
+            SELECT id_modulo INTO v_mod_id FROM lockers_modulos WHERE codigo_modulo = v_mod_code;
+        END IF;
+
+        INSERT INTO lockers_casilleros (id_modulo, codigo_casillero, posicion_nivel, numero_en_modulo, estatus)
+        VALUES (v_mod_id, v_mod_code || '-A', 'Superior', 1, 'Disponible')
+        ON CONFLICT (codigo_casillero) DO NOTHING;
+
+        INSERT INTO lockers_casilleros (id_modulo, codigo_casillero, posicion_nivel, numero_en_modulo, estatus)
+        VALUES (v_mod_id, v_mod_code || '-B', 'Medio', 2, 'Disponible')
+        ON CONFLICT (codigo_casillero) DO NOTHING;
+
+        INSERT INTO lockers_casilleros (id_modulo, codigo_casillero, posicion_nivel, numero_en_modulo, estatus)
+        VALUES (v_mod_id, v_mod_code || '-C', 'Inferior', 3, 'Disponible')
+        ON CONFLICT (codigo_casillero) DO NOTHING;
+    END LOOP;
+END $$;`
+    } else {
+      return `-- SCRIPT SQL PARA CREAR ${newModulosCount} MÓDULOS (2 NIVELES GRANDES = ${newModulosCount * 2} CASILLEROS) EN ${cleanArea.toUpperCase()}
+DO $$
+DECLARE
+    v_mod_id UUID;
+    v_mod_num INT;
+    v_mod_code VARCHAR(50);
+BEGIN
+    FOR v_mod_num IN ${inicio}..${fin} LOOP
+        v_mod_code := '${cleanPrefix}' || LPAD(v_mod_num::text, 2, '0');
+        
+        INSERT INTO lockers_modulos (codigo_modulo, area, bateria, tipo_modulo, ubicacion_detalle, orden)
+        VALUES (v_mod_code, '${cleanArea}', '${cleanBat}', '2_niveles', '${cleanUbicacion}', v_mod_num)
+        ON CONFLICT (codigo_modulo) DO UPDATE 
+            SET area = '${cleanArea}', bateria = '${cleanBat}'
+        RETURNING id_modulo INTO v_mod_id;
+
+        IF v_mod_id IS NULL THEN
+            SELECT id_modulo INTO v_mod_id FROM lockers_modulos WHERE codigo_modulo = v_mod_code;
+        END IF;
+
+        INSERT INTO lockers_casilleros (id_modulo, codigo_casillero, posicion_nivel, numero_en_modulo, estatus)
+        VALUES (v_mod_id, v_mod_code || '-A', 'Superior Grande', 1, 'Disponible')
+        ON CONFLICT (codigo_casillero) DO NOTHING;
+
+        INSERT INTO lockers_casilleros (id_modulo, codigo_casillero, posicion_nivel, numero_en_modulo, estatus)
+        VALUES (v_mod_id, v_mod_code || '-B', 'Inferior Grande', 2, 'Disponible')
+        ON CONFLICT (codigo_casillero) DO NOTHING;
+    END LOOP;
+END $$;`
+    }
+  }
+
+  const handleCopiarSql = () => {
+    const sql = generarSqlArea()
+    navigator.clipboard.writeText(sql)
+    setCopiedSql(true)
+    setTimeout(() => setCopiedSql(false), 2500)
+  }
+
+  // Crear en la Base de Datos directamente desde el sistema
+  const handleCrearAreaYModulos = async () => {
+    if (!newAreaName.trim()) {
+      alert('Por favor escribe el nombre del área o departamento.')
+      return
+    }
+    if (!newPrefix.trim()) {
+      alert('Por favor escribe el prefijo para los casilleros (ej. MIN-M).')
+      return
+    }
+    if (newModulosCount <= 0 || newModulosCount > 100) {
+      alert('La cantidad de módulos debe ser entre 1 y 100.')
+      return
+    }
+
+    setCreatingArea(true)
+    try {
+      const cleanArea = newAreaName.trim()
+      let cleanPrefix = newPrefix.trim().toUpperCase()
+      if (!cleanPrefix.endsWith('-M') && !cleanPrefix.endsWith('-')) {
+        cleanPrefix = `${cleanPrefix}-`
+      }
+      const cleanBat = newBateria.trim() || 'Batería 1'
+      const cleanUbicacion = newUbicacion.trim() || `${cleanArea} - Vestidor Principal`
+
+      let creados = 0
+      for (let i = 0; i < newModulosCount; i++) {
+        const modNum = newModuloInicio + i
+        const numStr = String(modNum).padStart(2, '0')
+        const codMod = `${cleanPrefix}${numStr}`
+
+        // Insertar o actualizar módulo
+        const { data: modInsert, error: modErr } = await supabase
+          .from('lockers_modulos')
+          .insert({
+            codigo_modulo: codMod,
+            area: cleanArea,
+            bateria: cleanBat,
+            tipo_modulo: newTipoModulo,
+            ubicacion_detalle: cleanUbicacion,
+            orden: modNum
+          })
+          .select('id_modulo')
+          .single()
+
+        let idMod = modInsert?.id_modulo
+
+        if (modErr) {
+          // Si ya existía, consultamos su id
+          const { data: existingMod } = await supabase
+            .from('lockers_modulos')
+            .select('id_modulo')
+            .eq('codigo_modulo', codMod)
+            .single()
+          idMod = existingMod?.id_modulo
+        }
+
+        if (!idMod) continue
+
+        // Insertar casilleros
+        if (newTipoModulo === '3_niveles') {
+          await supabase.from('lockers_casilleros').upsert([
+            { id_modulo: idMod, codigo_casillero: `${codMod}-A`, posicion_nivel: 'Superior', numero_en_modulo: 1, estatus: 'Disponible' },
+            { id_modulo: idMod, codigo_casillero: `${codMod}-B`, posicion_nivel: 'Medio', numero_en_modulo: 2, estatus: 'Disponible' },
+            { id_modulo: idMod, codigo_casillero: `${codMod}-C`, posicion_nivel: 'Inferior', numero_en_modulo: 3, estatus: 'Disponible' }
+          ], { onConflict: 'codigo_casillero' })
+        } else {
+          await supabase.from('lockers_casilleros').upsert([
+            { id_modulo: idMod, codigo_casillero: `${codMod}-A`, posicion_nivel: 'Superior Grande', numero_en_modulo: 1, estatus: 'Disponible' },
+            { id_modulo: idMod, codigo_casillero: `${codMod}-B`, posicion_nivel: 'Inferior Grande', numero_en_modulo: 2, estatus: 'Disponible' }
+          ], { onConflict: 'codigo_casillero' })
+        }
+        creados++
+      }
+
+      await cargarDatos()
+      setSelectedArea(cleanArea)
+      setIsCreateAreaModalOpen(false)
+      alert(`✅ ¡Se registraron exitosamente ${creados} módulos y sus casilleros para "${cleanArea}"! Ya puedes consultar sus QRs y asignarlos.`)
+    } catch (err: any) {
+      alert('Error creando casilleros: ' + (err.message || err))
+    } finally {
+      setCreatingArea(false)
+    }
   }
 
   // Guardar cambios del casillero
@@ -451,8 +649,12 @@ export default function LockersPage() {
   // Filtrado de empleados en modal
   const empleadosFiltrados = useMemo(() => {
     return empleados.filter(e => {
-      const matchDep = soloBeneficio ? (e.departamento?.toLowerCase().includes('beneficio')) : true
-      if (!matchDep) return false
+      if (soloBeneficio && selectedCasillero?.modulo_area) {
+        const areaNorm = selectedCasillero.modulo_area.toLowerCase()
+        const depNorm = (e.departamento || '').toLowerCase()
+        if (areaNorm.includes('beneficio') && !depNorm.includes('beneficio')) return false
+        if (areaNorm.includes('mina') && !depNorm.includes('mina')) return false
+      }
 
       if (!filtroEmpleadoModal) return true
       const q = filtroEmpleadoModal.toLowerCase()
@@ -460,19 +662,37 @@ export default function LockersPage() {
       const numStr = String(e.numero_empleado || '')
       return fullName.includes(q) || numStr.includes(q)
     })
-  }, [empleados, filtroEmpleadoModal, soloBeneficio])
+  }, [empleados, filtroEmpleadoModal, soloBeneficio, selectedCasillero])
 
-  // Estadísticas KPI
+  // Áreas disponibles dinámicas
+  const areasDisponibles = useMemo(() => {
+    const list = Array.from(new Set(modulos.map(m => m.area || 'Planta de Beneficio')))
+    return list.sort()
+  }, [modulos])
+
+  // Casilleros filtrados por área para cálculo de KPIs
+  const casillerosArea = useMemo(() => {
+    if (selectedArea === 'TODAS') return casilleros
+    return casilleros.filter(c => c.modulo_area === selectedArea)
+  }, [casilleros, selectedArea])
+
+  // Módulos del área seleccionada
+  const modulosArea = useMemo(() => {
+    if (selectedArea === 'TODAS') return modulos
+    return modulos.filter(m => m.area === selectedArea)
+  }, [modulos, selectedArea])
+
+  // Estadísticas KPI (según área seleccionada)
   const stats = useMemo(() => {
-    const total = casilleros.length
-    const asignados = casilleros.filter(c => c.estatus === 'Asignado').length
-    const disponibles = casilleros.filter(c => c.estatus === 'Disponible').length
-    const reparacion = casilleros.filter(c => c.estatus === 'En Reparacion').length
-    const inservibles = casilleros.filter(c => c.estatus === 'Inservible').length
+    const total = casillerosArea.length
+    const asignados = casillerosArea.filter(c => c.estatus === 'Asignado').length
+    const disponibles = casillerosArea.filter(c => c.estatus === 'Disponible').length
+    const reparacion = casillerosArea.filter(c => c.estatus === 'En Reparacion').length
+    const inservibles = casillerosArea.filter(c => c.estatus === 'Inservible').length
 
     let pendientesResguardo = 0
     let firmadosResguardo = 0
-    casilleros.forEach(c => {
+    casillerosArea.forEach(c => {
       if (c.estatus === 'Asignado') {
         const { meta } = parseLockerObservaciones(c.observaciones)
         if (meta.estatus_resguardo === 'Firmado') {
@@ -484,11 +704,12 @@ export default function LockersPage() {
     })
 
     return { total, asignados, disponibles, reparacion, inservibles, pendientesResguardo, firmadosResguardo }
-  }, [casilleros])
+  }, [casillerosArea])
 
   // Filtrado de módulos en el planograma
   const modulosFiltrados = useMemo(() => {
     return modulos.filter(mod => {
+      if (selectedArea !== 'TODAS' && mod.area !== selectedArea) return false
       if (selectedBateria !== 'TODAS' && mod.bateria !== selectedBateria) return false
       if (selectedTipo === '3_NIVELES' && mod.tipo_modulo !== '3_niveles') return false
       if (selectedTipo === '2_NIVELES' && mod.tipo_modulo !== '2_niveles') return false
@@ -518,13 +739,13 @@ export default function LockersPage() {
 
       return true
     })
-  }, [modulos, selectedBateria, selectedTipo, selectedEstatus, searchTerm])
+  }, [modulos, selectedArea, selectedBateria, selectedTipo, selectedEstatus, searchTerm])
 
-  // Baterías únicas para tabs
+  // Baterías únicas para tabs según el área
   const bateriasDisponibles = useMemo(() => {
-    const set = new Set(modulos.map(m => m.bateria))
-    return Array.from(set)
-  }, [modulos])
+    const set = new Set(modulosArea.map(m => m.bateria))
+    return Array.from(set).sort()
+  }, [modulosArea])
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
@@ -541,7 +762,13 @@ export default function LockersPage() {
               </h1>
               <p className="text-xs text-zinc-400 font-medium flex items-center gap-2">
                 <Building2 className="w-3.5 h-3.5 text-amber-400" />
-                Área: <span className="text-amber-300 font-bold">Planta de Beneficio</span> (120 Casilleros · Autorregistro QR + Firma de Resguardo RH)
+                <span>
+                  {selectedArea === 'TODAS' ? (
+                    <>Todos los Departamentos · <strong className="text-amber-300">{casilleros.length} Casilleros</strong> ({modulos.length} Módulos)</>
+                  ) : (
+                    <>Área: <strong className="text-amber-300">{selectedArea}</strong> · {stats.total} Casilleros ({modulosArea.length} Módulos)</>
+                  )}
+                </span>
               </p>
             </div>
           </div>
@@ -549,8 +776,24 @@ export default function LockersPage() {
 
         {/* Botones de acción rápida */}
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => {
+              setNewAreaName('Mina')
+              setNewPrefix('MIN-M')
+              setNewBateria('Batería 1 (Vestidor Mina)')
+              setNewUbicacion('Vestidores Mina Nivel 0')
+              setNewModulosCount(10)
+              setNewModuloInicio(1)
+              setIsCreateAreaModalOpen(true)
+            }}
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs sm:text-sm transition-all shadow-lg shadow-indigo-600/20 active:scale-95"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>➕ Nueva Área / Módulos</span>
+          </button>
+
           <Link
-            href="/registro-locker?locker=PB-M01-A"
+            href={`/registro-locker${selectedArea !== 'TODAS' ? `?area=${encodeURIComponent(selectedArea)}` : ''}`}
             target="_blank"
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-xs sm:text-sm transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
           >
@@ -601,6 +844,70 @@ export default function LockersPage() {
         </div>
       </div>
 
+      {/* Barra de Pestañas por Departamento / Área */}
+      <div className="print:hidden bg-white dark:bg-zinc-900 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-sm flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-black uppercase text-zinc-500 dark:text-zinc-400 mr-1 flex items-center gap-1.5">
+            <Building2 className="w-4 h-4 text-amber-500" />
+            Departamento:
+          </span>
+
+          <button
+            onClick={() => {
+              setSelectedArea('TODAS')
+              setSelectedBateria('TODAS')
+            }}
+            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
+              selectedArea === 'TODAS'
+                ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 shadow-md'
+                : 'bg-slate-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700'
+            }`}
+          >
+            🏢 Todas las Áreas ({casilleros.length})
+          </button>
+
+          {areasDisponibles.map(area => {
+            const count = casilleros.filter(c => c.modulo_area === area).length
+            const theme = getAreaTheme(area)
+            const active = selectedArea === area
+            return (
+              <button
+                key={area}
+                onClick={() => {
+                  setSelectedArea(area)
+                  setSelectedBateria('TODAS')
+                }}
+                className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                  active
+                    ? `${theme.accentBg} ${theme.accentText} shadow-md`
+                    : 'bg-slate-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700'
+                }`}
+              >
+                <span>{theme.icon}</span>
+                <span>{area}</span>
+                <span className="text-[10px] font-mono opacity-80">({count})</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <button
+          onClick={() => {
+            setNewAreaName('')
+            setNewPrefix('')
+            setNewBateria('Batería 1')
+            setNewUbicacion('')
+            setNewModulosCount(10)
+            setNewModuloInicio(1)
+            setIsCreateAreaModalOpen(true)
+          }}
+          className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Agregar más casilleros u otra área</span>
+        </button>
+      </div>
+
       {/* Alerta de Tabla no creada en Supabase */}
       {tableMissing && (
         <div className="print:hidden bg-amber-500/10 border-2 border-amber-500/40 rounded-2xl p-6 text-amber-900 dark:text-amber-200 space-y-3 shadow-md">
@@ -634,9 +941,9 @@ export default function LockersPage() {
             <Layers className="w-4 h-4 text-zinc-400" />
           </div>
           <div className="text-2xl font-black text-zinc-900 dark:text-white mt-2">
-            {stats.total || 120}
+            {stats.total}
           </div>
-          <span className="text-[10px] text-zinc-500 font-medium">42 módulos físicos</span>
+          <span className="text-[10px] text-zinc-500 font-medium">{modulosArea.length} módulos físicos</span>
         </div>
 
         <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm">
@@ -750,9 +1057,9 @@ export default function LockersPage() {
               onChange={(e) => setSelectedTipo(e.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-zinc-900 dark:text-white"
             >
-              <option value="TODOS">Todos los Tipos (120 Cas.)</option>
-              <option value="3_NIVELES">📦 3 Niveles (90% - 108 Cas.)</option>
-              <option value="2_NIVELES">🚪 2 Niveles Grandes (10% - 12 Cas.)</option>
+              <option value="TODOS">Todos los Tipos ({stats.total} Cas.)</option>
+              <option value="3_NIVELES">📦 3 Niveles</option>
+              <option value="2_NIVELES">🚪 2 Niveles Grandes</option>
             </select>
           </div>
         </div>
@@ -769,7 +1076,7 @@ export default function LockersPage() {
                   : 'bg-slate-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-slate-200'
               }`}
             >
-              Todas ({modulos.length} Módulos)
+              Todas ({modulosArea.length} Módulos)
             </button>
             {bateriasDisponibles.map(bat => (
               <button
@@ -839,15 +1146,22 @@ export default function LockersPage() {
                         >
                           {/* Cabecera del Módulo */}
                           <div className="px-2.5 py-1.5 bg-slate-100 dark:bg-zinc-800/80 rounded-t-lg flex items-center justify-between border-b border-slate-200 dark:border-zinc-700/60">
-                            <span className="font-mono font-black text-xs text-zinc-800 dark:text-zinc-200">
-                              {modulo.codigo_modulo}
-                            </span>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {selectedArea === 'TODAS' && (
+                                <span className="text-[10px]" title={modulo.area}>
+                                  {getAreaTheme(modulo.area).icon}
+                                </span>
+                              )}
+                              <span className="font-mono font-black text-xs text-zinc-800 dark:text-zinc-200 truncate">
+                                {modulo.codigo_modulo}
+                              </span>
+                            </div>
                             <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
                               esDoble
                                 ? 'bg-indigo-500 text-white'
                                 : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300'
                             }`}>
-                              {esDoble ? '2 Niveles' : '3 Niveles'}
+                              {esDoble ? '2 Niv.' : '3 Niv.'}
                             </span>
                           </div>
 
@@ -1423,7 +1737,7 @@ export default function LockersPage() {
                     CARTA DE RESGUARDO Y RESPONSIVA DE CASILLERO (LOCKER)
                   </h2>
                   <p className="text-xs font-bold text-zinc-600">
-                    ÁREA: PLANTA DE BENEFICIO · VESTIDOR DE PERSONAL
+                    ÁREA: {(selectedCasillero.modulo_area || 'PLANTA DE BENEFICIO').toUpperCase()} · {selectedCasillero.modulo_bateria || 'VESTIDOR DE PERSONAL'}
                   </p>
                 </div>
                 <div className="text-right">
@@ -1616,6 +1930,242 @@ export default function LockersPage() {
                     />
                     <p className="text-[9px] text-zinc-500">Validación de Resguardo y Control de Llaves RH</p>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODAL PARA CREAR NUEVA ÁREA O GENERAR MÓDULOS DE CASILLEROS          */}
+      {/* ===================================================================== */}
+      {isCreateAreaModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-zinc-800 my-8">
+            {/* Header del Modal */}
+            <div className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-800/60">
+              <div className="flex items-center gap-3">
+                <span className="p-2 rounded-xl bg-indigo-500/20 text-indigo-500 dark:text-indigo-400">
+                  <PlusCircle className="w-6 h-6" />
+                </span>
+                <div>
+                  <h3 className="font-black text-lg text-zinc-900 dark:text-white">
+                    Generar Nueva Área / Módulos de Casilleros
+                  </h3>
+                  <p className="text-xs text-zinc-500">
+                    Crea casilleros para Mina o cualquier departamento. Se registrarán con sus códigos QR interactivos.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateAreaModalOpen(false)}
+                className="p-2 rounded-xl text-zinc-400 hover:text-zinc-600 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Contenido del Formulario */}
+            <div className="p-6 space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="font-bold text-zinc-700 dark:text-zinc-300 block mb-1">
+                    1. Nombre del Área / Departamento: *
+                  </label>
+                  <input
+                    type="text"
+                    value={newAreaName}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setNewAreaName(val)
+                      // Auto sugerir prefijo
+                      if (val.toLowerCase().includes('mina')) setNewPrefix('MIN-M')
+                      else if (val.toLowerCase().includes('mantenimiento')) setNewPrefix('MNT-M')
+                      else if (val.toLowerCase().includes('geologia')) setNewPrefix('GEO-M')
+                      else if (val.toLowerCase().includes('beneficio')) setNewPrefix('PB-M')
+                    }}
+                    placeholder="Ej. Mina, Mantenimiento, Laboratorio..."
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700 font-bold"
+                  />
+                  <div className="flex gap-1.5 mt-1.5">
+                    {['Mina', 'Planta de Beneficio', 'Mantenimiento', 'Laboratorio'].map(sug => (
+                      <button
+                        key={sug}
+                        type="button"
+                        onClick={() => {
+                          setNewAreaName(sug)
+                          if (sug === 'Mina') setNewPrefix('MIN-M')
+                          if (sug === 'Planta de Beneficio') setNewPrefix('PB-M')
+                          if (sug === 'Mantenimiento') setNewPrefix('MNT-M')
+                          if (sug === 'Laboratorio') setNewPrefix('LAB-M')
+                        }}
+                        className="text-[10px] px-2 py-0.5 rounded bg-slate-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-semibold hover:bg-indigo-500 hover:text-white transition-colors"
+                      >
+                        {sug}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-bold text-zinc-700 dark:text-zinc-300 block mb-1">
+                    2. Prefijo para Código de Módulos: *
+                  </label>
+                  <input
+                    type="text"
+                    value={newPrefix}
+                    onChange={(e) => setNewPrefix(e.target.value.toUpperCase())}
+                    placeholder="Ej. MIN-M (para MIN-M01, MIN-M02...)"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700 font-mono font-black"
+                  />
+                  <span className="text-[10px] text-zinc-500 block mt-1">
+                    Generará casilleros: {newPrefix || 'MIN-M'}01-A, {newPrefix || 'MIN-M'}01-B...
+                  </span>
+                </div>
+
+                <div>
+                  <label className="font-bold text-zinc-700 dark:text-zinc-300 block mb-1">
+                    3. Nombre de la Batería:
+                  </label>
+                  <input
+                    type="text"
+                    value={newBateria}
+                    onChange={(e) => setNewBateria(e.target.value)}
+                    placeholder="Ej. Batería 1, Batería 2..."
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700 font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-zinc-700 dark:text-zinc-300 block mb-1">
+                    4. Ubicación Detallada:
+                  </label>
+                  <input
+                    type="text"
+                    value={newUbicacion}
+                    onChange={(e) => setNewUbicacion(e.target.value)}
+                    placeholder="Ej. Vestidores Mina Nivel 0"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-zinc-700 dark:text-zinc-300 block mb-1">
+                    5. Tipo de Mueble / Módulo:
+                  </label>
+                  <select
+                    value={newTipoModulo}
+                    onChange={(e) => setNewTipoModulo(e.target.value as any)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700 font-bold"
+                  >
+                    <option value="3_niveles">3 Niveles (A Superior, B Medio, C Inferior) - 3 Casilleros</option>
+                    <option value="2_niveles">2 Niveles Grandes (A Sup. Grande, B Inf. Grande) - 2 Casilleros</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="font-bold text-zinc-700 dark:text-zinc-300 block mb-1">
+                      Módulo Inicial:
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={999}
+                      value={newModuloInicio}
+                      onChange={(e) => setNewModuloInicio(parseInt(e.target.value) || 1)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700 font-mono font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold text-zinc-700 dark:text-zinc-300 block mb-1">
+                      Cant. Módulos:
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={newModulosCount}
+                      onChange={(e) => setNewModulosCount(parseInt(e.target.value) || 1)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700 font-mono font-bold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Resumen Informativo */}
+              <div className="p-3.5 bg-indigo-500/10 border border-indigo-500/30 rounded-xl space-y-1">
+                <span className="font-black text-indigo-700 dark:text-indigo-300 text-xs flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-indigo-500" />
+                  Resumen de lo que se creará:
+                </span>
+                <p className="text-zinc-600 dark:text-zinc-300 text-[11px]">
+                  Se generarán <strong>{newModulosCount} módulos</strong> ({newPrefix}{String(newModuloInicio).padStart(2, '0')} al {newPrefix}{String(newModuloInicio + newModulosCount - 1).padStart(2, '0')}) con un total de <strong>{newModulosCount * (newTipoModulo === '3_niveles' ? 3 : 2)} casilleros</strong> para el departamento <strong>"{newAreaName || 'Mina'}"</strong>.
+                </p>
+              </div>
+
+              {/* Vista previa de Código SQL (Opcional) */}
+              {verSqlModal && (
+                <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-zinc-800">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-zinc-500 flex items-center gap-1">
+                      <Code className="w-3.5 h-3.5 text-amber-500" />
+                      Script SQL generado para Supabase:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleCopiarSql}
+                      className="text-xs font-bold text-amber-500 hover:text-amber-400 flex items-center gap-1"
+                    >
+                      {copiedSql ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedSql ? '¡Copiado!' : 'Copiar SQL'}</span>
+                    </button>
+                  </div>
+                  <pre className="p-3 bg-zinc-950 text-emerald-400 font-mono text-[10px] rounded-xl overflow-x-auto max-h-40 border border-zinc-800">
+                    {generarSqlArea()}
+                  </pre>
+                </div>
+              )}
+
+              {/* Acciones del Modal */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setVerSqlModal(!verSqlModal)}
+                  className="text-xs font-bold text-zinc-500 hover:text-zinc-800 dark:hover:text-white flex items-center gap-1.5"
+                >
+                  <Database className="w-3.5 h-3.5" />
+                  <span>{verSqlModal ? 'Ocultar Código SQL' : 'Ver / Copiar SQL para Supabase'}</span>
+                </button>
+
+                <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateAreaModalOpen(false)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 text-zinc-700 dark:text-zinc-300 font-bold transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCrearAreaYModulos}
+                    disabled={creatingArea}
+                    className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black transition-all shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {creatingArea ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Creando Casilleros...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Crear en el Sistema Ahora</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
