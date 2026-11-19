@@ -56,17 +56,18 @@ export default function LandingHub() {
         const r = `${rolRaw} ${nameRaw}`.toLowerCase()
         if (r.includes('contratista')) return '/contratistas-portal'
         if (r.includes('caseta') || r.includes('patrimonial')) return '/caseta'
-        if (r.includes('seguridad')) return '/seguridad'
+        if (r.includes('seguridad') && !r.includes('jefe')) return '/seguridad'
         if (r.includes('chofer') || r.includes('conductor')) return '/logistica/choferes'
         if (r.includes('campamento') || r.includes('comedor')) return '/campamentos'
         if (r.includes('médic') || r.includes('medic') || r.includes('doctor')) return '/medico/consultas'
+        if (r.includes('jefe de departamento') || r === 'jefe' || r.includes('supervisor') || r.includes('superintendente')) return '/mi-departamento'
         if (target === 'chofer') return '/logistica/choferes'
         if (target === 'campamento') return '/campamentos'
         if (target === 'contratista') return '/contratistas-portal'
         if (target === 'caseta') return '/caseta'
         if (target === 'seguridad') return '/seguridad'
         if (target === 'medico') return '/medico/consultas'
-        if (target === 'jefes') return '/autorizaciones'
+        if (target === 'jefes') return '/mi-departamento'
         return '/inicio'
     }
 
@@ -78,13 +79,24 @@ export default function LandingHub() {
         try {
             let loginEmail = email.trim()
             if (!loginEmail.includes('@')) {
-                loginEmail = `${loginEmail}@mina.com`
+                loginEmail = `${loginEmail}@bacis.com`
             }
 
-            const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+            let { data: authData, error: authError } = await supabase.auth.signInWithPassword({
                 email: loginEmail,
                 password,
             })
+
+            if (authError && !email.trim().includes('@')) {
+                const retryMina = await supabase.auth.signInWithPassword({
+                    email: `${email.trim()}@mina.com`,
+                    password,
+                })
+                if (!retryMina.error) {
+                    authData = retryMina.data
+                    authError = null
+                }
+            }
 
             const searchParams = new URLSearchParams(window.location.search)
             let nextPath = searchParams.get('next')

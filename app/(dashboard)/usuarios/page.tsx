@@ -17,6 +17,8 @@ export default function UsuariosPage() {
     const [editingUserId, setEditingUserId] = useState('')
     const [showModalPassword, setShowModalPassword] = useState(false)
     const [seedingLoading, setSeedingLoading] = useState(false)
+    const [seedingDeptsLoading, setSeedingDeptsLoading] = useState(false)
+    const [seededDeptAccounts, setSeededDeptAccounts] = useState<any[] | null>(null)
 
     // Form state
     const [formData, setFormData] = useState({
@@ -77,6 +79,22 @@ export default function UsuariosPage() {
             alert('Error: ' + e.message)
         } finally {
             setSeedingLoading(false)
+        }
+    }
+
+    async function handleSeedDepartamentos() {
+        if (!confirm('¿Generar o sincronizar automáticamente un usuario de acceso para cada Departamento (con contraseña "Bacis2026!") para que cada área revise sus contratistas y trabajadores en pase médico/acompañantes?')) return
+        setSeedingDeptsLoading(true)
+        try {
+            const res = await fetch('/api/seed-departamentos', { method: 'POST' })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || 'Error al sincronizar accesos por departamento')
+            setSeededDeptAccounts(data.accounts || [])
+            fetchData()
+        } catch (e: any) {
+            alert('Error: ' + e.message)
+        } finally {
+            setSeedingDeptsLoading(false)
         }
     }
 
@@ -221,6 +239,16 @@ export default function UsuariosPage() {
                 </div>
                 
                 <div className="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={handleSeedDepartamentos}
+                        disabled={seedingDeptsLoading}
+                        className="inline-flex items-center bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-black text-xs transition-all shadow-sm gap-1.5"
+                    >
+                        <Building className={`w-4 h-4 ${seedingDeptsLoading ? 'animate-spin' : ''}`} />
+                        <span>{seedingDeptsLoading ? 'Generando...' : '🏢 Generar Accesos por Departamento'}</span>
+                    </button>
+
                     <button
                         type="button"
                         onClick={handleSeedChoferes}
@@ -475,29 +503,60 @@ export default function UsuariosPage() {
                             )}
                             
                             {['Jefe de Departamento', 'Superintendente', 'Supervisor'].includes(formData.rol) && (
-                                <div className="animate-in slide-in-from-top-2">
-                                    <label className="block text-xs font-bold text-zinc-700 uppercase mb-2">Departamentos Autorizados a Visualizar</label>
-                                    <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3 max-h-40 overflow-y-auto grid grid-cols-2 gap-2">
-                                        {departamentos.map(d => {
-                                            const isChecked = formData.departamentos_autorizados.includes(d.id_departamento);
-                                            return (
-                                                <label key={d.id_departamento} className="flex items-center space-x-2 cursor-pointer hover:bg-zinc-100 p-1.5 rounded-lg transition-colors">
-                                                    <input 
-                                                        type="checkbox"
-                                                        checked={isChecked}
-                                                        onChange={(e) => {
-                                                            if (e.target.checked) {
-                                                                setFormData({...formData, departamentos_autorizados: [...formData.departamentos_autorizados, d.id_departamento]})
-                                                            } else {
-                                                                setFormData({...formData, departamentos_autorizados: formData.departamentos_autorizados.filter(id => id !== d.id_departamento)})
-                                                            }
-                                                        }}
-                                                        className="w-4 h-4 text-black border-zinc-300 rounded focus:ring-black"
-                                                    />
-                                                    <span className="text-xs text-zinc-700 font-bold truncate">{d.departamento}</span>
-                                                </label>
-                                            )
-                                        })}
+                                <div className="space-y-3 animate-in slide-in-from-top-2">
+                                    <div>
+                                        <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">
+                                            Departamento Principal Asignado
+                                        </label>
+                                        <select
+                                            value={formData.id_departamento}
+                                            onChange={(e) => {
+                                                const dId = e.target.value
+                                                const currentAuth = formData.departamentos_autorizados || []
+                                                const nextAuth = dId && !currentAuth.includes(dId) ? [...currentAuth, dId] : currentAuth
+                                                setFormData({
+                                                    ...formData,
+                                                    id_departamento: dId,
+                                                    departamentos_autorizados: nextAuth,
+                                                })
+                                            }}
+                                            className="w-full text-xs font-bold bg-zinc-50 border border-zinc-300 rounded-xl py-2.5 px-3"
+                                        >
+                                            <option value="">-- Seleccione su Departamento Principal --</option>
+                                            {departamentos.map((d) => (
+                                                <option key={d.id_departamento} value={d.id_departamento}>
+                                                    🏢 {d.departamento}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-zinc-700 uppercase mb-2">
+                                            Departamentos Autorizados a Visualizar (Pases Médicos, Acompañantes y Contratistas)
+                                        </label>
+                                        <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3 max-h-40 overflow-y-auto grid grid-cols-2 gap-2">
+                                            {departamentos.map(d => {
+                                                const isChecked = formData.departamentos_autorizados.includes(d.id_departamento) || String(formData.id_departamento) === String(d.id_departamento);
+                                                return (
+                                                    <label key={d.id_departamento} className="flex items-center space-x-2 cursor-pointer hover:bg-zinc-100 p-1.5 rounded-lg transition-colors">
+                                                        <input 
+                                                            type="checkbox"
+                                                            checked={isChecked}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) {
+                                                                    setFormData({...formData, departamentos_autorizados: [...formData.departamentos_autorizados, d.id_departamento]})
+                                                                } else {
+                                                                    setFormData({...formData, departamentos_autorizados: formData.departamentos_autorizados.filter(id => id !== d.id_departamento)})
+                                                                }
+                                                            }}
+                                                            className="w-4 h-4 text-black border-zinc-300 rounded focus:ring-black"
+                                                        />
+                                                        <span className="text-xs text-zinc-700 font-bold truncate">{d.departamento}</span>
+                                                    </label>
+                                                )
+                                            })}
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -522,6 +581,78 @@ export default function UsuariosPage() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: Accesos de Departamentos Generados */}
+            {seededDeptAccounts && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-zinc-200 max-h-[88vh] flex flex-col">
+                        <div className="p-5 bg-zinc-900 text-white flex justify-between items-center shrink-0">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-xl bg-emerald-500 text-black flex items-center justify-center font-black">
+                                    <Building className="w-4 h-4" />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black uppercase tracking-wide">
+                                        Accesos por Departamento Sincronizados ({seededDeptAccounts.length})
+                                    </h3>
+                                    <p className="text-[11px] text-zinc-400">
+                                        Cada Jefe entra en &quot;Jefes de Área &amp; Superintendentes&quot; para ver sus contratistas, pases médicos y acompañantes.
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setSeededDeptAccounts(null)} className="text-zinc-400 hover:text-white">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="p-5 overflow-y-auto space-y-4 text-xs">
+                            <div className="border border-zinc-200 rounded-2xl overflow-hidden">
+                                <table className="min-w-full divide-y divide-zinc-200">
+                                    <thead className="bg-zinc-100 text-zinc-700 font-black uppercase text-[10px]">
+                                        <tr>
+                                            <th className="px-4 py-2.5 text-left">Departamento</th>
+                                            <th className="px-4 py-2.5 text-left">Usuario / Correo</th>
+                                            <th className="px-4 py-2.5 text-left">Contraseña</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-zinc-100 font-mono">
+                                        {seededDeptAccounts.map((acc, idx) => (
+                                            <tr key={idx} className="hover:bg-zinc-50">
+                                                <td className="px-4 py-2.5 font-sans font-black text-zinc-900">{acc.departamento}</td>
+                                                <td className="px-4 py-2.5 font-bold text-blue-700">{acc.email}</td>
+                                                <td className="px-4 py-2.5 font-bold text-zinc-800">{acc.password}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div className="flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const text = seededDeptAccounts
+                                            .map((a) => `Departamento: ${a.departamento} | Usuario: ${a.email} | Contraseña: ${a.password}`)
+                                            .join('\n')
+                                        navigator.clipboard.writeText(text)
+                                        alert('✅ Lista de accesos de departamentos copiada al portapapeles.')
+                                    }}
+                                    className="px-4 py-2.5 bg-zinc-900 hover:bg-black text-amber-400 font-black rounded-xl"
+                                >
+                                    Copiar Lista de Accesos
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setSeededDeptAccounts(null)}
+                                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl"
+                                >
+                                    Entendido
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

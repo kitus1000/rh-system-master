@@ -133,7 +133,7 @@ export default function PasesPage() {
         antiguedad: '',
         
         // Visibility
-        compartido_departamentos: false
+        compartido_departamentos: true
     })
 
     useEffect(() => {

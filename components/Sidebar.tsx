@@ -50,10 +50,11 @@ const navigationGroups = [
         bgClass: "bg-zinc-800",
         isCollapsible: false,
         items: [
-            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Jefe Médico', 'Recursos Humanos', 'Sistemas', 'Chofer', 'Encargado de Campamento y Comedor', 'Contratista', 'Seguridad Industrial', 'Seguridad', 'Caseta', 'Seguridad Patrimonial'] },
+            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Médico', 'Jefe Médico', 'Recursos Humanos', 'Sistemas', 'Chofer', 'Encargado de Campamento y Comedor', 'Contratista', 'Seguridad Industrial', 'Seguridad', 'Caseta', 'Seguridad Patrimonial'] },
+            { name: '🏢 Mi Departamento (Área)', href: '/mi-departamento', icon: Building, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos', 'Sistemas'] },
             { name: 'Portal Contratista', href: '/contratistas-portal', icon: HardHat, roles: ['Contratista'] },
             { name: '🚌 Bitácora de Rutas Choferes', href: '/logistica/choferes', icon: Bus, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas'] },
-            { name: 'Chat y Muro', href: '/chat', icon: MessageCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Sistemas'] },
+            { name: 'Chat y Muro', href: '/chat', icon: MessageCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos', 'Sistemas'] },
         ]
     },
     {
@@ -64,12 +65,13 @@ const navigationGroups = [
         isCollapsible: true,
         defaultExpanded: true,
         items: [
-            { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
+            { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos'] },
+            { name: 'Portal Mi Departamento', href: '/mi-departamento', icon: Building, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos', 'Sistemas'] },
             { name: 'Centro Integrado RH', href: '/integracion-rh', icon: Layers, roles: ['Administrativo', 'Recursos Humanos', 'Sistemas'] },
             { name: 'Empleados', href: '/empleados', icon: Users, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
             { name: 'Credenciales QR', href: '/empleados/credenciales', icon: QrCode, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
             { name: 'Solicitudes', href: '/solicitudes', icon: FileText, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
-            { name: 'Autorizaciones', href: '/autorizaciones', icon: CheckSquare, roles: ['Administrativo', 'Superintendente'] },
+            { name: 'Autorizaciones', href: '/autorizaciones', icon: CheckSquare, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor'] },
             { name: 'Calendario', href: '/calendario', icon: Calendar, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
             { name: 'Pre-Nómina', href: '/reportes/prenomina', icon: ClipboardList, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
         ]

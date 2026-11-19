@@ -75,6 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         const nameLower = (profData.nombre_completo || '').toLowerCase()
                         const isChoferName = nameLower.includes('pinales') || nameLower.includes('yañez') || nameLower.includes('yanez') || nameLower.includes('vazquez') || nameLower.includes('linares') || nameLower.includes('madriles') || nameLower.includes('saucedo') || nameLower.includes('chofer')
                         if (rolLower.includes('contratista') || metaRolLower.includes('contratista') || nameLower.includes('(contratista)')) normalizedRol = 'Contratista'
+                        else if (rolLower === 'jefe' || rolLower.includes('jefe de departamento')) normalizedRol = 'Jefe de Departamento'
                         else if (rolLower.includes('caseta') || rolLower.includes('patrimonial') || metaRolLower.includes('caseta') || metaRolLower.includes('patrimonial') || nameLower.includes('(caseta)')) normalizedRol = 'Caseta'
                         else if (rolLower.includes('seguridad') || metaRolLower.includes('seguridad') || nameLower.includes('(seguridad)')) normalizedRol = 'Seguridad Industrial'
                         else if (rolLower.includes('chofer') || rolLower.includes('conductor') || rolLower.includes('operador') || isChoferName) normalizedRol = 'Chofer'
@@ -83,7 +84,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         else if (rolLower.includes('campamento') || rolLower.includes('comedor') || rolLower.includes('encargado de campamento') || metaRolLower.includes('campamento') || nameLower.includes('(campamento y comedor)')) normalizedRol = 'Encargado de Campamento y Comedor'
                         else if (rolLower.includes('recursos humanos')) normalizedRol = 'Recursos Humanos'
                         else if (rolLower.includes('admin')) normalizedRol = 'Administrativo'
-                        else if (rolLower === 'jefe' || rolLower.includes('jefe de departamento')) normalizedRol = 'Jefe de Departamento'
                         else if (rolLower.includes('superintendente')) normalizedRol = 'Superintendente'
                         else if (rolLower.includes('supervisor')) normalizedRol = 'Supervisor'
                         
@@ -137,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return allowedRoles.some(r => {
             const rLower = r.toLowerCase()
             if (rLower === userRolLower) return true
+            if (userRolLower === 'supervisor' && rLower === 'jefe de departamento') return true
             if ((userRolLower.includes('médic') || userRolLower.includes('medic') || userRolLower.includes('doctor')) && 
                 (rLower.includes('médic') || rLower.includes('medic'))) return true
             return false
@@ -249,6 +250,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         else if (profile?.rol === 'Chofer') router.push('/logistica/choferes')
                         else if (profile?.rol === 'Encargado de Campamento y Comedor') router.push('/campamentos')
                         else if (profile?.rol === 'Médico' || profile?.rol === 'Jefe Médico') router.push('/medico/consultas')
+                        else if (profile?.rol === 'Jefe de Departamento' || profile?.rol === 'Supervisor') router.push('/mi-departamento')
                         else router.push('/inicio')
                     }} 
                     className="mt-6 px-6 py-2 bg-black text-white font-bold rounded-md hover:bg-zinc-800"
