@@ -336,6 +336,19 @@ export default function ContratistasAdminPage() {
         })
         .eq('id_solicitud', sol.id_solicitud)
 
+      if (sol.contratistas_empresas?.correo) {
+        await fetch('/api/contratistas/notificar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: sol.contratistas_empresas.correo,
+            asunto: `Credenciales QR Autorizadas - Folio ${sol.folio}`,
+            mensaje: `Hola ${sol.contratistas_empresas.razon_social}, tu solicitud ${sol.folio} fue autorizada y ya puedes descargar las ${createdCount} credencial(es) QR desde tu Portal de Contratistas.`,
+            detalles: `Área: ${sol.departamento_nombre} | Vigencia: ${formatShortDate(sol.fecha_inicio)} al ${formatShortDate(sol.fecha_fin)}`,
+          }),
+        }).catch(() => {})
+      }
+
       alert(`✅ Se emitieron ${createdCount} credencial(es) QR de acceso para el folio ${sol.folio}.`)
       await fetchAll()
     } catch (err: any) {

@@ -300,6 +300,17 @@ ALTER TABLE contratistas_solicitudes ADD COLUMN IF NOT EXISTS lugar_induccion TE
 ALTER TABLE contratistas_solicitudes DROP CONSTRAINT IF EXISTS contratistas_solicitudes_estatus_seguridad_check;
 ALTER TABLE contratistas_solicitudes ADD CONSTRAINT contratistas_solicitudes_estatus_seguridad_check CHECK (estatus_seguridad IN ('Pendiente', 'En Diálogo', 'Inducción Programada', 'Aprobado', 'Rechazado'));
 
+-- 6. CONFIGURACIÓN DE CORREO AUTOMÁTICO (SMTP / GMAIL / OUTLOOK / RESEND)
+ALTER TABLE configuracion_empresa ADD COLUMN IF NOT EXISTS email_provider TEXT DEFAULT 'smtp';
+ALTER TABLE configuracion_empresa ADD COLUMN IF NOT EXISTS resend_api_key TEXT;
+ALTER TABLE configuracion_empresa ADD COLUMN IF NOT EXISTS smtp_host TEXT;
+ALTER TABLE configuracion_empresa ADD COLUMN IF NOT EXISTS smtp_port INTEGER DEFAULT 587;
+ALTER TABLE configuracion_empresa ADD COLUMN IF NOT EXISTS smtp_user TEXT;
+ALTER TABLE configuracion_empresa ADD COLUMN IF NOT EXISTS smtp_pass TEXT;
+ALTER TABLE configuracion_empresa ADD COLUMN IF NOT EXISTS smtp_secure BOOLEAN DEFAULT FALSE;
+ALTER TABLE configuracion_empresa ADD COLUMN IF NOT EXISTS email_remitente TEXT;
+ALTER TABLE configuracion_empresa ADD COLUMN IF NOT EXISTS email_rh_notificaciones TEXT;
+
 -- BUCKET DE STORAGE PARA DOCUMENTOS DE CONTRATISTAS (PDFs / IMÁGENES / FOTOS)
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('contratistas_docs', 'contratistas_docs', true)

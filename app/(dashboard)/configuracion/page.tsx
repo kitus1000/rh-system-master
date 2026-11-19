@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import Link from 'next/link'
-import { Save, Building, Upload, CheckCircle, Shield, AlertTriangle } from 'lucide-react'
+import { Save, Building, Upload, CheckCircle, Shield, AlertTriangle, Mail, Send } from 'lucide-react'
 
 export default function ConfiguracionPage() {
     const [loading, setLoading] = useState(true)
@@ -16,8 +16,19 @@ export default function ConfiguracionPage() {
         direccion: '',
         registro_patronal: '',
         logo_base64: '',
-        clave_maestra: ''
+        clave_maestra: '',
+        email_provider: 'smtp',
+        resend_api_key: '',
+        smtp_host: 'smtp.gmail.com',
+        smtp_port: 587,
+        smtp_user: '',
+        smtp_pass: '',
+        smtp_secure: false,
+        email_remitente: '',
+        email_rh_notificaciones: ''
     })
+    const [testEmailTo, setTestEmailTo] = useState('')
+    const [testingEmail, setTestingEmail] = useState(false)
 
     useEffect(() => {
         fetchConfig()
@@ -39,8 +50,18 @@ export default function ConfiguracionPage() {
                 direccion: data.direccion || '',
                 registro_patronal: data.registro_patronal || '',
                 logo_base64: data.logo_base64 || '',
-                clave_maestra: data.clave_maestra || ''
+                clave_maestra: data.clave_maestra || '',
+                email_provider: data.email_provider || 'smtp',
+                resend_api_key: data.resend_api_key || '',
+                smtp_host: data.smtp_host || 'smtp.gmail.com',
+                smtp_port: Number(data.smtp_port || 587),
+                smtp_user: data.smtp_user || '',
+                smtp_pass: data.smtp_pass || '',
+                smtp_secure: Boolean(data.smtp_secure),
+                email_remitente: data.email_remitente || '',
+                email_rh_notificaciones: data.email_rh_notificaciones || ''
             })
+            if (data.email_rh_notificaciones) setTestEmailTo(data.email_rh_notificaciones)
         }
         setLoading(false)
     }
@@ -78,6 +99,32 @@ export default function ConfiguracionPage() {
             alert('Error al guardar: ' + e.message)
         } finally {
             setSaving(false)
+        }
+    }
+
+    async function handleTestEmail() {
+        const target = testEmailTo.trim() || formData.email_rh_notificaciones.trim() || formData.smtp_user.trim()
+        if (!target) {
+            alert('Escribe un correo destino para la prueba.')
+            return
+        }
+        setTestingEmail(true)
+        try {
+            const res = await fetch('/api/contratistas/notificar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tipo: 'test', to: target })
+            })
+            const json = await res.json()
+            if (json.sent) {
+                alert(`✅ Correo de prueba enviado correctamente a ${target} (vía ${json.provider}).`)
+            } else {
+                alert(`❌ No se pudo enviar: ${json.error || 'Verifica tus datos SMTP/Resend y guarda cambios primero.'}`)
+            }
+        } catch (err: any) {
+            alert('Error: ' + err.message)
+        } finally {
+            setTestingEmail(false)
         }
     }
 
@@ -224,6 +271,140 @@ export default function ConfiguracionPage() {
                                 <h4 className="text-sm font-bold text-amber-800">Uso de la información</h4>
                                 <p className="text-xs text-amber-700 mt-1">Estos datos aparecerán automáticamente en el encabezado de los formatos PDF (Vacaciones, Bajas, etc.) generados por la plataforma.</p>
                             </div>
+                        </div>
+                    </div>
+
+                    {/* Automatic Email Settings */}
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-zinc-200 space-y-4">
+                        <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+                            <div className="flex items-center gap-2">
+                                <Mail className="w-5 h-5 text-orange-500" />
+                                <div>
+                                    <h3 className="text-sm font-black text-zinc-900 uppercase">Correo Automático (Contratistas & Notificaciones)</h3>
+                                    <p className="text-xs text-zinc-500">Envía automáticamente accesos, fechas de inducción y credenciales QR sin intervención manual.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-600 uppercase mb-1">Método de Envío</label>
+                                <select
+                                    value={formData.email_provider}
+                                    onChange={e => setFormData({ ...formData, email_provider: e.target.value })}
+                                    className="w-full border-zinc-300 rounded-md p-2 border text-xs font-bold"
+                                >
+                                    <option value="smtp">SMTP (Gmail / Outlook / Correo Corporativo)</option>
+                                    <option value="resend">Resend API</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-600 uppercase mb-1">Correo de RH (Para recibir avisos de nuevos contratistas)</label>
+                                <input
+                                    type="email"
+                                    value={formData.email_rh_notificaciones}
+                                    onChange={e => setFormData({ ...formData, email_rh_notificaciones: e.target.value })}
+                                    placeholder="rh@tuempresa.com"
+                                    className="w-full border-zinc-300 rounded-md p-2 border text-xs font-mono"
+                                />
+                            </div>
+                        </div>
+
+                        {formData.email_provider === 'resend' ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-600 uppercase mb-1">Resend API Key</label>
+                                    <input
+                                        type="password"
+                                        value={formData.resend_api_key}
+                                        onChange={e => setFormData({ ...formData, resend_api_key: e.target.value })}
+                                        placeholder="re_xxxxxxxx..."
+                                        className="w-full border-zinc-300 rounded-md p-2 border text-xs font-mono"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-600 uppercase mb-1">Correo Remitente</label>
+                                    <input
+                                        type="text"
+                                        value={formData.email_remitente}
+                                        onChange={e => setFormData({ ...formData, email_remitente: e.target.value })}
+                                        placeholder="Accesos Mina <accesos@tudominio.com>"
+                                        className="w-full border-zinc-300 rounded-md p-2 border text-xs font-mono"
+                                    />
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-600 uppercase mb-1">Servidor SMTP (Host)</label>
+                                    <input
+                                        type="text"
+                                        value={formData.smtp_host}
+                                        onChange={e => setFormData({ ...formData, smtp_host: e.target.value })}
+                                        placeholder="smtp.gmail.com o smtp.office365.com"
+                                        className="w-full border-zinc-300 rounded-md p-2 border text-xs font-mono"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-600 uppercase mb-1">Puerto SMTP</label>
+                                    <input
+                                        type="number"
+                                        value={formData.smtp_port}
+                                        onChange={e => setFormData({ ...formData, smtp_port: Number(e.target.value) })}
+                                        className="w-full border-zinc-300 rounded-md p-2 border text-xs font-mono"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-600 uppercase mb-1">Usuario / Correo SMTP</label>
+                                    <input
+                                        type="email"
+                                        value={formData.smtp_user}
+                                        onChange={e => setFormData({ ...formData, smtp_user: e.target.value })}
+                                        placeholder="tucorreo@gmail.com"
+                                        className="w-full border-zinc-300 rounded-md p-2 border text-xs font-mono"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-zinc-600 uppercase mb-1">Contraseña / App Password</label>
+                                    <input
+                                        type="password"
+                                        value={formData.smtp_pass}
+                                        onChange={e => setFormData({ ...formData, smtp_pass: e.target.value })}
+                                        placeholder="Contraseña de aplicación (16 caracteres en Gmail)"
+                                        className="w-full border-zinc-300 rounded-md p-2 border text-xs font-mono"
+                                    />
+                                </div>
+                                <div className="md:col-span-2 flex items-center justify-between gap-4 bg-zinc-50 p-3 rounded-lg border border-zinc-200">
+                                    <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.smtp_secure}
+                                            onChange={e => setFormData({ ...formData, smtp_secure: e.target.checked })}
+                                        />
+                                        <span>Usar SSL directo (puerto 465)</span>
+                                    </label>
+                                    <span className="text-[11px] text-zinc-500">Para Gmail/Outlook puerto 587 déjalo desmarcado.</span>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-zinc-100">
+                            <input
+                                type="email"
+                                value={testEmailTo}
+                                onChange={e => setTestEmailTo(e.target.value)}
+                                placeholder="Correo para prueba de envío..."
+                                className="flex-1 border-zinc-300 rounded-md p-2 border text-xs font-mono"
+                            />
+                            <button
+                                type="button"
+                                onClick={handleTestEmail}
+                                disabled={testingEmail}
+                                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-black font-black text-xs rounded-md"
+                            >
+                                <Send className="w-3.5 h-3.5" />
+                                <span>{testingEmail ? 'Enviando...' : 'Guardar primero y Probar Envío'}</span>
+                            </button>
                         </div>
                     </div>
                 </div>

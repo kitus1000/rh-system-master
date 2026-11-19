@@ -150,6 +150,20 @@ export default function SeguridadIndustrialPage() {
         mensaje: notaCita,
       },
     ])
+
+    if (scheduleSol.contratistas_empresas?.correo) {
+      await fetch('/api/contratistas/notificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: scheduleSol.contratistas_empresas.correo,
+          asunto: `Fecha de Inducción Programada - Folio ${scheduleSol.folio}`,
+          mensaje: `Hola ${scheduleSol.contratistas_empresas.razon_social}, Seguridad Industrial programó la cita de inducción para tu personal:`,
+          detalles: `Fecha: ${formatShortDate(scheduleForm.fecha)} | Hora: ${scheduleForm.hora} | Lugar: ${scheduleForm.lugar}`,
+        }),
+      }).catch(() => {})
+    }
+
     setScheduleSol(null)
     await fetchAll()
   }
