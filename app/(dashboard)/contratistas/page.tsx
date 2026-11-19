@@ -35,13 +35,18 @@ import {
   formatShortDate,
   diffDaysInclusive,
 } from '@/utils/contratistasConfig'
-import { generateContractorCredentialPDF } from '@/utils/contratistaBadgePdf'
+import {
+  generateContractorCredentialPDF,
+  BADGE_SIZE_OPTIONS,
+  BadgeSizeFormat,
+} from '@/utils/contratistaBadgePdf'
 
 export default function ContratistasAdminPage() {
   const { user, profile } = useAuth()
   const [loading, setLoading] = useState(true)
   const [schemaMissing, setSchemaMissing] = useState(false)
   const [activeTab, setActiveTab] = useState<'solicitudes' | 'empresas' | 'documentos' | 'prorrogas' | 'bitacora'>('solicitudes')
+  const [badgeSizeFormat, setBadgeSizeFormat] = useState<BadgeSizeFormat>('gafete_medio')
 
   const [empresas, setEmpresas] = useState<any[]>([])
   const [personalAll, setPersonalAll] = useState<any[]>([])
@@ -1185,9 +1190,58 @@ export default function ContratistasAdminPage() {
       {/* TAB 5: CREDENCIALES & BITÁCORA ENTRADA/SALIDA */}
       {activeTab === 'bitacora' && (
         <div className="space-y-6">
+          {/* Selector de Tamaño y Formato de Impresión Bacís */}
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-5 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="text-[10px] font-mono font-black uppercase tracking-widest text-amber-600">
+                  Diseño Oficial Grupo Minero Bacís • Unidad &quot;El Herrero&quot;
+                </span>
+                <h3 className="text-sm font-black uppercase text-zinc-900">
+                  Elige el Tamaño de Credencial para Descargar / Imprimir
+                </h3>
+              </div>
+              <span className="text-[11px] font-bold text-zinc-500">
+                Selecciona 1 de los 4 tamaños antes de presionar &quot;Descargar PDF&quot;
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {BADGE_SIZE_OPTIONS.map((opt) => {
+                const selected = badgeSizeFormat === opt.id
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setBadgeSizeFormat(opt.id)}
+                    className={`text-left p-3.5 rounded-xl border-2 transition-all ${
+                      selected
+                        ? 'border-amber-500 bg-amber-50/70 shadow-sm'
+                        : 'border-zinc-200 hover:border-zinc-300 bg-zinc-50/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-mono font-black px-2 py-0.5 rounded bg-zinc-900 text-amber-400">
+                        {opt.dimensions}
+                      </span>
+                      {selected && (
+                        <span className="text-[10px] font-black text-amber-700 uppercase">✓ Seleccionado</span>
+                      )}
+                    </div>
+                    <p className="font-black text-xs text-zinc-900 mt-2">{opt.label}</p>
+                    <p className="text-[11px] text-zinc-500 mt-1 leading-snug">{opt.description}</p>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-            <div className="p-4 bg-zinc-50 border-b border-zinc-200 font-black text-xs uppercase text-zinc-700">
-              Credenciales Emitidas & Control de Entrega/Devolución
+            <div className="p-4 bg-zinc-50 border-b border-zinc-200 font-black text-xs uppercase text-zinc-700 flex items-center justify-between">
+              <span>Credenciales Emitidas &amp; Control de Entrega/Devolución</span>
+              <span className="text-[11px] font-mono text-amber-700">
+                Formato activo: {BADGE_SIZE_OPTIONS.find((o) => o.id === badgeSizeFormat)?.dimensions}
+              </span>
             </div>
             <table className="min-w-full divide-y divide-zinc-200 text-xs">
               <thead className="bg-zinc-900 text-white uppercase text-[10px] font-black">
@@ -1236,11 +1290,12 @@ export default function ContratistasAdminPage() {
                               vigencia_hasta: cred.vigencia_hasta,
                               folio_solicitud: cred.contratistas_solicitudes?.folio || 'N/A',
                               foto_url: p?.foto_url,
+                              size_format: badgeSizeFormat,
                             })
                           }
-                          className="px-2.5 py-1.5 bg-zinc-900 text-amber-400 rounded-lg font-bold inline-flex items-center gap-1"
+                          className="px-3 py-1.5 bg-zinc-900 hover:bg-black text-amber-400 rounded-lg font-bold inline-flex items-center gap-1"
                         >
-                          <Download className="w-3.5 h-3.5" /> PDF
+                          <Download className="w-3.5 h-3.5" /> Descargar PDF ({BADGE_SIZE_OPTIONS.find((o) => o.id === badgeSizeFormat)?.widthMm}×{BADGE_SIZE_OPTIONS.find((o) => o.id === badgeSizeFormat)?.heightMm}mm)
                         </button>
                         {cred.estatus === 'Emitida' && (
                           <button onClick={() => handleCheckInOut(cred, 'Entrada')} className="px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg font-bold inline-flex items-center gap-1">

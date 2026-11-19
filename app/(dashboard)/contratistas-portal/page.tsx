@@ -36,13 +36,18 @@ import {
   formatShortDate,
   diffDaysInclusive,
 } from '@/utils/contratistasConfig'
-import { generateContractorCredentialPDF } from '@/utils/contratistaBadgePdf'
+import {
+  generateContractorCredentialPDF,
+  BADGE_SIZE_OPTIONS,
+  BadgeSizeFormat,
+} from '@/utils/contratistaBadgePdf'
 
 export default function ContratistasPortalPage() {
   const { user, profile } = useAuth()
   const [loading, setLoading] = useState(true)
   const [schemaMissing, setSchemaMissing] = useState(false)
   const [activeTab, setActiveTab] = useState<'solicitudes' | 'personal' | 'empresa' | 'credenciales'>('solicitudes')
+  const [badgeSizeFormat, setBadgeSizeFormat] = useState<BadgeSizeFormat>('gafete_medio')
 
   const [empresasList, setEmpresasList] = useState<any[]>([])
   const [selectedEmpresaId, setSelectedEmpresaId] = useState<string>('')
@@ -568,7 +573,7 @@ export default function ContratistasPortalPage() {
     }
   }
 
-  const handleDownloadBadge = async (cred: any) => {
+  const handleDownloadBadge = async (cred: any, formatOverride?: BadgeSizeFormat) => {
     const p = cred.contratistas_personal
     if (!p || !empresa) return
     await generateContractorCredentialPDF({
@@ -588,6 +593,7 @@ export default function ContratistasPortalPage() {
       folio_solicitud: cred.contratistas_solicitudes?.folio || 'N/A',
       foto_url: p.foto_url,
       estatus: cred.estatus,
+      size_format: formatOverride || badgeSizeFormat,
     })
   }
 
@@ -1085,11 +1091,47 @@ export default function ContratistasPortalPage() {
       {/* TAB 4: CREDENCIALES QR & PRORROGAS */}
       {activeTab === 'credenciales' && (
         <div className="space-y-4">
-          <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm">
-            <h2 className="text-lg font-black text-zinc-900 uppercase">Credenciales QR Autorizadas & Prórrogas de Estadía</h2>
-            <p className="text-xs text-zinc-500">
-              Descarga las credenciales de acceso para tus trabajadores. Recuerda que deben entregarla en Caseta/Seguridad al salir de la mina. Si requieren más días estando en mina, solicita una prórroga aquí.
-            </p>
+          <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="text-[10px] font-mono font-black uppercase tracking-widest text-amber-600">
+                  Diseño Oficial Grupo Minero Bacís • Unidad &quot;El Herrero&quot;
+                </span>
+                <h2 className="text-lg font-black text-zinc-900 uppercase">Credenciales QR Autorizadas &amp; Prórrogas de Estadía</h2>
+                <p className="text-xs text-zinc-500">
+                  Elige el tamaño de credencial que necesitas (para impresora de tarjetas PVC o en hoja Carta para recortar y enmicar). Recuerda entregarla en Caseta al salir de la mina.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+              {BADGE_SIZE_OPTIONS.map((opt) => {
+                const selected = badgeSizeFormat === opt.id
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setBadgeSizeFormat(opt.id)}
+                    className={`text-left p-3.5 rounded-xl border-2 transition-all ${
+                      selected
+                        ? 'border-amber-500 bg-amber-50/70 shadow-sm'
+                        : 'border-zinc-200 hover:border-zinc-300 bg-zinc-50/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-mono font-black px-2 py-0.5 rounded bg-zinc-900 text-amber-400">
+                        {opt.dimensions}
+                      </span>
+                      {selected && (
+                        <span className="text-[10px] font-black text-amber-700 uppercase">✓ Activo</span>
+                      )}
+                    </div>
+                    <p className="font-black text-xs text-zinc-900 mt-2">{opt.label}</p>
+                    <p className="text-[11px] text-zinc-500 mt-1 leading-snug">{opt.description}</p>
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1142,7 +1184,10 @@ export default function ContratistasPortalPage() {
                       className="flex-1 inline-flex items-center justify-center gap-1.5 bg-zinc-900 hover:bg-black text-white font-black text-xs py-2.5 px-3 rounded-xl"
                     >
                       <Download className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Descargar Credencial PDF</span>
+                      <span>
+                        Descargar Credencial PDF ({BADGE_SIZE_OPTIONS.find((o) => o.id === badgeSizeFormat)?.widthMm}×
+                        {BADGE_SIZE_OPTIONS.find((o) => o.id === badgeSizeFormat)?.heightMm}mm)
+                      </span>
                     </button>
                     {canExtend && (
                       <button
