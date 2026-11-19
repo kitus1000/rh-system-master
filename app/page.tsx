@@ -309,8 +309,8 @@ export default function LandingHub() {
                                 </div>
                             </button>
 
-                            {/* 4. Caseta (Credenciales QR) */}
-                            <button onClick={() => { setLoginTarget('caseta'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-cyan-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
+                            {/* 4. Caseta (Checador QR sin usuario) */}
+                            <Link href="/caseta-qr" className="group relative bg-zinc-900/60 border border-cyan-500/30 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-cyan-400 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
                                     <QrCode className="w-20 h-20 text-cyan-500 transform group-hover:scale-110 transition-transform duration-500" />
                                 </div>
@@ -318,13 +318,13 @@ export default function LandingHub() {
                                     <div className="w-10 h-10 bg-cyan-500/10 rounded-xl flex items-center justify-center mb-4 border border-cyan-500/20">
                                         <QrCode className="w-5 h-5 text-cyan-500" />
                                     </div>
-                                    <h2 className="text-base font-black text-white mb-1">Caseta (Credenciales)</h2>
-                                    <p className="text-xs text-zinc-400 leading-relaxed">Solo escaneo de credenciales QR, entradas y salidas de mina.</p>
+                                    <h2 className="text-base font-black text-white mb-1">Checador QR Caseta</h2>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">Sin usuario: escanea credencial QR, valida ingreso y avisa entrada/salida.</p>
                                 </div>
                                 <div className="mt-4 flex items-center text-cyan-400 font-black text-xs tracking-wider uppercase">
-                                    Ver Credenciales <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
+                                    Abrir Checador <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
                                 </div>
-                            </button>
+                            </Link>
 
                             {/* 4. Campamentos y Comedor */}
                             <button onClick={() => { setLoginTarget('campamento'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-teal-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
