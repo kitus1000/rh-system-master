@@ -17,10 +17,11 @@ import {
   EyeOff,
   Home,
   HardHat,
-  ShieldCheck
+  ShieldCheck,
+  QrCode
 } from 'lucide-react'
 
-type LoginTarget = 'rh' | 'medico' | 'jefes' | 'chofer' | 'campamento' | 'contratista' | 'seguridad'
+type LoginTarget = 'rh' | 'medico' | 'jefes' | 'chofer' | 'campamento' | 'contratista' | 'seguridad' | 'caseta'
 
 export default function LandingHub() {
     const [view, setView] = useState<'hub' | 'login'>('hub')
@@ -30,6 +31,17 @@ export default function LandingHub() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [loginTarget, setLoginTarget] = useState<LoginTarget>('rh')
+    const [contractorMode, setContractorMode] = useState<'login' | 'request'>('login')
+    const [requestDone, setRequestDone] = useState(false)
+    const [reqForm, setReqForm] = useState({
+        razon_social: '',
+        rfc: '',
+        representante_legal: '',
+        telefono: '',
+        correo: '',
+        especialidad: '',
+        notas: ''
+    })
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -43,6 +55,7 @@ export default function LandingHub() {
     const resolveRedirectByRole = (rolRaw: string, nameRaw: string, target: LoginTarget): string => {
         const r = `${rolRaw} ${nameRaw}`.toLowerCase()
         if (r.includes('contratista')) return '/contratistas-portal'
+        if (r.includes('caseta') || r.includes('patrimonial')) return '/caseta'
         if (r.includes('seguridad')) return '/seguridad'
         if (r.includes('chofer') || r.includes('conductor')) return '/logistica/choferes'
         if (r.includes('campamento') || r.includes('comedor')) return '/campamentos'
@@ -50,6 +63,7 @@ export default function LandingHub() {
         if (target === 'chofer') return '/logistica/choferes'
         if (target === 'campamento') return '/campamentos'
         if (target === 'contratista') return '/contratistas-portal'
+        if (target === 'caseta') return '/caseta'
         if (target === 'seguridad') return '/seguridad'
         if (target === 'medico') return '/medico/consultas'
         if (target === 'jefes') return '/autorizaciones'
@@ -123,6 +137,35 @@ export default function LandingHub() {
         }
     }
 
+    const handleContractorRequest = async (e: React.FormEvent) => {
+        e.preventDefault()
+        setLoading(true)
+        setError(null)
+        try {
+            const res = await fetch('/api/contratistas/solicitar-cuenta', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(reqForm)
+            })
+            const json = await res.json()
+            if (!res.ok) throw new Error(json.error || 'Error enviando solicitud')
+            setRequestDone(true)
+            setReqForm({
+                razon_social: '',
+                rfc: '',
+                representante_legal: '',
+                telefono: '',
+                correo: '',
+                especialidad: '',
+                notas: ''
+            })
+        } catch (err: any) {
+            setError(err.message)
+        } finally {
+            setLoading(false)
+        }
+    }
+
     const getTargetMeta = () => {
         switch (loginTarget) {
             case 'rh':
@@ -175,8 +218,16 @@ export default function LandingHub() {
                 }
             case 'seguridad':
                 return {
-                    title: 'Seguridad Industrial & Caseta',
-                    sub: 'Validación de inducciones, entradas/salidas a mina y devolución de credenciales',
+                    title: 'Seguridad Industrial (Inducciones)',
+                    sub: 'Revisión de requisitos, fechas de inducción y validación de personal contratista',
+                    bar: 'bg-emerald-500',
+                    box: 'bg-emerald-500/10 border border-emerald-500/20',
+                    btn: 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-500/20',
+                }
+            case 'caseta':
+                return {
+                    title: 'Caseta (Credenciales QR)',
+                    sub: 'Solo control de credenciales autorizadas, entradas, salidas y devolución en mina',
                     bar: 'bg-cyan-500',
                     box: 'bg-cyan-500/10 border border-cyan-500/20',
                     btn: 'bg-cyan-500 hover:bg-cyan-400 text-black shadow-lg shadow-cyan-500/20',
@@ -225,7 +276,7 @@ export default function LandingHub() {
                             </button>
 
                             {/* 2. Portal Contratistas */}
-                            <button onClick={() => { setLoginTarget('contratista'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-orange-500/30 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-orange-400 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
+                            <button onClick={() => { setLoginTarget('contratista'); setContractorMode('login'); setRequestDone(false); setError(null); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-orange-500/30 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-orange-400 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
                                     <HardHat className="w-20 h-20 text-orange-500 transform group-hover:scale-110 transition-transform duration-500" />
                                 </div>
@@ -241,20 +292,37 @@ export default function LandingHub() {
                                 </div>
                             </button>
 
-                            {/* 3. Seguridad & Caseta */}
-                            <button onClick={() => { setLoginTarget('seguridad'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-cyan-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
+                            {/* 3. Seguridad Industrial */}
+                            <button onClick={() => { setLoginTarget('seguridad'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-emerald-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
-                                    <ShieldCheck className="w-20 h-20 text-cyan-500 transform group-hover:scale-110 transition-transform duration-500" />
+                                    <ShieldCheck className="w-20 h-20 text-emerald-500 transform group-hover:scale-110 transition-transform duration-500" />
+                                </div>
+                                <div>
+                                    <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center mb-4 border border-emerald-500/20">
+                                        <ShieldCheck className="w-5 h-5 text-emerald-500" />
+                                    </div>
+                                    <h2 className="text-base font-black text-white mb-1">Seguridad Industrial</h2>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">Inducciones de seguridad, requisitos y programación de fechas.</p>
+                                </div>
+                                <div className="mt-4 flex items-center text-emerald-400 font-black text-xs tracking-wider uppercase">
+                                    Inducciones <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
+                                </div>
+                            </button>
+
+                            {/* 4. Caseta (Credenciales QR) */}
+                            <button onClick={() => { setLoginTarget('caseta'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-cyan-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
+                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
+                                    <QrCode className="w-20 h-20 text-cyan-500 transform group-hover:scale-110 transition-transform duration-500" />
                                 </div>
                                 <div>
                                     <div className="w-10 h-10 bg-cyan-500/10 rounded-xl flex items-center justify-center mb-4 border border-cyan-500/20">
-                                        <ShieldCheck className="w-5 h-5 text-cyan-500" />
+                                        <QrCode className="w-5 h-5 text-cyan-500" />
                                     </div>
-                                    <h2 className="text-base font-black text-white mb-1">Seguridad & Caseta</h2>
-                                    <p className="text-xs text-zinc-400 leading-relaxed">Inducciones, entradas/salidas a mina y entrega de credenciales.</p>
+                                    <h2 className="text-base font-black text-white mb-1">Caseta (Credenciales)</h2>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">Solo escaneo de credenciales QR, entradas y salidas de mina.</p>
                                 </div>
                                 <div className="mt-4 flex items-center text-cyan-400 font-black text-xs tracking-wider uppercase">
-                                    Control Mina <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
+                                    Ver Credenciales <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
                                 </div>
                             </button>
 
@@ -363,7 +431,8 @@ export default function LandingHub() {
                                     {loginTarget === 'jefes' && <ClipboardList className="w-7 h-7 text-rose-400" />}
                                     {loginTarget === 'campamento' && <Home className="w-7 h-7 text-teal-400" />}
                                     {loginTarget === 'contratista' && <HardHat className="w-7 h-7 text-orange-400" />}
-                                    {loginTarget === 'seguridad' && <ShieldCheck className="w-7 h-7 text-cyan-400" />}
+                                    {loginTarget === 'seguridad' && <ShieldCheck className="w-7 h-7 text-emerald-400" />}
+                                    {loginTarget === 'caseta' && <QrCode className="w-7 h-7 text-cyan-400" />}
                                     {loginTarget === 'rh' && <Users className="w-7 h-7 text-amber-400" />}
                                 </div>
                                 <h2 className="text-xl font-black text-white uppercase tracking-wide">
@@ -374,6 +443,65 @@ export default function LandingHub() {
                                 </p>
                             </div>
 
+                            {loginTarget === 'contratista' && (
+                                <div className="grid grid-cols-2 gap-1.5 bg-black/50 p-1 rounded-xl border border-zinc-800 mb-5">
+                                    <button
+                                        type="button"
+                                        onClick={() => { setContractorMode('login'); setError(null); setRequestDone(false); }}
+                                        className={`py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
+                                            contractorMode === 'login' ? 'bg-orange-500 text-black' : 'text-zinc-400 hover:text-white'
+                                        }`}
+                                    >
+                                        Ya tengo Usuario
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setContractorMode('request'); setError(null); setRequestDone(false); }}
+                                        className={`py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
+                                            contractorMode === 'request' ? 'bg-orange-500 text-black' : 'text-zinc-400 hover:text-white'
+                                        }`}
+                                    >
+                                        Solicitar Usuario
+                                    </button>
+                                </div>
+                            )}
+
+                            {loginTarget === 'contratista' && contractorMode === 'request' ? (
+                                requestDone ? (
+                                    <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-5 text-center space-y-3">
+                                        <p className="text-sm font-black text-emerald-400 uppercase">¡Solicitud Enviada a RH!</p>
+                                        <p className="text-xs text-zinc-300">
+                                            Recursos Humanos revisará tus datos y te enviará tu usuario y contraseña para subir a tu personal y requisitos.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setContractorMode('login'); setRequestDone(false); }}
+                                            className="px-4 py-2 bg-orange-500 text-black text-xs font-black rounded-xl"
+                                        >
+                                            Volver a Iniciar Sesión
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <form onSubmit={handleContractorRequest} className="space-y-3">
+                                        <input required value={reqForm.razon_social} onChange={(e) => setReqForm({ ...reqForm, razon_social: e.target.value })} placeholder="Razón Social / Empresa *" className="w-full bg-black/60 border border-zinc-800 rounded-xl py-2.5 px-3 text-white text-xs" />
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <input required value={reqForm.rfc} onChange={(e) => setReqForm({ ...reqForm, rfc: e.target.value })} placeholder="RFC *" className="w-full bg-black/60 border border-zinc-800 rounded-xl py-2.5 px-3 text-white text-xs font-mono uppercase" />
+                                            <input value={reqForm.telefono} onChange={(e) => setReqForm({ ...reqForm, telefono: e.target.value })} placeholder="Teléfono" className="w-full bg-black/60 border border-zinc-800 rounded-xl py-2.5 px-3 text-white text-xs" />
+                                        </div>
+                                        <input required value={reqForm.representante_legal} onChange={(e) => setReqForm({ ...reqForm, representante_legal: e.target.value })} placeholder="Nombre del Responsable / Contacto *" className="w-full bg-black/60 border border-zinc-800 rounded-xl py-2.5 px-3 text-white text-xs" />
+                                        <input required type="email" value={reqForm.correo} onChange={(e) => setReqForm({ ...reqForm, correo: e.target.value })} placeholder="Correo electrónico para recibir usuario *" className="w-full bg-black/60 border border-zinc-800 rounded-xl py-2.5 px-3 text-white text-xs font-mono" />
+                                        <input value={reqForm.especialidad} onChange={(e) => setReqForm({ ...reqForm, especialidad: e.target.value })} placeholder="Servicio / Depto que solicita (ej. Mantenimiento)" className="w-full bg-black/60 border border-zinc-800 rounded-xl py-2.5 px-3 text-white text-xs" />
+                                        {error && (
+                                            <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-bold p-2.5 rounded-lg text-center">
+                                                {error}
+                                            </div>
+                                        )}
+                                        <button type="submit" disabled={loading} className={`w-full font-black py-3 rounded-xl text-xs uppercase ${meta.btn}`}>
+                                            {loading ? 'ENVIANDO...' : 'SOLICITAR USUARIO A RH'}
+                                        </button>
+                                    </form>
+                                )
+                            ) : (
                             <form onSubmit={handleLogin} className="space-y-4">
                                 <div className="space-y-1.5">
                                     <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest ml-1">Usuario / Correo</label>
@@ -438,6 +566,7 @@ export default function LandingHub() {
                                     {!loading && <ArrowRight className="w-4 h-4" />}
                                 </button>
                             </form>
+                            )}
                         </div>
                     </div>
                 )}

@@ -449,7 +449,8 @@ export default function UsuariosPage() {
                                         <option value="Médico">🩺 Médico (Módulo Médico y Consultas)</option>
                                         <option value="Jefe Médico">🩺 Jefe Médico (Firma Autorización en Pases)</option>
                                         <option value="Encargado de Campamento y Comedor">🏕️ Encargado de Campamento y Comedor</option>
-                                        <option value="Seguridad">🛡️ Seguridad Industrial & Caseta QR</option>
+                                        <option value="Seguridad Industrial">🦺 Seguridad Industrial (Inducciones y Requisitos)</option>
+                                        <option value="Caseta">🪪 Caseta (Solo Credenciales QR Entrada/Salida)</option>
                                         <option value="Contratista">👷 Contratista (Portal Individual de Empresa)</option>
                                     </select>
                                 </div>

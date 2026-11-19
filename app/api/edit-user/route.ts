@@ -82,12 +82,14 @@ export async function POST(req: Request) {
             const isJefeMed = rol === 'Jefe Médico' || (rol && rol.toLowerCase().includes('médico') && rol.toLowerCase().includes('jefe'))
             const isMed = isJefeMed || rol === 'Médico' || (rol && rol.toLowerCase().includes('médic'))
             const isContratista = rol === 'Contratista'
-            const isSeguridad = rol === 'Seguridad'
+            const isCaseta = rol === 'Caseta' || rol === 'Seguridad Patrimonial'
+            const isSeguridad = rol === 'Seguridad Industrial' || rol === 'Seguridad'
             const isCamp = rol === 'Encargado de Campamento y Comedor'
             const fallbackRol = isMed ? 'Médico' : (isChofer ? 'Chofer' : 'Jefe')
             let taggedNombre = finalNombre
             if (isJefeMed && !taggedNombre.includes('(Jefe Médico)')) taggedNombre = `${taggedNombre} (Jefe Médico)`
             else if (isContratista && !taggedNombre.includes('(Contratista)')) taggedNombre = `${taggedNombre} (Contratista)`
+            else if (isCaseta && !taggedNombre.includes('(Caseta)')) taggedNombre = `${taggedNombre} (Caseta)`
             else if (isSeguridad && !taggedNombre.includes('(Seguridad)')) taggedNombre = `${taggedNombre} (Seguridad)`
             else if (isCamp && !taggedNombre.includes('(Campamento y Comedor)')) taggedNombre = `${taggedNombre} (Campamento y Comedor)`
 

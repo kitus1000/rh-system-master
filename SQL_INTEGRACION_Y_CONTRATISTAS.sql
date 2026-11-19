@@ -20,6 +20,9 @@ ALTER TABLE perfiles ADD CONSTRAINT perfiles_rol_check CHECK (
         'Encargado de Campamento y Comedor',
         'Contratista',
         'Seguridad',
+        'Seguridad Industrial',
+        'Caseta',
+        'Seguridad Patrimonial',
         'Sistemas'
     )
 );
@@ -164,9 +167,12 @@ CREATE TABLE IF NOT EXISTS contratistas_solicitudes (
     fecha_aprobacion_depto TIMESTAMPTZ,
     notas_departamento TEXT,
     -- Factor 3: Seguridad / Inducción
-    estatus_seguridad TEXT DEFAULT 'Pendiente' CHECK (estatus_seguridad IN ('Pendiente', 'En Diálogo', 'Aprobado', 'Rechazado')),
+    estatus_seguridad TEXT DEFAULT 'Pendiente' CHECK (estatus_seguridad IN ('Pendiente', 'En Diálogo', 'Inducción Programada', 'Aprobado', 'Rechazado')),
     aprobado_seguridad_por TEXT,
     fecha_aprobacion_seguridad TIMESTAMPTZ,
+    fecha_induccion_programada DATE,
+    hora_induccion TEXT,
+    lugar_induccion TEXT,
     notas_seguridad TEXT,
     -- Factor 4: Campamentos disponibilidad
     estatus_campamento TEXT DEFAULT 'Pendiente' CHECK (estatus_campamento IN ('No Requiere', 'Pendiente', 'Disponible / Asignado', 'Sin Cupo')),
@@ -287,6 +293,12 @@ CREATE POLICY "All contratistas_mensajes" ON contratistas_mensajes FOR ALL USING
 ALTER TABLE contratistas_movimientos_bitacora ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "All contratistas_movimientos_bitacora" ON contratistas_movimientos_bitacora;
 CREATE POLICY "All contratistas_movimientos_bitacora" ON contratistas_movimientos_bitacora FOR ALL USING (true);
+
+ALTER TABLE contratistas_solicitudes ADD COLUMN IF NOT EXISTS fecha_induccion_programada DATE;
+ALTER TABLE contratistas_solicitudes ADD COLUMN IF NOT EXISTS hora_induccion TEXT;
+ALTER TABLE contratistas_solicitudes ADD COLUMN IF NOT EXISTS lugar_induccion TEXT;
+ALTER TABLE contratistas_solicitudes DROP CONSTRAINT IF EXISTS contratistas_solicitudes_estatus_seguridad_check;
+ALTER TABLE contratistas_solicitudes ADD CONSTRAINT contratistas_solicitudes_estatus_seguridad_check CHECK (estatus_seguridad IN ('Pendiente', 'En Diálogo', 'Inducción Programada', 'Aprobado', 'Rechazado'));
 
 -- BUCKET DE STORAGE PARA DOCUMENTOS DE CONTRATISTAS (PDFs / IMÁGENES / FOTOS)
 INSERT INTO storage.buckets (id, name, public)

@@ -726,7 +726,12 @@ export default function ContratistasPortalPage() {
                     <span className={`mt-1 inline-block text-[10px] font-black px-2 py-0.5 rounded border ${badgeClass(sol.estatus_seguridad)}`}>
                       {sol.estatus_seguridad}
                     </span>
-                    {sol.notas_seguridad && <p className="text-[10px] text-zinc-500 mt-1 line-clamp-2">{sol.notas_seguridad}</p>}
+                    {sol.fecha_induccion_programada && (
+                      <p className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-1 mt-1">
+                        📅 Cita Inducción: {formatShortDate(sol.fecha_induccion_programada)} {sol.hora_induccion || ''} • {sol.lugar_induccion || ''}
+                      </p>
+                    )}
+                    {sol.notas_seguridad && !sol.fecha_induccion_programada && <p className="text-[10px] text-zinc-500 mt-1 line-clamp-2">{sol.notas_seguridad}</p>}
                   </div>
                   <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
                     <span className="text-[9px] font-black uppercase text-zinc-400 block">4. Campamentos</span>

@@ -75,7 +75,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         const nameLower = (profData.nombre_completo || '').toLowerCase()
                         const isChoferName = nameLower.includes('pinales') || nameLower.includes('yañez') || nameLower.includes('yanez') || nameLower.includes('vazquez') || nameLower.includes('linares') || nameLower.includes('madriles') || nameLower.includes('saucedo') || nameLower.includes('chofer')
                         if (rolLower.includes('contratista') || metaRolLower.includes('contratista') || nameLower.includes('(contratista)')) normalizedRol = 'Contratista'
-                        else if (rolLower.includes('seguridad') || metaRolLower.includes('seguridad') || nameLower.includes('(seguridad)')) normalizedRol = 'Seguridad'
+                        else if (rolLower.includes('caseta') || rolLower.includes('patrimonial') || metaRolLower.includes('caseta') || metaRolLower.includes('patrimonial') || nameLower.includes('(caseta)')) normalizedRol = 'Caseta'
+                        else if (rolLower.includes('seguridad') || metaRolLower.includes('seguridad') || nameLower.includes('(seguridad)')) normalizedRol = 'Seguridad Industrial'
                         else if (rolLower.includes('chofer') || rolLower.includes('conductor') || rolLower.includes('operador') || isChoferName) normalizedRol = 'Chofer'
                         else if (rolLower.includes('jefe médico') || rolLower.includes('jefe medico') || nameLower.includes('jefe médico') || nameLower.includes('jefe medico')) normalizedRol = 'Jefe Médico'
                         else if (rolLower.includes('médico') || rolLower.includes('medico') || nameLower.includes('médico') || nameLower.includes('medico')) normalizedRol = 'Médico'
@@ -157,10 +158,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         }
 
-        // Seguridad is strictly locked to Seguridad/Caseta, Mi Perfil and Acerca de
-        if (profile.rol === 'Seguridad') {
+        // Seguridad Industrial is strictly locked to /seguridad (Inducciones y Requisitos), Mi Perfil and Acerca de
+        if (profile.rol === 'Seguridad Industrial' || profile.rol === 'Seguridad') {
             const allowedSeguridadPaths = ['/seguridad', '/mi-perfil', '/acerca-de']
             const isAllowed = allowedSeguridadPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
+            if (!isAllowed) {
+                denied = true
+            }
+        }
+
+        // Caseta / Seguridad Patrimonial is strictly locked to /caseta (Solo Credenciales QR), Mi Perfil and Acerca de
+        if (profile.rol === 'Caseta' || profile.rol === 'Seguridad Patrimonial') {
+            const allowedCasetaPaths = ['/caseta', '/mi-perfil', '/acerca-de']
+            const isAllowed = allowedCasetaPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
             if (!isAllowed) {
                 denied = true
             }
@@ -234,7 +244,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     onClick={() => {
                         setAccessDenied(false)
                         if (profile?.rol === 'Contratista') router.push('/contratistas-portal')
-                        else if (profile?.rol === 'Seguridad') router.push('/seguridad')
+                        else if (profile?.rol === 'Caseta' || profile?.rol === 'Seguridad Patrimonial') router.push('/caseta')
+                        else if (profile?.rol === 'Seguridad Industrial' || profile?.rol === 'Seguridad') router.push('/seguridad')
                         else if (profile?.rol === 'Chofer') router.push('/logistica/choferes')
                         else if (profile?.rol === 'Encargado de Campamento y Comedor') router.push('/campamentos')
                         else if (profile?.rol === 'Médico' || profile?.rol === 'Jefe Médico') router.push('/medico/consultas')

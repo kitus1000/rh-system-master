@@ -17,6 +17,9 @@ ALTER TABLE perfiles ADD CONSTRAINT perfiles_rol_check CHECK (
         'Encargado de Campamento y Comedor',
         'Contratista',
         'Seguridad',
+        'Seguridad Industrial',
+        'Caseta',
+        'Seguridad Patrimonial',
         'Sistemas'
     )
 );

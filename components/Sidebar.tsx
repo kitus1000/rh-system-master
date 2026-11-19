@@ -50,7 +50,7 @@ const navigationGroups = [
         bgClass: "bg-zinc-800",
         isCollapsible: false,
         items: [
-            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Jefe Médico', 'Recursos Humanos', 'Sistemas', 'Chofer', 'Encargado de Campamento y Comedor', 'Contratista', 'Seguridad'] },
+            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Jefe Médico', 'Recursos Humanos', 'Sistemas', 'Chofer', 'Encargado de Campamento y Comedor', 'Contratista', 'Seguridad Industrial', 'Seguridad', 'Caseta', 'Seguridad Patrimonial'] },
             { name: 'Portal Contratista', href: '/contratistas-portal', icon: HardHat, roles: ['Contratista'] },
             { name: '🚌 Bitácora de Rutas Choferes', href: '/logistica/choferes', icon: Bus, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas'] },
             { name: 'Chat y Muro', href: '/chat', icon: MessageCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Sistemas'] },
@@ -116,7 +116,8 @@ const navigationGroups = [
         items: [
             { name: 'Contratistas & Accesos', href: '/contratistas', icon: HardHat, roles: ['Administrativo', 'Recursos Humanos', 'Superintendente', 'Jefe de Departamento', 'Sistemas'] },
             { name: 'Portal Individual Contratista', href: '/contratistas-portal', icon: Users, roles: ['Administrativo', 'Recursos Humanos', 'Sistemas', 'Contratista'] },
-            { name: 'Seguridad & Caseta QR', href: '/seguridad', icon: ShieldCheck, roles: ['Administrativo', 'Recursos Humanos', 'Seguridad', 'Sistemas'] },
+            { name: 'Seguridad Industrial (Inducciones)', href: '/seguridad', icon: ShieldCheck, roles: ['Administrativo', 'Recursos Humanos', 'Seguridad Industrial', 'Seguridad', 'Sistemas'] },
+            { name: 'Caseta (Credenciales QR)', href: '/caseta', icon: QrCode, roles: ['Administrativo', 'Recursos Humanos', 'Caseta', 'Seguridad Patrimonial', 'Sistemas'] },
         ]
     },
     {

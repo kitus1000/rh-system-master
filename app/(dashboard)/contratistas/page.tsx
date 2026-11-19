@@ -477,6 +477,31 @@ export default function ContratistasAdminPage() {
     }
   }
 
+  const handleActivateAndCreateUser = async (emp: any) => {
+    const pass = prompt(`Generar usuario para "${emp.razon_social}" (${emp.correo}).\nIngresa la contraseña inicial (mín. 6 caracteres):`, 'Contratista2026!')
+    if (!pass || pass.trim().length < 6) return
+
+    const res = await fetch('/api/create-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: (emp.correo || '').trim().toLowerCase(),
+        password: pass.trim(),
+        nombre_completo: emp.razon_social,
+        rol: 'Contratista',
+        id_empresa_contratista: emp.id_empresa,
+      }),
+    })
+    const json = await res.json()
+    if (!res.ok) {
+      alert('Error creando usuario: ' + (json.error || 'Error desconocido'))
+      return
+    }
+    await supabase.from('contratistas_empresas').update({ estatus: 'Activa' }).eq('id_empresa', emp.id_empresa)
+    alert(`✅ Usuario creado y empresa activada:\nCorreo: ${emp.correo}\nContraseña: ${pass.trim()}\n\nYa puedes enviárselo al contratista.`)
+    await fetchAll()
+  }
+
   const badgeClass = (status: string) => {
     const s = (status || '').toLowerCase()
     if (s.includes('aprob') || s.includes('disponible') || s.includes('completo') || s === 'en mina' || s === 'activa') {
@@ -547,6 +572,35 @@ export default function ContratistasAdminPage() {
           )}
         </div>
       </div>
+
+      {/* Solicitudes de Nuevo Usuario Contratista */}
+      {isRHOrAdmin && empresas.filter((e) => e.estatus === 'Pendiente').length > 0 && (
+        <div className="bg-orange-50 border-2 border-orange-300 rounded-2xl p-5 space-y-3">
+          <div className="flex items-center gap-2 text-orange-900 font-black text-xs uppercase">
+            <UserPlus className="w-4 h-4 text-orange-600" />
+            <span>Solicitudes de Nuevo Usuario Contratista ({empresas.filter((e) => e.estatus === 'Pendiente').length})</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {empresas
+              .filter((e) => e.estatus === 'Pendiente')
+              .map((emp) => (
+                <div key={emp.id_empresa} className="bg-white rounded-xl border border-orange-200 p-4 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-black text-sm text-zinc-900 truncate">{emp.razon_social}</p>
+                    <p className="text-xs text-zinc-500 font-mono truncate">{emp.correo} • RFC: {emp.rfc}</p>
+                    <p className="text-[11px] text-zinc-500">Rep: {emp.representante_legal || 'N/D'} • {emp.especialidad || ''}</p>
+                  </div>
+                  <button
+                    onClick={() => handleActivateAndCreateUser(emp)}
+                    className="px-3.5 py-2 bg-orange-500 hover:bg-orange-600 text-black font-black text-xs rounded-xl shrink-0"
+                  >
+                    Aprobar y Crear Usuario
+                  </button>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* KPI Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">

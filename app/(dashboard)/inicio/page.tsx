@@ -40,7 +40,8 @@ import {
   SlidersHorizontal,
   LayoutGrid,
   HardHat,
-  Layers
+  Layers,
+  QrCode
 } from 'lucide-react'
 
 interface AppItem {
@@ -257,16 +258,29 @@ export default function InicioPage() {
     },
     {
       id: 'seg-caseta',
-      name: 'Seguridad & Caseta QR',
-      subtitle: 'Inducciones de seguridad, entradas/salidas a mina y entrega de credenciales',
+      name: 'Seguridad Industrial (Inducciones)',
+      subtitle: 'Validación de inducciones de seguridad, requisitos y programación de fechas',
       href: '/seguridad',
       icon: ShieldCheck,
       category: 'rh',
-      badge: 'SEGURIDAD',
+      badge: 'SEG. INDUSTRIAL',
+      color: 'text-emerald-400',
+      bgGradient: 'from-emerald-500/20 via-emerald-500/5 to-transparent',
+      glowColor: 'hover:border-emerald-500/50 hover:shadow-emerald-500/20',
+      roles: ['Administrativo', 'Recursos Humanos', 'Seguridad Industrial', 'Seguridad', 'Sistemas']
+    },
+    {
+      id: 'caseta-qr',
+      name: 'Caseta (Solo Credenciales QR)',
+      subtitle: 'Control de entradas, salidas a mina y devolución física de credenciales',
+      href: '/caseta',
+      icon: QrCode,
+      category: 'rh',
+      badge: 'CASETA QR',
       color: 'text-cyan-400',
       bgGradient: 'from-cyan-500/20 via-cyan-500/5 to-transparent',
       glowColor: 'hover:border-cyan-500/50 hover:shadow-cyan-500/20',
-      roles: ['Administrativo', 'Recursos Humanos', 'Seguridad', 'Sistemas']
+      roles: ['Administrativo', 'Recursos Humanos', 'Caseta', 'Seguridad Patrimonial', 'Sistemas']
     },
     {
       id: 'rh-empleados',

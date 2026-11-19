@@ -1967,6 +1967,23 @@ export default function CampamentosPage() {
                 </span>
               </div>
 
+              {/* Disponibilidad en tiempo real por Campamento registrado internamente */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                {campamentos.map((c) => {
+                  const total = (c.campamento_cuartos || []).reduce((a, q) => a + (q.campamento_camas || []).length, 0)
+                  const libres = (c.campamento_cuartos || []).reduce((a, q) => a + (q.campamento_camas || []).filter(b => !b.id_empleado && !(b as any).id_contratista_personal).length, 0)
+                  return (
+                    <div key={c.id_campamento} className="p-3 rounded-xl bg-teal-50/40 border border-teal-200 text-xs">
+                      <div className="font-black text-zinc-900 truncate">{c.nombre}</div>
+                      <div className="text-[10px] text-zinc-500">{c.zona || 'Parajes'} • {c.tipo}</div>
+                      <div className={`font-mono font-black mt-1 ${libres > 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                        {libres} libres / {total} camas
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
               <div className="space-y-4">
                 {contratistasSolicitudes.map((sol) => (
                   <div key={sol.id_solicitud} className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 space-y-3">
