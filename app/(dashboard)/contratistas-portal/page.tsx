@@ -150,7 +150,8 @@ export default function ContratistasPortalPage() {
       }
 
       if (!empId && allEmps && allEmps.length > 0 && profile?.rol !== 'Contratista') {
-        empId = allEmps[0].id_empresa
+        const activeOne = allEmps.find((e) => e.estatus === 'Activa')
+        empId = activeOne ? activeOne.id_empresa : allEmps[0].id_empresa
       }
 
       if (empId) {
@@ -196,14 +197,107 @@ export default function ContratistasPortalPage() {
     setProrrogas(prorRes.data || [])
   }
 
-  const uploadFileToServer = async (file: File, folder: string): Promise<{ url: string; mimeType: string }> => {
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('folder', folder)
-    const res = await fetch('/api/contratistas/upload', { method: 'POST', body: fd })
-    const json = await res.json()
-    if (!res.ok) throw new Error(json.error || 'Error al subir archivo')
-    return { url: json.url, mimeType: json.mimeType || file.type }
+  const compressImageFile = async (file: File, maxDim = 1000, quality = 0.85): Promise<File> => {
+    if (!file.type.startsWith('image/')) return file
+    return new Promise((resolve) => {
+      try {
+        const img = new Image()
+        const url = URL.createObjectURL(file)
+        img.onload = () => {
+          URL.revokeObjectURL(url)
+          let { width, height } = img
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width)
+              width = maxDim
+            } else {
+              width = Math.round((width * maxDim) / height)
+              height = maxDim
+            }
+          }
+          const canvas = document.createElement('canvas')
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          if (!ctx) return resolve(file)
+          ctx.drawImage(img, 0, 0, width, height)
+          canvas.toBlob((blob) => {
+            if (!blob) return resolve(file)
+            const compressed = new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), {
+              type: 'image/jpeg',
+              lastModified: Date.now(),
+            })
+            resolve(compressed)
+          }, 'image/jpeg', quality)
+        }
+        img.onerror = () => {
+          URL.revokeObjectURL(url)
+          resolve(file)
+        }
+        img.src = url
+      } catch {
+        resolve(file)
+      }
+    })
+  }
+
+  const uploadFileToServer = async (rawFile: File, folder: string): Promise<{ url: string; mimeType: string }> => {
+    // Si es imagen, comprimirla en el navegador para que suba al instante (<200KB)
+    const file = rawFile.type.startsWith('image/') ? await compressImageFile(rawFile) : rawFile
+
+    // 1. Intento principal vía endpoint de API
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('folder', folder)
+      const res = await fetch('/api/contratistas/upload', { method: 'POST', body: fd })
+      
+      if (res.ok) {
+        const json = await res.json()
+        if (json.url) {
+          return { url: json.url, mimeType: json.mimeType || file.type }
+        }
+      } else {
+        const text = await res.text()
+        console.warn('API upload response non-ok:', res.status, text)
+      }
+    } catch (apiErr) {
+      console.warn('API upload fetch error:', apiErr)
+    }
+
+    // 2. Fallback directo a Supabase Storage
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const storagePath = `${folder}/${Date.now()}_${safeName}`
+      const { data: upData, error: upError } = await supabase.storage
+        .from('contratistas_docs')
+        .upload(storagePath, file, { upsert: true })
+
+      if (!upError && upData?.path) {
+        const { data: pubData } = supabase.storage.from('contratistas_docs').getPublicUrl(upData.path)
+        return { url: pubData.publicUrl, mimeType: file.type }
+      }
+    } catch (sbErr) {
+      console.warn('Supabase storage direct upload error:', sbErr)
+    }
+
+    // 3. Fallback en base64 si es imagen y mide menos de 1MB
+    if (file.type.startsWith('image/') && file.size < 1024 * 1024) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            resolve({ url: reader.result, mimeType: file.type })
+          } else {
+            reject(new Error('No se pudo procesar la fotografía.'))
+          }
+        }
+        reader.onerror = () => reject(new Error('Error al leer la fotografía.'))
+        reader.readAsDataURL(file)
+      })
+    }
+
+    throw new Error('No se pudo subir el archivo. Si es un PDF muy grande, intenta con uno menor a 10MB.')
   }
 
   const handleUploadDocument = async (e: React.FormEvent) => {

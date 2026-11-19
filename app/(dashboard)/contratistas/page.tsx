@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/utils/supabase/client'
 import { useAuth } from '@/components/AuthProvider'
 import {
@@ -43,11 +44,29 @@ export default function ContratistasAdminPage() {
   const [activeTab, setActiveTab] = useState<'solicitudes' | 'empresas' | 'documentos' | 'prorrogas' | 'bitacora'>('solicitudes')
 
   const [empresas, setEmpresas] = useState<any[]>([])
+  const [personalAll, setPersonalAll] = useState<any[]>([])
+  const [departamentos, setDepartamentos] = useState<any[]>([])
   const [solicitudes, setSolicitudes] = useState<any[]>([])
   const [documentos, setDocumentos] = useState<any[]>([])
   const [credenciales, setCredenciales] = useState<any[]>([])
   const [prorrogas, setProrrogas] = useState<any[]>([])
   const [movimientos, setMovimientos] = useState<any[]>([])
+
+  // Direct Pass / Request Creation Modal (RH)
+  const [showDirectPassModal, setShowDirectPassModal] = useState(false)
+  const [directPassForm, setDirectPassForm] = useState({
+    id_empresa: '',
+    id_departamento_objetivo: '',
+    descripcion_servicio: 'Servicios en Mina / Mantenimiento',
+    area_trabajo: 'Planta / Mina',
+    fecha_inicio: new Date().toISOString().split('T')[0],
+    fecha_fin: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+    requiere_campamento: false,
+    requiere_comedor: true,
+    emitir_inmediato: true,
+    selectedPersonalIds: [] as string[],
+  })
+  const [savingDirectPass, setSavingDirectPass] = useState(false)
 
   // Create Company + User Modal
   const [showCreateEmpresa, setShowCreateEmpresa] = useState(false)
@@ -105,7 +124,7 @@ export default function ContratistasAdminPage() {
         return
       }
 
-      const [solRes, docRes, credRes, prorRes, movRes] = await Promise.all([
+      const [solRes, docRes, credRes, prorRes, movRes, persRes, deptRes] = await Promise.all([
         supabase
           .from('contratistas_solicitudes')
           .select('*, contratistas_empresas(*), contratistas_solicitud_personal(*, contratistas_personal(*))')
@@ -127,6 +146,15 @@ export default function ContratistasAdminPage() {
           .select('*, contratistas_empresas(razon_social), contratistas_personal(nombre, apellido_paterno), contratistas_credenciales(codigo_qr)')
           .order('fecha_hora', { ascending: false })
           .limit(50),
+        supabase
+          .from('contratistas_personal')
+          .select('*')
+          .order('nombre'),
+        supabase
+          .from('cat_departamentos')
+          .select('*')
+          .eq('activo', true)
+          .order('departamento'),
       ])
 
       setEmpresas(empData || [])
@@ -135,10 +163,125 @@ export default function ContratistasAdminPage() {
       setCredenciales(credRes.data || [])
       setProrrogas(prorRes.data || [])
       setMovimientos(movRes.data || [])
+      setPersonalAll(persRes.data || [])
+      setDepartamentos(deptRes.data || [])
     } catch (e) {
       console.error('Error loading contratistas admin:', e)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const openDirectPassModal = (preEmpresaId?: string) => {
+    // Escoger por defecto la empresa que ya tiene trabajadores registrados si no se pasó una
+    let defaultEmpId = preEmpresaId || ''
+    if (!defaultEmpId) {
+      const empWithWorkers = empresas.find((e) => personalAll.some((p) => p.id_empresa === e.id_empresa))
+      defaultEmpId = empWithWorkers?.id_empresa || empresas[0]?.id_empresa || ''
+    }
+    const empWorkers = personalAll.filter((p) => p.id_empresa === defaultEmpId).map((p) => p.id_personal)
+    setDirectPassForm({
+      id_empresa: defaultEmpId,
+      id_departamento_objetivo: departamentos[0]?.id_departamento || '',
+      descripcion_servicio: 'Servicios en Mina / Mantenimiento',
+      area_trabajo: 'Planta / Mina',
+      fecha_inicio: new Date().toISOString().split('T')[0],
+      fecha_fin: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+      requiere_campamento: false,
+      requiere_comedor: true,
+      emitir_inmediato: true,
+      selectedPersonalIds: empWorkers,
+    })
+    setShowDirectPassModal(true)
+  }
+
+  const handleCreateDirectPass = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!directPassForm.id_empresa) {
+      alert('Selecciona una empresa contratista.')
+      return
+    }
+    if (directPassForm.selectedPersonalIds.length === 0) {
+      alert('Selecciona al menos un trabajador para generar la solicitud y credencial.')
+      return
+    }
+    setSavingDirectPass(true)
+    try {
+      const deptObj = departamentos.find((d) => d.id_departamento === directPassForm.id_departamento_objetivo)
+      const folio = `CONT-${new Date().getFullYear().toString().slice(-2)}-${Math.floor(1000 + Math.random() * 9000)}`
+      const autoApprove = directPassForm.emitir_inmediato
+
+      const { data: sol, error: solErr } = await supabase
+        .from('contratistas_solicitudes')
+        .insert([
+          {
+            folio,
+            id_empresa: directPassForm.id_empresa,
+            id_departamento_objetivo: directPassForm.id_departamento_objetivo || null,
+            departamento_nombre: deptObj?.departamento || 'Mantenimiento / Servicios',
+            contacto_departamento: profile?.nombre_completo || 'RH / Administración',
+            descripcion_servicio: directPassForm.descripcion_servicio,
+            area_trabajo: directPassForm.area_trabajo,
+            fecha_inicio: directPassForm.fecha_inicio,
+            fecha_fin: directPassForm.fecha_fin,
+            requiere_campamento: directPassForm.requiere_campamento,
+            requiere_comedor: directPassForm.requiere_comedor,
+            estatus_general: autoApprove ? 'Aprobada' : 'En Revisión',
+            estatus_documentos: 'Completo',
+            estatus_departamento: autoApprove ? 'Aprobado' : 'Pendiente',
+            estatus_seguridad: autoApprove ? 'Aprobado' : 'Pendiente',
+            estatus_campamento: directPassForm.requiere_campamento
+              ? (autoApprove ? 'Disponible / Asignado' : 'Pendiente')
+              : 'No Requiere',
+            estatus_rh: autoApprove ? 'Aprobado' : 'Pendiente',
+            aprobado_rh_por: autoApprove ? (profile?.nombre_completo || 'RH') : null,
+            fecha_aprobacion_rh: autoApprove ? new Date().toISOString() : null,
+          },
+        ])
+        .select()
+        .single()
+
+      if (solErr) throw solErr
+
+      const items = directPassForm.selectedPersonalIds.map((pid) => ({
+        id_solicitud: sol.id_solicitud,
+        id_personal: pid,
+        induccion_verificada: autoApprove,
+      }))
+      const { error: itemsErr } = await supabase.from('contratistas_solicitud_personal').insert(items)
+      if (itemsErr) throw itemsErr
+
+      let credCount = 0
+      if (autoApprove) {
+        for (const pid of directPassForm.selectedPersonalIds) {
+          const qrCode = `CONT-${new Date().getFullYear().toString().slice(-2)}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`
+          const { error: credErr } = await supabase.from('contratistas_credenciales').insert([
+            {
+              codigo_qr: qrCode,
+              id_solicitud: sol.id_solicitud,
+              id_empresa: directPassForm.id_empresa,
+              id_personal: pid,
+              vigencia_desde: directPassForm.fecha_inicio,
+              vigencia_hasta: directPassForm.fecha_fin,
+              estatus: 'Emitida',
+            },
+          ])
+          if (!credErr) credCount++
+        }
+      }
+
+      setShowDirectPassModal(false)
+      await fetchAll()
+      if (autoApprove) {
+        setActiveTab('bitacora')
+        alert(`✅ Solicitud ${folio} creada y se emitieron ${credCount} credencial(es) QR listas para descargar en PDF.`)
+      } else {
+        alert(`✅ Solicitud ${folio} enviada a revisión multi-factor.`)
+      }
+    } catch (err: any) {
+      alert('Error generando solicitud/credencial: ' + err.message)
+    } finally {
+      setSavingDirectPass(false)
     }
   }
 
@@ -619,17 +762,26 @@ export default function ContratistasAdminPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button onClick={fetchAll} className="p-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-zinc-300">
+          <button onClick={fetchAll} className="p-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-zinc-300" title="Actualizar">
             <RefreshCw className="w-4 h-4" />
           </button>
           {isRHOrAdmin && (
-            <button
-              onClick={() => setShowCreateEmpresa(true)}
-              className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-black font-black text-xs px-5 py-3 rounded-xl shadow-lg"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Subir Contratista & Crear Usuario</span>
-            </button>
+            <>
+              <button
+                onClick={() => openDirectPassModal()}
+                className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs px-4 py-3 rounded-xl shadow-lg"
+              >
+                <QrCode className="w-4 h-4" />
+                <span>Generar Solicitud & Credencial</span>
+              </button>
+              <button
+                onClick={() => setShowCreateEmpresa(true)}
+                className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-black font-black text-xs px-5 py-3 rounded-xl shadow-lg"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Subir Contratista & Crear Usuario</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -841,8 +993,36 @@ export default function ContratistasAdminPage() {
             )
           })}
           {solicitudes.length === 0 && (
-            <div className="bg-white rounded-2xl border border-dashed border-zinc-300 p-12 text-center text-zinc-400 text-sm">
-              No hay solicitudes de contratistas registradas aún.
+            <div className="bg-white rounded-2xl border-2 border-dashed border-zinc-300 p-8 sm:p-10 text-center space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-orange-100 text-orange-600 flex items-center justify-center mx-auto">
+                <QrCode className="w-6 h-6" />
+              </div>
+              <div className="max-w-lg mx-auto space-y-1.5">
+                <h3 className="text-base font-black text-zinc-900 uppercase">Aún no hay Solicitudes de Ingreso enviadas</h3>
+                <p className="text-xs text-zinc-500 leading-relaxed">
+                  {personalAll.length > 0
+                    ? `Ya hay ${personalAll.length} trabajador(es) y ${documentos.length} documento(s) cargados. Para generar la credencial QR, el contratista debe enviar una Solicitud de Ingreso desde su "Portal Individual Contratista" (Pestaña 1), o tú como RH puedes crear la solicitud y emitir el gafete directamente aquí.`
+                    : 'Primero el contratista registra a su personal y papelería en "Portal Individual Contratista" y envía una solicitud de ingreso con fechas y departamento.'}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                {personalAll.length > 0 && isRHOrAdmin && (
+                  <button
+                    onClick={() => openDirectPassModal()}
+                    className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-5 py-3 rounded-xl shadow"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    <span>Crear Solicitud y Emitir Credencial QR ahora</span>
+                  </button>
+                )}
+                <Link
+                  href="/contratistas-portal"
+                  className="inline-flex items-center gap-2 bg-zinc-900 hover:bg-black text-orange-400 font-black text-xs px-5 py-3 rounded-xl shadow"
+                >
+                  <Users className="w-4 h-4" />
+                  <span>Ir a Portal Individual Contratista</span>
+                </Link>
+              </div>
             </div>
           )}
         </div>
@@ -856,13 +1036,17 @@ export default function ContratistasAdminPage() {
               <tr>
                 <th className="px-5 py-3.5 text-left">Empresa Contratista</th>
                 <th className="px-5 py-3.5 text-left">RFC / Especialidad</th>
+                <th className="px-5 py-3.5 text-left">Personal / Docs</th>
                 <th className="px-5 py-3.5 text-left">Contacto / Correo Acceso</th>
                 <th className="px-5 py-3.5 text-left">Estatus</th>
-                <th className="px-5 py-3.5 text-right">Acceso</th>
+                <th className="px-5 py-3.5 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
-              {empresas.map((emp) => (
+              {empresas.map((emp) => {
+                const empWorkers = personalAll.filter((p) => p.id_empresa === emp.id_empresa).length
+                const empDocs = documentos.filter((d) => d.id_empresa === emp.id_empresa).length
+                return (
                 <tr key={emp.id_empresa} className="hover:bg-zinc-50">
                   <td className="px-5 py-4">
                     <div className="font-black text-zinc-900">{emp.razon_social}</div>
@@ -873,6 +1057,11 @@ export default function ContratistasAdminPage() {
                     <div className="text-[11px] text-zinc-500 font-sans">{emp.especialidad || 'Servicios Generales'}</div>
                   </td>
                   <td className="px-5 py-4">
+                    <span className="font-black text-zinc-900">{empWorkers} trab.</span>
+                    <span className="text-zinc-400 mx-1">•</span>
+                    <span className="font-bold text-orange-600">{empDocs} docs.</span>
+                  </td>
+                  <td className="px-5 py-4">
                     <div className="font-mono font-bold text-zinc-700">{emp.correo || 'Sin correo'}</div>
                     <div className="text-[11px] text-zinc-500">{emp.telefono || ''}</div>
                   </td>
@@ -881,7 +1070,16 @@ export default function ContratistasAdminPage() {
                       {emp.estatus}
                     </span>
                   </td>
-                  <td className="px-5 py-4 text-right">
+                  <td className="px-5 py-4 text-right space-x-2">
+                    {isRHOrAdmin && empWorkers > 0 && (
+                      <button
+                        onClick={() => openDirectPassModal(emp.id_empresa)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black rounded-lg inline-flex items-center gap-1"
+                      >
+                        <QrCode className="w-3 h-3" />
+                        <span>Emitir Credencial</span>
+                      </button>
+                    )}
                     {isRHOrAdmin && emp.correo && (
                       <button
                         onClick={() => handleActivateAndCreateUser(emp)}
@@ -893,7 +1091,7 @@ export default function ContratistasAdminPage() {
                     )}
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
@@ -1270,6 +1468,197 @@ export default function ContratistasAdminPage() {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CREAR SOLICITUD Y EMITIR CREDENCIAL DIRECTA (RH) */}
+      {showDirectPassModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-xl w-full overflow-hidden shadow-2xl border border-zinc-200 max-h-[90vh] flex flex-col">
+            <div className="bg-zinc-900 text-white p-5 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2">
+                <QrCode className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-black text-sm uppercase">Generar Solicitud &amp; Credencial QR</h3>
+              </div>
+              <button onClick={() => setShowDirectPassModal(false)} className="text-zinc-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateDirectPass} className="p-6 space-y-4 overflow-y-auto text-xs">
+              <div>
+                <label className="block font-black uppercase text-zinc-600 mb-1">Empresa Contratista</label>
+                <select
+                  required
+                  value={directPassForm.id_empresa}
+                  onChange={(e) => {
+                    const newEmpId = e.target.value
+                    const empWorkers = personalAll.filter((p) => p.id_empresa === newEmpId).map((p) => p.id_personal)
+                    setDirectPassForm({
+                      ...directPassForm,
+                      id_empresa: newEmpId,
+                      selectedPersonalIds: empWorkers,
+                    })
+                  }}
+                  className="w-full border border-zinc-300 rounded-xl px-3 py-2.5 font-bold"
+                >
+                  <option value="">Selecciona una empresa...</option>
+                  {empresas.map((emp) => {
+                    const count = personalAll.filter((p) => p.id_empresa === emp.id_empresa).length
+                    return (
+                      <option key={emp.id_empresa} value={emp.id_empresa}>
+                        {emp.razon_social} ({count} trabajadores)
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-black uppercase text-zinc-600 mb-1">Personal de la Empresa (Marca quienes ingresan)</label>
+                {personalAll.filter((p) => p.id_empresa === directPassForm.id_empresa).length === 0 ? (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800">
+                    Esta empresa aún no tiene trabajadores dados de alta en &quot;Portal Individual Contratista&quot;.
+                  </div>
+                ) : (
+                  <div className="max-h-40 overflow-y-auto border border-zinc-200 rounded-xl divide-y divide-zinc-100">
+                    {personalAll
+                      .filter((p) => p.id_empresa === directPassForm.id_empresa)
+                      .map((p) => {
+                        const checked = directPassForm.selectedPersonalIds.includes(p.id_personal)
+                        return (
+                          <label key={p.id_personal} className="flex items-center gap-3 p-2.5 hover:bg-zinc-50 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                const next = checked
+                                  ? directPassForm.selectedPersonalIds.filter((id) => id !== p.id_personal)
+                                  : [...directPassForm.selectedPersonalIds, p.id_personal]
+                                setDirectPassForm({ ...directPassForm, selectedPersonalIds: next })
+                              }}
+                              className="rounded border-zinc-300 text-orange-500"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="font-bold text-zinc-900 truncate">
+                                {p.nombre} {p.apellido_paterno} {p.apellido_materno || ''}
+                              </div>
+                              <div className="text-[10px] text-zinc-500 font-mono">
+                                {p.puesto_servicio || 'Contratista'} • NSS: {p.nss || 'N/D'}
+                              </div>
+                            </div>
+                          </label>
+                        )
+                      })}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-black uppercase text-zinc-600 mb-1">Departamento Solicitante</label>
+                  <select
+                    value={directPassForm.id_departamento_objetivo}
+                    onChange={(e) => setDirectPassForm({ ...directPassForm, id_departamento_objetivo: e.target.value })}
+                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 font-bold"
+                  >
+                    <option value="">Mantenimiento / Servicios</option>
+                    {departamentos.map((d) => (
+                      <option key={d.id_departamento} value={d.id_departamento}>
+                        {d.departamento}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-black uppercase text-zinc-600 mb-1">Área / Trabajo en Mina</label>
+                  <input
+                    value={directPassForm.area_trabajo}
+                    onChange={(e) => setDirectPassForm({ ...directPassForm, area_trabajo: e.target.value })}
+                    className="w-full border border-zinc-300 rounded-xl px-3 py-2"
+                    placeholder="Ej. Planta de Beneficio"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-black uppercase text-zinc-600 mb-1">Descripción del Servicio</label>
+                <input
+                  required
+                  value={directPassForm.descripcion_servicio}
+                  onChange={(e) => setDirectPassForm({ ...directPassForm, descripcion_servicio: e.target.value })}
+                  className="w-full border border-zinc-300 rounded-xl px-3 py-2"
+                  placeholder="Ej. Mantenimiento eléctrico, obra civil..."
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-black uppercase text-zinc-600 mb-1">Vigencia Desde</label>
+                  <input
+                    type="date"
+                    required
+                    value={directPassForm.fecha_inicio}
+                    onChange={(e) => setDirectPassForm({ ...directPassForm, fecha_inicio: e.target.value })}
+                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-black uppercase text-zinc-600 mb-1">Vigencia Hasta</label>
+                  <input
+                    type="date"
+                    required
+                    value={directPassForm.fecha_fin}
+                    onChange={(e) => setDirectPassForm({ ...directPassForm, fecha_fin: e.target.value })}
+                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-2 border-t border-zinc-100">
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 font-bold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={directPassForm.requiere_campamento}
+                      onChange={(e) => setDirectPassForm({ ...directPassForm, requiere_campamento: e.target.checked })}
+                    />
+                    <span>Requiere Campamento</span>
+                  </label>
+                  <label className="flex items-center gap-2 font-bold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={directPassForm.requiere_comedor}
+                      onChange={(e) => setDirectPassForm({ ...directPassForm, requiere_comedor: e.target.checked })}
+                    />
+                    <span>Requiere Comedor</span>
+                  </label>
+                </div>
+
+                <label className="flex items-center gap-2 p-3 rounded-xl bg-emerald-50 border border-emerald-200 font-black text-emerald-900 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={directPassForm.emitir_inmediato}
+                    onChange={(e) => setDirectPassForm({ ...directPassForm, emitir_inmediato: e.target.checked })}
+                  />
+                  <span>Autorizar factores ahora y Emitir Credencial QR lista para imprimir (PDF)</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
+                <button type="button" onClick={() => setShowDirectPassModal(false)} className="px-4 py-2 font-bold text-zinc-500">
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingDirectPass || directPassForm.selectedPersonalIds.length === 0}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black rounded-xl shadow"
+                >
+                  {savingDirectPass ? 'Generando...' : directPassForm.emitir_inmediato ? 'Crear Solicitud & Emitir QR' : 'Crear Solicitud'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

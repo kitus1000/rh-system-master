@@ -105,21 +105,56 @@ export default function ConfiguracionPage() {
     async function handleTestEmail() {
         const target = testEmailTo.trim() || formData.email_rh_notificaciones.trim() || formData.smtp_user.trim()
         if (!target) {
-            alert('Escribe un correo destino para la prueba.')
+            alert('⚠️ Escribe un correo destino en la casilla para la prueba (ej: tu correo personal).')
             return
         }
+
+        if (formData.email_provider === 'smtp') {
+            if (!formData.smtp_user?.trim()) {
+                alert('⚠️ Falta ingresar el "Usuario / Correo SMTP" (tu correo de Gmail o empresa).')
+                return
+            }
+            if (!formData.smtp_pass?.trim()) {
+                alert('⚠️ Falta ingresar la "Contraseña / App Password". Si usas Gmail, recuerda generar una contraseña de aplicación de 16 caracteres en tu cuenta de Google.')
+                return
+            }
+        } else if (formData.email_provider === 'resend') {
+            if (!formData.resend_api_key?.trim()) {
+                alert('⚠️ Falta ingresar tu "Resend API Key".')
+                return
+            }
+        }
+
         setTestingEmail(true)
         try {
+            // Guardar primero en BD
+            try {
+                const updates = { ...formData, actualizado_el: new Date().toISOString() }
+                if (configId) {
+                    await supabase.from('configuracion_empresa').update(updates).eq('id', configId)
+                } else {
+                    const { data: inserted } = await supabase.from('configuracion_empresa').insert(updates).select('id').maybeSingle()
+                    if (inserted?.id) setConfigId(inserted.id)
+                }
+                localStorage.setItem('rh_config_empresa', JSON.stringify(updates))
+            } catch (saveErr) {
+                console.warn('DB client-side auto-save notice:', saveErr)
+            }
+
             const res = await fetch('/api/contratistas/notificar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tipo: 'test', to: target })
+                body: JSON.stringify({
+                    tipo: 'test',
+                    to: target,
+                    config: formData
+                })
             })
             const json = await res.json()
             if (json.sent) {
-                alert(`✅ Correo de prueba enviado correctamente a ${target} (vía ${json.provider}).`)
+                alert(`✅ Correo de prueba enviado exitosamente a ${target} (vía ${json.provider}). Revisa tu bandeja de entrada.`)
             } else {
-                alert(`❌ No se pudo enviar: ${json.error || 'Verifica tus datos SMTP/Resend y guarda cambios primero.'}`)
+                alert(`❌ No se pudo enviar: ${json.error || 'Verifica tus datos SMTP/Resend y vuelve a intentar.'}`)
             }
         } catch (err: any) {
             alert('Error: ' + err.message)
