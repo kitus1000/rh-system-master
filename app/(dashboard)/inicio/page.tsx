@@ -38,7 +38,9 @@ import {
   ChevronRight,
   LogOut,
   SlidersHorizontal,
-  LayoutGrid
+  LayoutGrid,
+  HardHat,
+  Layers
 } from 'lucide-react'
 
 interface AppItem {
@@ -215,6 +217,58 @@ export default function InicioPage() {
 
     // --- Módulo Recursos Humanos & Operaciones ---
     {
+      id: 'rh-integracion',
+      name: 'Centro Integrado RH',
+      subtitle: 'Alimentación interna desde Médicos, Choferes, Campamentos, Comedor y Contratistas',
+      href: '/integracion-rh',
+      icon: Layers,
+      category: 'rh',
+      badge: 'SINCRONIZACIÓN',
+      color: 'text-emerald-400',
+      bgGradient: 'from-emerald-500/20 via-emerald-500/5 to-transparent',
+      glowColor: 'hover:border-emerald-500/50 hover:shadow-emerald-500/20',
+      roles: ['Administrativo', 'Recursos Humanos', 'Sistemas']
+    },
+    {
+      id: 'rh-contratistas',
+      name: 'Contratistas & Accesos Mina',
+      subtitle: 'Empresas, documentos SAT/IMSS/NSS, aprobación multi-factor y credenciales QR',
+      href: '/contratistas',
+      icon: HardHat,
+      category: 'rh',
+      badge: 'CONTRATISTAS',
+      color: 'text-orange-400',
+      bgGradient: 'from-orange-500/20 via-orange-500/5 to-transparent',
+      glowColor: 'hover:border-orange-500/50 hover:shadow-orange-500/20',
+      roles: ['Administrativo', 'Recursos Humanos', 'Superintendente', 'Jefe de Departamento', 'Sistemas']
+    },
+    {
+      id: 'contratista-portal',
+      name: 'Portal Individual Contratista',
+      subtitle: 'Vista del contratista: alta/baja de personal, carga de PDFs y solicitud de ingreso',
+      href: '/contratistas-portal',
+      icon: HardHat,
+      category: 'rh',
+      badge: 'PORTAL EXTERNO',
+      color: 'text-amber-400',
+      bgGradient: 'from-amber-500/20 via-amber-500/5 to-transparent',
+      glowColor: 'hover:border-amber-500/50 hover:shadow-amber-500/20',
+      roles: ['Administrativo', 'Recursos Humanos', 'Sistemas', 'Contratista']
+    },
+    {
+      id: 'seg-caseta',
+      name: 'Seguridad & Caseta QR',
+      subtitle: 'Inducciones de seguridad, entradas/salidas a mina y entrega de credenciales',
+      href: '/seguridad',
+      icon: ShieldCheck,
+      category: 'rh',
+      badge: 'SEGURIDAD',
+      color: 'text-cyan-400',
+      bgGradient: 'from-cyan-500/20 via-cyan-500/5 to-transparent',
+      glowColor: 'hover:border-cyan-500/50 hover:shadow-cyan-500/20',
+      roles: ['Administrativo', 'Recursos Humanos', 'Seguridad', 'Sistemas']
+    },
+    {
       id: 'rh-empleados',
       name: 'Directorio Empleados',
       subtitle: 'Expedientes laborales y datos de personal',
@@ -277,7 +331,7 @@ export default function InicioPage() {
       color: 'text-orange-400',
       bgGradient: 'from-orange-500/20 via-orange-500/5 to-transparent',
       glowColor: 'hover:border-orange-500/50 hover:shadow-orange-500/20',
-      roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento']
+      roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Encargado de Campamento y Comedor']
     },
     {
       id: 'rh-evaluaciones',
@@ -303,7 +357,7 @@ export default function InicioPage() {
       color: 'text-amber-400',
       bgGradient: 'from-amber-500/20 via-amber-500/5 to-transparent',
       glowColor: 'hover:border-amber-500/50 hover:shadow-amber-500/20',
-      roles: ['Administrativo', 'Superintendente']
+      roles: ['Administrativo', 'Superintendente', 'Encargado de Campamento y Comedor']
     },
     {
       id: 'rh-calendario',

@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 export async function POST(req: Request) {
     try {
         const body = await req.json()
-        const { userId, email, nombre_completo, rol, id_departamento, departamentos_autorizados, password } = body
+        const { userId, email, nombre_completo, rol, id_departamento, departamentos_autorizados, password, id_empresa_contratista } = body
 
         if (!userId) {
             return NextResponse.json({ error: 'Falta userId' }, { status: 400 })
@@ -25,9 +25,15 @@ export async function POST(req: Request) {
             }
         })
 
-        // 1. Update auth.users (Email and/or Password) via Admin API
+        // 1. Update auth.users (Email and/or Password + metadata) via Admin API
         if (isServiceRole) {
-            const authUpdates: any = {}
+            const authUpdates: any = {
+                user_metadata: {
+                    full_name: nombre_completo,
+                    rol,
+                    ...(id_empresa_contratista !== undefined ? { id_empresa_contratista } : {})
+                }
+            }
             if (email && email.trim() !== '') {
                 authUpdates.email = email.trim()
                 authUpdates.email_confirm = true
@@ -57,17 +63,33 @@ export async function POST(req: Request) {
             id_departamento: id_departamento || null,
             departamentos_autorizados: departamentos_autorizados || []
         }
+        if (id_empresa_contratista !== undefined) {
+            updatePayload.id_empresa_contratista = id_empresa_contratista || null
+        }
 
         let { error: profileError } = await supabaseClient
             .from('perfiles')
             .update(updatePayload)
             .eq('id', userId)
 
+        if (profileError && profileError.message?.toLowerCase().includes('id_empresa_contratista')) {
+            delete updatePayload.id_empresa_contratista
+            const retryCol = await supabaseClient.from('perfiles').update(updatePayload).eq('id', userId)
+            profileError = retryCol.error
+        }
+
         if (profileError && (profileError.message.includes('perfiles_rol_check') || profileError.code === '23514')) {
             const isJefeMed = rol === 'Jefe Médico' || (rol && rol.toLowerCase().includes('médico') && rol.toLowerCase().includes('jefe'))
             const isMed = isJefeMed || rol === 'Médico' || (rol && rol.toLowerCase().includes('médic'))
+            const isContratista = rol === 'Contratista'
+            const isSeguridad = rol === 'Seguridad'
+            const isCamp = rol === 'Encargado de Campamento y Comedor'
             const fallbackRol = isMed ? 'Médico' : (isChofer ? 'Chofer' : 'Jefe')
-            const taggedNombre = isJefeMed && !finalNombre.includes('(Jefe Médico)') ? `${finalNombre} (Jefe Médico)` : finalNombre
+            let taggedNombre = finalNombre
+            if (isJefeMed && !taggedNombre.includes('(Jefe Médico)')) taggedNombre = `${taggedNombre} (Jefe Médico)`
+            else if (isContratista && !taggedNombre.includes('(Contratista)')) taggedNombre = `${taggedNombre} (Contratista)`
+            else if (isSeguridad && !taggedNombre.includes('(Seguridad)')) taggedNombre = `${taggedNombre} (Seguridad)`
+            else if (isCamp && !taggedNombre.includes('(Campamento y Comedor)')) taggedNombre = `${taggedNombre} (Campamento y Comedor)`
 
             const { error: retryErr } = await supabaseClient
                 .from('perfiles')

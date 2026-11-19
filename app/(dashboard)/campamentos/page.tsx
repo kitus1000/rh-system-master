@@ -137,6 +137,9 @@ export default function CampamentosPage() {
   const [assignmentTarget, setAssignmentTarget] = useState<{ id_cama: string, numero: number } | null>(null)
   const [assignmentSearch, setAssignmentSearch] = useState('')
 
+  // Solicitudes de hospedaje de Portal Contratistas
+  const [contratistasSolicitudes, setContratistasSolicitudes] = useState<any[]>([])
+
   // Canvas 3D Ref
   const mountRef = useRef<HTMLDivElement>(null)
 
@@ -144,7 +147,74 @@ export default function CampamentosPage() {
     fetchData()
     fetchEmpleados()
     fetchIncidencias()
+    fetchContratistasSolicitudes()
   }, [])
+
+  const fetchContratistasSolicitudes = async () => {
+    try {
+      const { data } = await supabase
+        .from('contratistas_solicitudes')
+        .select('*, contratistas_empresas(razon_social), contratistas_solicitud_personal(*, contratistas_personal(*))')
+        .eq('requiere_campamento', true)
+        .order('creado_el', { ascending: false })
+      if (data) setContratistasSolicitudes(data)
+    } catch (e) {
+      // Silently ignore if migration hasn't been executed yet
+    }
+  }
+
+  const handleAssignContractorBedFromRequest = async (item: any, idCama: string) => {
+    if (!idCama || !item?.contratistas_personal) return
+    const p = item.contratistas_personal
+    let camaDesc = 'Cama asignada'
+    campamentos.forEach(c => {
+      c.campamento_cuartos?.forEach(q => {
+        q.campamento_camas?.forEach(b => {
+          if (b.id_cama === idCama) {
+            camaDesc = `${c.nombre} / ${q.nombre} / Cama #${b.numero}`
+          }
+        })
+      })
+    })
+    const nombreCompleto = `${p.nombre} ${p.apellido_paterno}`.trim()
+    await supabase
+      .from('campamento_camas')
+      .update({
+        id_contratista_personal: p.id_personal,
+        ocupado_por_nombre: nombreCompleto,
+        ocupado_tipo: 'Contratista'
+      })
+      .eq('id_cama', idCama)
+    await supabase
+      .from('contratistas_solicitud_personal')
+      .update({ id_cama_asignada: idCama, cama_descripcion: camaDesc })
+      .eq('id_item', item.id_item)
+    await fetchData()
+    await fetchContratistasSolicitudes()
+  }
+
+  const handleConfirmCampAvailability = async (sol: any, status: 'Disponible / Asignado' | 'Sin Cupo') => {
+    const note = prompt(`Notas de Campamentos para ${sol.folio} (${status}):`, status === 'Disponible / Asignado' ? 'Disponibilidad confirmada y camas reservadas.' : 'Sin disponibilidad en las fechas solicitadas.')
+    if (note === null) return
+    await supabase
+      .from('contratistas_solicitudes')
+      .update({
+        estatus_campamento: status,
+        aprobado_campamento_por: 'Encargado de Campamentos',
+        fecha_aprobacion_campamento: new Date().toISOString(),
+        notas_campamento: note || null,
+        actualizado_el: new Date().toISOString()
+      })
+      .eq('id_solicitud', sol.id_solicitud)
+    await supabase.from('contratistas_mensajes').insert([{
+      id_solicitud: sol.id_solicitud,
+      id_empresa: sol.id_empresa,
+      remitente_nombre: 'Campamentos',
+      remitente_rol: 'Campamentos',
+      mensaje: `Disponibilidad de campamento: ${status}. ${note || ''}`
+    }])
+    await fetchContratistasSolicitudes()
+  }
 
   // LocalStorage helpers for worker shift roles when DB columns are absent
   const saveWorkerRoleToLocal = (id_empleado: string, rol_tipo: string, fecha_inicio_rol: string) => {
@@ -1495,6 +1565,11 @@ export default function CampamentosPage() {
           >
             <HardHat className="w-4 h-4" />
             <span>👷🏼‍♂️ Contratistas</span>
+            {contratistasSolicitudes.filter(s => s.estatus_campamento === 'Pendiente').length > 0 && (
+              <span className="bg-rose-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">
+                {contratistasSolicitudes.filter(s => s.estatus_campamento === 'Pendiente').length}
+              </span>
+            )}
           </button>
 
           <button
@@ -1878,7 +1953,80 @@ export default function CampamentosPage() {
 
       {/* MAIN VIEWPORT 3: HISTORIAL & REACTIVACIÓN RÁPIDA DE CONTRATISTAS */}
       {viewMode === 'contratistas' && (
-        <div className="space-y-4">
+        <div className="space-y-6">
+          {/* Solicitudes desde Portal de Contratistas */}
+          {contratistasSolicitudes.length > 0 && (
+            <div className="bg-white border-2 border-teal-200 rounded-3xl p-6 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-100 pb-3">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-teal-600 tracking-wider">Solicitudes de Hospedaje desde Portal de Contratistas</span>
+                  <h3 className="text-lg font-black text-zinc-900">Verificación de Disponibilidad y Asignación de Camas</h3>
+                </div>
+                <span className="text-xs font-mono font-bold bg-teal-50 text-teal-800 border border-teal-200 px-3 py-1 rounded-xl">
+                  Camas Libres Totales: {campamentos.reduce((acc, c) => acc + (c.campamento_cuartos || []).reduce((a2, q) => a2 + (q.campamento_camas || []).filter(b => !b.id_empleado && !(b as any).id_contratista_personal).length, 0), 0)}
+                </span>
+              </div>
+
+              <div className="space-y-4">
+                {contratistasSolicitudes.map((sol) => (
+                  <div key={sol.id_solicitud} className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 space-y-3">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-black text-xs bg-zinc-900 text-amber-400 px-2.5 py-0.5 rounded-lg">{sol.folio}</span>
+                          <strong className="text-sm text-zinc-900">{sol.contratistas_empresas?.razon_social}</strong>
+                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${sol.estatus_campamento === 'Disponible / Asignado' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : sol.estatus_campamento === 'Sin Cupo' ? 'bg-rose-100 text-rose-800 border-rose-200' : 'bg-amber-100 text-amber-800 border-amber-200'}`}>
+                            {sol.estatus_campamento}
+                          </span>
+                        </div>
+                        <p className="text-xs text-zinc-500 mt-1">
+                          Del <strong>{sol.fecha_inicio}</strong> al <strong>{sol.fecha_fin}</strong> • Personal: <strong>{sol.contratistas_solicitud_personal?.length || 0}</strong> persona(s)
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleConfirmCampAvailability(sol, 'Disponible / Asignado')} className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl">
+                          ✓ Hay Disponibilidad
+                        </button>
+                        <button onClick={() => handleConfirmCampAvailability(sol, 'Sin Cupo')} className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-xl">
+                          ✕ Sin Cupo
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {(sol.contratistas_solicitud_personal || []).map((item: any) => (
+                        <div key={item.id_item} className="bg-white p-2.5 rounded-xl border border-zinc-200 flex items-center justify-between gap-2 text-xs">
+                          <div>
+                            <strong className="text-zinc-900">{item.contratistas_personal?.nombre} {item.contratistas_personal?.apellido_paterno}</strong>
+                            <div className="text-[10px] text-teal-700 font-bold">{item.cama_descripcion || 'Sin cama asignada aún'}</div>
+                          </div>
+                          <select
+                            defaultValue=""
+                            onChange={(e) => e.target.value && handleAssignContractorBedFromRequest(item, e.target.value)}
+                            className="text-[11px] border border-zinc-300 rounded-lg px-2 py-1 bg-zinc-50 max-w-[200px]"
+                          >
+                            <option value="">Asignar cama libre...</option>
+                            {campamentos.flatMap((c) =>
+                              (c.campamento_cuartos || []).flatMap((q) =>
+                                (q.campamento_camas || [])
+                                  .filter((b) => !b.id_empleado && !(b as any).id_contratista_personal)
+                                  .map((b) => (
+                                    <option key={b.id_cama} value={b.id_cama}>
+                                      {c.nombre} - {q.nombre} - Cama #{b.numero}
+                                    </option>
+                                  ))
+                              )
+                            )}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="bg-gradient-to-r from-amber-900 via-zinc-900 to-zinc-950 text-white p-6 rounded-3xl shadow-lg border border-amber-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">

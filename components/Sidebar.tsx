@@ -35,7 +35,10 @@ import {
     Pill,
     Hospital,
     Building,
-    QrCode
+    QrCode,
+    HardHat,
+    ShieldCheck,
+    Layers
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/components/AuthProvider'
@@ -47,8 +50,9 @@ const navigationGroups = [
         bgClass: "bg-zinc-800",
         isCollapsible: false,
         items: [
-            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Jefe Médico', 'Recursos Humanos', 'Sistemas', 'Chofer', 'Encargado de Campamento y Comedor'] },
-            { name: '🚌 Bitácora de Rutas Choferes', href: '/logistica/choferes', icon: Bus, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas', 'Encargado de Campamento y Comedor'] },
+            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Médico', 'Jefe Médico', 'Recursos Humanos', 'Sistemas', 'Chofer', 'Encargado de Campamento y Comedor', 'Contratista', 'Seguridad'] },
+            { name: 'Portal Contratista', href: '/contratistas-portal', icon: HardHat, roles: ['Contratista'] },
+            { name: '🚌 Bitácora de Rutas Choferes', href: '/logistica/choferes', icon: Bus, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas'] },
             { name: 'Chat y Muro', href: '/chat', icon: MessageCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Sistemas'] },
         ]
     },
@@ -60,13 +64,14 @@ const navigationGroups = [
         isCollapsible: true,
         defaultExpanded: true,
         items: [
-            { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Empleados', href: '/empleados', icon: Users, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
+            { name: 'Centro Integrado RH', href: '/integracion-rh', icon: Layers, roles: ['Administrativo', 'Recursos Humanos', 'Sistemas'] },
+            { name: 'Empleados', href: '/empleados', icon: Users, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
             { name: 'Credenciales QR', href: '/empleados/credenciales', icon: QrCode, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
-            { name: 'Solicitudes', href: '/solicitudes', icon: FileText, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Solicitudes', href: '/solicitudes', icon: FileText, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
             { name: 'Autorizaciones', href: '/autorizaciones', icon: CheckSquare, roles: ['Administrativo', 'Superintendente'] },
-            { name: 'Calendario', href: '/calendario', icon: Calendar, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
-            { name: 'Pre-Nómina', href: '/reportes/prenomina', icon: ClipboardList, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Calendario', href: '/calendario', icon: Calendar, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
+            { name: 'Pre-Nómina', href: '/reportes/prenomina', icon: ClipboardList, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
         ]
     },
     {
@@ -94,11 +99,24 @@ const navigationGroups = [
         isCollapsible: true,
         defaultExpanded: true,
         items: [
-            { name: '🚌 Portal Choferes & Pasaje QR', href: '/logistica/choferes', icon: Car, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas', 'Supervisor', 'Encargado de Campamento y Comedor'] },
+            { name: '🚌 Portal Choferes & Pasaje QR', href: '/logistica/choferes', icon: Car, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas', 'Supervisor'] },
             { name: '📑 Bitácora de Pasajeros QR', href: '/logistica/choferes/bitacora', icon: Users, roles: ['Recursos Humanos', 'Administrativo', 'Superintendente', 'Jefe de Departamento', 'Chofer', 'Sistemas', 'Supervisor'] },
             { name: '📅 Viajes Programados', href: '/transporte', icon: Bus, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas', 'Supervisor'] },
             { name: '🛠️ Control de Flota y Logística', href: '/logistica', icon: Truck, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Sistemas', 'Chofer'] },
             { name: '📊 Supervisión y Reportes', href: '/logistica/reportes', icon: ClipboardList, roles: ['Recursos Humanos', 'Administrativo', 'Superintendente', 'Jefe de Departamento', 'Sistemas', 'Chofer'] }
+        ]
+    },
+    {
+        title: "Contratistas & Seguridad",
+        icon: HardHat,
+        colorClass: "text-orange-500",
+        bgClass: "bg-orange-500",
+        isCollapsible: true,
+        defaultExpanded: true,
+        items: [
+            { name: 'Contratistas & Accesos', href: '/contratistas', icon: HardHat, roles: ['Administrativo', 'Recursos Humanos', 'Superintendente', 'Jefe de Departamento', 'Sistemas'] },
+            { name: 'Portal Individual Contratista', href: '/contratistas-portal', icon: Users, roles: ['Administrativo', 'Recursos Humanos', 'Sistemas', 'Contratista'] },
+            { name: 'Seguridad & Caseta QR', href: '/seguridad', icon: ShieldCheck, roles: ['Administrativo', 'Recursos Humanos', 'Seguridad', 'Sistemas'] },
         ]
     },
     {
@@ -109,9 +127,9 @@ const navigationGroups = [
         isCollapsible: true,
         defaultExpanded: true,
         items: [
-            { name: 'Campamentos', href: '/campamentos', icon: Home, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Encargado de Campamento y Comedor'] },
-            { name: 'Lockers y Casilleros', href: '/lockers', icon: FolderLock, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Encargado de Campamento y Comedor', 'Sistemas', 'Supervisor'] },
-            { name: 'Comedor', href: '/comedor', icon: Coffee, roles: ['Administrativo', 'Superintendente', 'Encargado de Campamento y Comedor'] },
+            { name: 'Campamentos', href: '/campamentos', icon: Home, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Encargado de Campamento y Comedor'] },
+            { name: 'Lockers y Casilleros', href: '/lockers', icon: FolderLock, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Sistemas', 'Supervisor'] },
+            { name: 'Comedor', href: '/comedor', icon: Coffee, roles: ['Administrativo', 'Superintendente', 'Recursos Humanos', 'Encargado de Campamento y Comedor'] },
             { name: 'Evaluaciones', href: '/evaluaciones', icon: Award, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
             { name: 'Documentos', href: '/documentos', icon: Files, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
         ]

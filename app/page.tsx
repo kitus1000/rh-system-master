@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { supabase } from '@/utils/supabase/client'
 import Link from 'next/link'
 import { 
@@ -15,18 +14,22 @@ import {
   ClipboardList,
   ChevronLeft,
   Eye,
-  EyeOff
+  EyeOff,
+  Home,
+  HardHat,
+  ShieldCheck
 } from 'lucide-react'
 
+type LoginTarget = 'rh' | 'medico' | 'jefes' | 'chofer' | 'campamento' | 'contratista' | 'seguridad'
+
 export default function LandingHub() {
-    const router = useRouter()
     const [view, setView] = useState<'hub' | 'login'>('hub')
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [showPassword, setShowPassword] = useState(false)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const [loginTarget, setLoginTarget] = useState<'rh' | 'medico' | 'jefes' | 'chofer'>('rh')
+    const [loginTarget, setLoginTarget] = useState<LoginTarget>('rh')
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -36,6 +39,22 @@ export default function LandingHub() {
             }
         }
     }, [])
+
+    const resolveRedirectByRole = (rolRaw: string, nameRaw: string, target: LoginTarget): string => {
+        const r = `${rolRaw} ${nameRaw}`.toLowerCase()
+        if (r.includes('contratista')) return '/contratistas-portal'
+        if (r.includes('seguridad')) return '/seguridad'
+        if (r.includes('chofer') || r.includes('conductor')) return '/logistica/choferes'
+        if (r.includes('campamento') || r.includes('comedor')) return '/campamentos'
+        if (r.includes('médic') || r.includes('medic') || r.includes('doctor')) return '/medico/consultas'
+        if (target === 'chofer') return '/logistica/choferes'
+        if (target === 'campamento') return '/campamentos'
+        if (target === 'contratista') return '/contratistas-portal'
+        if (target === 'seguridad') return '/seguridad'
+        if (target === 'medico') return '/medico/consultas'
+        if (target === 'jefes') return '/autorizaciones'
+        return '/inicio'
+    }
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -57,20 +76,21 @@ export default function LandingHub() {
             let nextPath = searchParams.get('next')
 
             if (!nextPath && authData?.user?.id) {
-                const { data: profData } = await supabase.from('perfiles').select('rol').eq('id', authData.user.id).single()
-                const rLower = (profData?.rol || '').toLowerCase()
-                if (rLower.includes('chofer')) {
-                    nextPath = '/logistica/choferes'
-                } else if (rLower.includes('médic') || rLower.includes('medic') || rLower.includes('doctor')) {
-                    nextPath = '/medico/consultas'
-                } else {
-                    nextPath = '/inicio'
-                }
+                const { data: profData } = await supabase
+                    .from('perfiles')
+                    .select('rol, nombre_completo')
+                    .eq('id', authData.user.id)
+                    .single()
+                const metaRol = (authData.user.user_metadata?.rol || '') as string
+                nextPath = resolveRedirectByRole(
+                    profData?.rol || metaRol || '',
+                    profData?.nombre_completo || '',
+                    loginTarget
+                )
             }
 
             if (!nextPath) {
-                if (loginTarget === 'chofer') nextPath = '/logistica/choferes'
-                else nextPath = '/inicio'
+                nextPath = resolveRedirectByRole('', '', loginTarget)
             }
 
             if (authError) {
@@ -80,13 +100,14 @@ export default function LandingHub() {
                 }
 
                 // Check if user exists in perfiles table as fallback
-                const { data: fallbackProf } = await supabase.from('perfiles').select('*').or(`nombre_completo.ilike.%${email.split('@')[0]}%,rol.ilike.Chofer`).limit(1)
+                const { data: fallbackProf } = await supabase
+                    .from('perfiles')
+                    .select('*')
+                    .or(`nombre_completo.ilike.%${email.split('@')[0]}%,rol.ilike.Chofer`)
+                    .limit(1)
                 if (fallbackProf && fallbackProf.length > 0) {
                     const prof = fallbackProf[0]
-                    if (prof.rol === 'Chofer') {
-                        nextPath = '/logistica/choferes'
-                    }
-                    window.location.href = nextPath
+                    window.location.href = resolveRedirectByRole(prof.rol || '', prof.nombre_completo || '', loginTarget)
                     return
                 }
 
@@ -96,32 +117,77 @@ export default function LandingHub() {
             }
 
             window.location.href = nextPath
-        } catch (error: any) {
-            setError(error.message)
+        } catch (err: any) {
+            setError(err.message)
             setLoading(false)
         }
     }
 
-    const getTargetTitle = () => {
+    const getTargetMeta = () => {
         switch (loginTarget) {
-            case 'rh': return 'Acceso RH & Administración'
-            case 'medico': return 'Servicios Médicos & Clínica'
-            case 'jefes': return 'Estatus de Ausencias / Jefes'
-            case 'chofer': return 'Portal de Choferes'
+            case 'rh':
+                return {
+                    title: 'Acceso RH & Administración',
+                    sub: 'Gestión interna integral de personal, nómina, módulos y control operativo',
+                    bar: 'bg-amber-500',
+                    box: 'bg-amber-500/10 border border-amber-500/20',
+                    btn: 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/20',
+                }
+            case 'medico':
+                return {
+                    title: 'Servicios Médicos & Clínica',
+                    sub: 'Consultas, farmacia, emisión de pases médicos y hospitalización',
+                    bar: 'bg-emerald-500',
+                    box: 'bg-emerald-500/10 border border-emerald-500/20',
+                    btn: 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20',
+                }
+            case 'jefes':
+                return {
+                    title: 'Jefes de Área & Superintendentes',
+                    sub: 'Autorizaciones, ausencias de personal y visto bueno a contratistas',
+                    bar: 'bg-rose-500',
+                    box: 'bg-rose-500/10 border border-rose-500/20',
+                    btn: 'bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-500/20',
+                }
+            case 'chofer':
+                return {
+                    title: 'Portal de Choferes',
+                    sub: 'Checklist vehicular, rutas y escaneo QR de pasajeros',
+                    bar: 'bg-purple-500',
+                    box: 'bg-purple-500/10 border border-purple-500/20',
+                    btn: 'bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-500/20',
+                }
+            case 'campamento':
+                return {
+                    title: 'Campamentos y Comedor',
+                    sub: 'Control de camas, lavandería, disponibilidad y registro de comidas',
+                    bar: 'bg-teal-500',
+                    box: 'bg-teal-500/10 border border-teal-500/20',
+                    btn: 'bg-teal-500 hover:bg-teal-400 text-black shadow-lg shadow-teal-500/20',
+                }
+            case 'contratista':
+                return {
+                    title: 'Portal Individual de Contratistas',
+                    sub: 'Alta de personal, carga de NSS/IMSS/SAT, permisos, solicitud de ingreso y QR',
+                    bar: 'bg-orange-500',
+                    box: 'bg-orange-500/10 border border-orange-500/20',
+                    btn: 'bg-orange-500 hover:bg-orange-400 text-black shadow-lg shadow-orange-500/20',
+                }
+            case 'seguridad':
+                return {
+                    title: 'Seguridad Industrial & Caseta',
+                    sub: 'Validación de inducciones, entradas/salidas a mina y devolución de credenciales',
+                    bar: 'bg-cyan-500',
+                    box: 'bg-cyan-500/10 border border-cyan-500/20',
+                    btn: 'bg-cyan-500 hover:bg-cyan-400 text-black shadow-lg shadow-cyan-500/20',
+                }
         }
     }
 
-    const getTargetSub = () => {
-        switch (loginTarget) {
-            case 'rh': return 'Gestión general de personal, usuarios y reportes'
-            case 'medico': return 'Médicos, farmacia, emisión de pases y recetas'
-            case 'jefes': return 'Consulta de empleados ausentes, pases médicos y hotel'
-            case 'chofer': return 'Checklist de vehículos y viajes programados'
-        }
-    }
+    const meta = getTargetMeta()
 
     return (
-        <div className="min-h-screen bg-black text-zinc-100 flex items-center justify-center p-4 selection:bg-amber-500/30 font-sans">
+        <div className="min-h-screen bg-black text-zinc-100 flex items-center justify-center p-4 py-10 selection:bg-amber-500/30 font-sans">
             <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay pointer-events-none" />
             <div className="absolute inset-0 bg-gradient-to-br from-black via-zinc-950 to-zinc-900 pointer-events-none" />
             
@@ -135,14 +201,14 @@ export default function LandingHub() {
                             <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white uppercase">
                                 PORTAL CENTRAL DE ACCESOS
                             </h1>
-                            <p className="text-zinc-400 font-mono text-xs uppercase tracking-widest">
-                                Seleccione su perfil o módulo correspondiente
+                            <p className="text-zinc-400 font-mono text-xs uppercase tracking-widest max-w-2xl mx-auto">
+                                Accesos independientes para operación externa e integración centralizada en Recursos Humanos
                             </p>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                             {/* 1. Acceso RH */}
-                            <button onClick={() => { setLoginTarget('rh'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-amber-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[250px]">
+                            <button onClick={() => { setLoginTarget('rh'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-amber-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
                                     <Users className="w-20 h-20 text-amber-500 transform group-hover:scale-110 transition-transform duration-500" />
                                 </div>
@@ -150,33 +216,67 @@ export default function LandingHub() {
                                     <div className="w-10 h-10 bg-amber-500/10 rounded-xl flex items-center justify-center mb-4 border border-amber-500/20">
                                         <Users className="w-5 h-5 text-amber-500" />
                                     </div>
-                                    <h2 className="text-base font-black text-white mb-1">Acceso RH</h2>
-                                    <p className="text-xs text-zinc-400 leading-relaxed">Administración general, personal y control.</p>
+                                    <h2 className="text-base font-black text-white mb-1">Acceso RH & Control</h2>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">Centro unificado de personal, nómina y sincronización interna.</p>
                                 </div>
                                 <div className="mt-4 flex items-center text-amber-400 font-black text-xs tracking-wider uppercase">
                                     Ingresar <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
                                 </div>
                             </button>
 
-                            {/* 2. Portal de Viajes */}
-                            <Link href="/reservar-viaje" className="group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-blue-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[250px]">
+                            {/* 2. Portal Contratistas */}
+                            <button onClick={() => { setLoginTarget('contratista'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-orange-500/30 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-orange-400 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
-                                    <Bus className="w-20 h-20 text-blue-500 transform group-hover:scale-110 transition-transform duration-500" />
+                                    <HardHat className="w-20 h-20 text-orange-500 transform group-hover:scale-110 transition-transform duration-500" />
                                 </div>
                                 <div>
-                                    <div className="w-10 h-10 bg-blue-500/10 rounded-xl flex items-center justify-center mb-4 border border-blue-500/20">
-                                        <Bus className="w-5 h-5 text-blue-500" />
+                                    <div className="w-10 h-10 bg-orange-500/10 rounded-xl flex items-center justify-center mb-4 border border-orange-500/20">
+                                        <HardHat className="w-5 h-5 text-orange-500" />
                                     </div>
-                                    <h2 className="text-base font-black text-white mb-1">Portal de Viajes</h2>
-                                    <p className="text-xs text-zinc-400 leading-relaxed">Auto-reservación de traslados a mina.</p>
+                                    <h2 className="text-base font-black text-white mb-1">Portal Contratistas</h2>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">Alta de personal, carga de NSS/IMSS/SAT, permisos y pase QR.</p>
                                 </div>
-                                <div className="mt-4 flex items-center text-blue-400 font-black text-xs tracking-wider uppercase">
-                                    Reservar <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
+                                <div className="mt-4 flex items-center text-orange-400 font-black text-xs tracking-wider uppercase">
+                                    Acceso Empresa <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
                                 </div>
-                            </Link>
+                            </button>
 
-                            {/* 3. Servicios Médicos */}
-                            <button onClick={() => { setLoginTarget('medico'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-emerald-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[250px]">
+                            {/* 3. Seguridad & Caseta */}
+                            <button onClick={() => { setLoginTarget('seguridad'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-cyan-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
+                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
+                                    <ShieldCheck className="w-20 h-20 text-cyan-500 transform group-hover:scale-110 transition-transform duration-500" />
+                                </div>
+                                <div>
+                                    <div className="w-10 h-10 bg-cyan-500/10 rounded-xl flex items-center justify-center mb-4 border border-cyan-500/20">
+                                        <ShieldCheck className="w-5 h-5 text-cyan-500" />
+                                    </div>
+                                    <h2 className="text-base font-black text-white mb-1">Seguridad & Caseta</h2>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">Inducciones, entradas/salidas a mina y entrega de credenciales.</p>
+                                </div>
+                                <div className="mt-4 flex items-center text-cyan-400 font-black text-xs tracking-wider uppercase">
+                                    Control Mina <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
+                                </div>
+                            </button>
+
+                            {/* 4. Campamentos y Comedor */}
+                            <button onClick={() => { setLoginTarget('campamento'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-teal-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
+                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
+                                    <Home className="w-20 h-20 text-teal-500 transform group-hover:scale-110 transition-transform duration-500" />
+                                </div>
+                                <div>
+                                    <div className="w-10 h-10 bg-teal-500/10 rounded-xl flex items-center justify-center mb-4 border border-teal-500/20">
+                                        <Home className="w-5 h-5 text-teal-500" />
+                                    </div>
+                                    <h2 className="text-base font-black text-white mb-1">Campamentos y Comedor</h2>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">Disponibilidad de camas, hospedaje contratistas y comidas.</p>
+                                </div>
+                                <div className="mt-4 flex items-center text-teal-400 font-black text-xs tracking-wider uppercase">
+                                    Operación <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
+                                </div>
+                            </button>
+
+                            {/* 5. Servicios Médicos */}
+                            <button onClick={() => { setLoginTarget('medico'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-emerald-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
                                     <Stethoscope className="w-20 h-20 text-emerald-500 transform group-hover:scale-110 transition-transform duration-500" />
                                 </div>
@@ -185,32 +285,15 @@ export default function LandingHub() {
                                         <Stethoscope className="w-5 h-5 text-emerald-500" />
                                     </div>
                                     <h2 className="text-base font-black text-white mb-1">Servicios Médicos</h2>
-                                    <p className="text-xs text-zinc-400 leading-relaxed">Consultas, recetas y emisión de pases.</p>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">Consultas, farmacia, recetas y emisión de pases médicos.</p>
                                 </div>
                                 <div className="mt-4 flex items-center text-emerald-400 font-black text-xs tracking-wider uppercase">
                                     Médicos <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
                                 </div>
                             </button>
 
-                            {/* 4. Estatus de Ausencias (Jefes) */}
-                            <button onClick={() => { setLoginTarget('jefes'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-rose-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[250px]">
-                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
-                                    <ClipboardList className="w-20 h-20 text-rose-500 transform group-hover:scale-110 transition-transform duration-500" />
-                                </div>
-                                <div>
-                                    <div className="w-10 h-10 bg-rose-500/10 rounded-xl flex items-center justify-center mb-4 border border-rose-500/20">
-                                        <ClipboardList className="w-5 h-5 text-rose-500" />
-                                    </div>
-                                    <h2 className="text-base font-black text-white mb-1">Estatus Ausencias</h2>
-                                    <p className="text-xs text-zinc-400 leading-relaxed">Jefes y Supervisores: Ver empleados enfermos o en hotel.</p>
-                                </div>
-                                <div className="mt-4 flex items-center text-rose-400 font-black text-xs tracking-wider uppercase">
-                                    Estatus Jefes <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
-                                </div>
-                            </button>
-
-                            {/* 5. Portal Choferes */}
-                            <button onClick={() => { setLoginTarget('chofer'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-purple-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[250px]">
+                            {/* 6. Portal Choferes */}
+                            <button onClick={() => { setLoginTarget('chofer'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-purple-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
                                     <Truck className="w-20 h-20 text-purple-500 transform group-hover:scale-110 transition-transform duration-500" />
                                 </div>
@@ -219,12 +302,46 @@ export default function LandingHub() {
                                         <Truck className="w-5 h-5 text-purple-500" />
                                     </div>
                                     <h2 className="text-base font-black text-white mb-1">Portal Choferes</h2>
-                                    <p className="text-xs text-zinc-400 leading-relaxed">Checklist de unidades y viajes.</p>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">Checklist de unidades, rutas y abordaje QR de personal.</p>
                                 </div>
                                 <div className="mt-4 flex items-center text-purple-400 font-black text-xs tracking-wider uppercase">
-                                    Acceso NIP <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
+                                    Acceso Chofer <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
                                 </div>
                             </button>
+
+                            {/* 7. Jefes / Autorizaciones */}
+                            <button onClick={() => { setLoginTarget('jefes'); setView('login'); }} className="text-left group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-rose-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
+                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
+                                    <ClipboardList className="w-20 h-20 text-rose-500 transform group-hover:scale-110 transition-transform duration-500" />
+                                </div>
+                                <div>
+                                    <div className="w-10 h-10 bg-rose-500/10 rounded-xl flex items-center justify-center mb-4 border border-rose-500/20">
+                                        <ClipboardList className="w-5 h-5 text-rose-500" />
+                                    </div>
+                                    <h2 className="text-base font-black text-white mb-1">Jefes de Departamento</h2>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">Ausencias, autorizaciones y visto bueno a contratistas.</p>
+                                </div>
+                                <div className="mt-4 flex items-center text-rose-400 font-black text-xs tracking-wider uppercase">
+                                    Acceso Jefes <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
+                                </div>
+                            </button>
+
+                            {/* 8. Portal de Viajes */}
+                            <Link href="/reservar-viaje" className="group relative bg-zinc-900/60 border border-zinc-800 rounded-3xl p-5 hover:bg-zinc-800/90 transition-all duration-300 hover:border-blue-500/50 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[220px]">
+                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity">
+                                    <Bus className="w-20 h-20 text-blue-500 transform group-hover:scale-110 transition-transform duration-500" />
+                                </div>
+                                <div>
+                                    <div className="w-10 h-10 bg-blue-500/10 rounded-xl flex items-center justify-center mb-4 border border-blue-500/20">
+                                        <Bus className="w-5 h-5 text-blue-500" />
+                                    </div>
+                                    <h2 className="text-base font-black text-white mb-1">Portal de Viajes</h2>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">Auto-reservación de traslados de personal a mina.</p>
+                                </div>
+                                <div className="mt-4 flex items-center text-blue-400 font-black text-xs tracking-wider uppercase">
+                                    Reservar <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
+                                </div>
+                            </Link>
                         </div>
                     </div>
                 ) : (
@@ -237,28 +354,23 @@ export default function LandingHub() {
                         </button>
 
                         <div className="bg-zinc-900/90 border border-zinc-800 rounded-3xl p-8 backdrop-blur-xl shadow-2xl relative overflow-hidden">
-                            <div className={`absolute top-0 left-0 right-0 h-1.5 ${
-                                loginTarget === 'chofer' ? 'bg-purple-500' :
-                                loginTarget === 'medico' ? 'bg-emerald-500' :
-                                loginTarget === 'jefes' ? 'bg-rose-500' : 'bg-amber-500'
-                            }`} />
+                            <div className={`absolute top-0 left-0 right-0 h-1.5 ${meta.bar}`} />
                             
                             <div className="mb-6 text-center">
-                                <div className={`w-14 h-14 rounded-2xl mx-auto flex items-center justify-center mb-3 ${
-                                    loginTarget === 'chofer' ? 'bg-purple-500/10 border border-purple-500/20' :
-                                    loginTarget === 'medico' ? 'bg-emerald-500/10 border border-emerald-500/20' :
-                                    loginTarget === 'jefes' ? 'bg-rose-500/10 border border-rose-500/20' : 'bg-amber-500/10 border border-amber-500/20'
-                                }`}>
+                                <div className={`w-14 h-14 rounded-2xl mx-auto flex items-center justify-center mb-3 ${meta.box}`}>
                                     {loginTarget === 'chofer' && <Truck className="w-7 h-7 text-purple-400" />}
                                     {loginTarget === 'medico' && <Stethoscope className="w-7 h-7 text-emerald-400" />}
                                     {loginTarget === 'jefes' && <ClipboardList className="w-7 h-7 text-rose-400" />}
+                                    {loginTarget === 'campamento' && <Home className="w-7 h-7 text-teal-400" />}
+                                    {loginTarget === 'contratista' && <HardHat className="w-7 h-7 text-orange-400" />}
+                                    {loginTarget === 'seguridad' && <ShieldCheck className="w-7 h-7 text-cyan-400" />}
                                     {loginTarget === 'rh' && <Users className="w-7 h-7 text-amber-400" />}
                                 </div>
                                 <h2 className="text-xl font-black text-white uppercase tracking-wide">
-                                    {getTargetTitle()}
+                                    {meta.title}
                                 </h2>
                                 <p className="text-zinc-400 text-xs mt-1.5">
-                                    {getTargetSub()}
+                                    {meta.sub}
                                 </p>
                             </div>
 
@@ -320,12 +432,7 @@ export default function LandingHub() {
                                 <button
                                     type="submit"
                                     disabled={loading}
-                                    className={`w-full font-black py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-50 text-xs tracking-wider uppercase ${
-                                        loginTarget === 'chofer' ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-500/20' :
-                                        loginTarget === 'medico' ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' :
-                                        loginTarget === 'jefes' ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-500/20' :
-                                        'bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/20'
-                                    }`}
+                                    className={`w-full font-black py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-50 text-xs tracking-wider uppercase ${meta.btn}`}
                                 >
                                     {loading ? 'INGRESANDO...' : 'ENTRAR AL SISTEMA'}
                                     {!loading && <ArrowRight className="w-4 h-4" />}

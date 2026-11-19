@@ -76,9 +76,25 @@ export default function PrenominaPage() {
                 .from('empleado_salarios')
                 .select('id_empleado, salario_diario, fecha_inicio_vigencia')
 
+            // Fetch External Feeds: Comedor & Pases Médicos
+            const { data: comedorData } = await supabase
+                .from('comedor_registros')
+                .select('id_empleado, costo')
+                .gte('fecha', startDate)
+                .lte('fecha', endDate)
+
+            const { data: pasesData } = await supabase
+                .from('pases_medicos')
+                .select('id_empleado, fecha_salida')
+                .gte('fecha_salida', startDate)
+                .lte('fecha_salida', endDate)
+
             if (!empleados) return
 
             const processed = empleados.map(emp => {
+                const empComedor = (comedorData || []).filter((c: any) => c.id_empleado === emp.id_empleado)
+                const empPases = (pasesData || []).filter((p: any) => p.id_empleado === emp.id_empleado)
+
                 const row: any = {
                     id: emp.id_empleado,
                     numero: emp.numero_empleado,
@@ -90,7 +106,10 @@ export default function PrenominaPage() {
                     horasDobles: 0,
                     horasTriples: 0,
                     festivos: 0,
-                    salarioDiario: 0
+                    salarioDiario: 0,
+                    comedorPlatillos: empComedor.length,
+                    comedorTotalMXN: empComedor.reduce((acc: number, c: any) => acc + Number(c.costo || 0), 0),
+                    pasesMedicosCount: empPases.length
                 }
 
                 incidentTypes.forEach(t => row.incidencias[t.id_tipo_incidencia] = 0)
@@ -193,7 +212,7 @@ export default function PrenominaPage() {
     const exportToExcel = () => {
         if (reportData.length === 0) return
 
-        const headers = ['Número', 'Nombre', 'Departamento', 'Salario Diario', 'Horas Dobles', 'Horas Triples', 'Festivos', ...incidentTypes.map(t => t.tipo_incidencia)]
+        const headers = ['Número', 'Nombre', 'Departamento', 'Salario Diario', 'Horas Dobles', 'Horas Triples', 'Festivos', 'Pases Médicos', 'Comedor Platillos', 'Comedor Total MXN', ...incidentTypes.map(t => t.tipo_incidencia)]
         const data = filteredData.map(row => [
             row.numero,
             row.nombre,
@@ -202,6 +221,9 @@ export default function PrenominaPage() {
             row.horasDobles,
             row.horasTriples,
             row.festivos,
+            row.pasesMedicosCount || 0,
+            row.comedorPlatillos || 0,
+            row.comedorTotalMXN || 0,
             ...incidentTypes.map(t => row.incidencias[t.id_tipo_incidencia])
         ])
 
@@ -371,6 +393,7 @@ export default function PrenominaPage() {
                                     <th className="px-4 py-3 text-left text-xs font-bold text-zinc-500 uppercase tracking-wider sticky left-0 bg-zinc-50 z-10 border-r border-zinc-200">Empleado</th>
                                     <th className="px-4 py-3 text-center text-xs font-bold text-zinc-500 uppercase tracking-wider bg-emerald-50 border-x border-emerald-100">Salario</th>
                                     <th className="px-4 py-3 text-center text-xs font-bold text-zinc-500 uppercase tracking-wider bg-amber-50 border-x border-amber-100" colSpan={3}>Ingresos Extra</th>
+                                    <th className="px-4 py-3 text-center text-xs font-bold text-zinc-500 uppercase tracking-wider bg-cyan-50 border-x border-cyan-100" colSpan={2}>Enlace Externo</th>
                                     <th className="px-4 py-3 text-center text-xs font-bold text-zinc-500 uppercase tracking-wider border-l border-zinc-200" colSpan={incidentTypes.length}>Incidencias (Descuentos)</th>
                                 </tr>
                                 <tr>
@@ -379,6 +402,8 @@ export default function PrenominaPage() {
                                     <th className="px-4 py-2 text-center text-[10px] font-bold text-amber-700 uppercase bg-amber-50">Hrs Dobles</th>
                                     <th className="px-4 py-2 text-center text-[10px] font-bold text-amber-700 uppercase bg-amber-50">Hrs Triples</th>
                                     <th className="px-4 py-2 text-center text-[10px] font-bold text-amber-700 uppercase bg-amber-50 border-r border-amber-100">Festivos</th>
+                                    <th className="px-4 py-2 text-center text-[10px] font-bold text-rose-700 uppercase bg-cyan-50">Pases Méd.</th>
+                                    <th className="px-4 py-2 text-center text-[10px] font-bold text-cyan-700 uppercase bg-cyan-50 border-r border-cyan-100">Comedor ($)</th>
                                     {incidentTypes.map(t => (
                                         <th key={t.id_tipo_incidencia} className="px-2 py-2 text-center text-[10px] font-bold text-zinc-500 uppercase">
                                             {t.tipo_incidencia.substring(0, 10)}
@@ -418,6 +443,18 @@ export default function PrenominaPage() {
                                                     <Plus className="w-3 h-3" />
                                                 </button>
                                             </div>
+                                        </td>
+
+                                        {/* External Feeds: Médico & Comedor */}
+                                        <td className="px-4 py-3 whitespace-nowrap text-center bg-cyan-50/30">
+                                            <span className={`text-sm font-black ${row.pasesMedicosCount > 0 ? 'text-rose-600' : 'text-zinc-300'}`}>
+                                                {row.pasesMedicosCount || 0}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap text-center bg-cyan-50/30 border-r border-cyan-100/50">
+                                            <span className={`text-xs font-black ${row.comedorTotalMXN > 0 ? 'text-cyan-700' : 'text-zinc-300'}`}>
+                                                ${(row.comedorTotalMXN || 0).toFixed(0)} ({row.comedorPlatillos || 0})
+                                            </span>
                                         </td>
                                         
                                         {/* Incidencias Columns */}

@@ -59,12 +59,47 @@ export default function EmpleadoDetallePage() {
     })
     const [canManage, setCanManage] = useState(false)
     const [turnos, setTurnos] = useState<any[]>([])
+    const [externalFeed, setExternalFeed] = useState<{
+        pases: any[]
+        consultas: any[]
+        camas: any[]
+        comedor: any[]
+        viajes: any[]
+    }>({ pases: [], consultas: [], camas: [], comedor: [], viajes: [] })
 
     useEffect(() => {
         checkPermissions()
         fetchEmpleado()
         fetchCatalogs()
+        fetchExternalFeed()
     }, [id])
+
+    async function fetchExternalFeed() {
+        if (!id) return
+        try {
+            const [pasesRes, consRes, camasRes, comRes, repRes] = await Promise.all([
+                supabase.from('pases_medicos').select('*').eq('id_empleado', id).order('creado_el', { ascending: false }).limit(10),
+                supabase.from('consultas_medicas').select('*').eq('id_empleado', id).order('fecha', { ascending: false }).limit(10),
+                supabase.from('campamento_camas').select('id_cama, numero, estatus_lavado, campamento_cuartos(nombre, campamentos(nombre, zona))').eq('id_empleado', id),
+                supabase.from('comedor_registros').select('*').eq('id_empleado', id).order('creado_el', { ascending: false }).limit(20),
+                supabase.from('logistica_reportes_diarios').select('id_reporte, fecha, camion_numero, punto_a, punto_b, pasajeros_lista, creado_el').order('creado_el', { ascending: false }).limit(40)
+            ])
+
+            const empViajes = (repRes.data || []).filter((r: any) =>
+                Array.isArray(r.pasajeros_lista) && r.pasajeros_lista.some((p: any) => p.id === id)
+            )
+
+            setExternalFeed({
+                pases: pasesRes.data || [],
+                consultas: consRes.data || [],
+                camas: camasRes.data || [],
+                comedor: comRes.data || [],
+                viajes: empViajes
+            })
+        } catch (e) {
+            console.warn('Error loading external feed for employee:', e)
+        }
+    }
 
     async function checkPermissions() {
         const { data: { user } } = await supabase.auth.getUser()
@@ -442,18 +477,25 @@ export default function EmpleadoDetallePage() {
             {/* Navigation Tabs */}
             <div className="border-b border-zinc-200 mb-6">
                 <nav className="-mb-px flex space-x-8 overflow-x-auto">
-                    {['perfil', 'historial', 'incidencias', 'vacaciones', 'documentos'].map((tab) => (
+                    {[
+                        { id: 'perfil', label: 'Perfil' },
+                        { id: 'historial', label: 'Historial' },
+                        { id: 'incidencias', label: 'Incidencias' },
+                        { id: 'vacaciones', label: 'Vacaciones' },
+                        { id: 'actividad_externa', label: 'Pulso Externo (Médico / Campamento / Comedor / Choferes)' },
+                        { id: 'documentos', label: 'Documentos' },
+                    ].map((tab) => (
                         <button
-                            key={tab}
-                            onClick={() => setActiveTab(tab)}
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
                             className={`
-                                whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm capitalize transition-colors
-                                ${activeTab === tab
+                                whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors
+                                ${activeTab === tab.id
                                     ? 'border-black text-black'
                                     : 'border-transparent text-zinc-500 hover:text-zinc-700 hover:border-zinc-300'}
                             `}
                         >
-                            {tab}
+                            {tab.label}
                         </button>
                     ))}
                 </nav>
@@ -621,6 +663,74 @@ export default function EmpleadoDetallePage() {
             {activeTab === 'vacaciones' && (
                 <div className="space-y-8 animate-in fade-in duration-300">
                     <VacationBalanceManager idEmpleado={id} fechaIngreso={ingreso?.fecha_ingreso} isReadOnly={!canManage} />
+                </div>
+            )}
+
+            {activeTab === 'actividad_externa' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-300">
+                    {/* Pases Médicos & Consultas */}
+                    <div className="bg-white rounded-xl border border-zinc-200 p-5 shadow-sm space-y-3">
+                        <h3 className="font-bold text-sm uppercase text-zinc-900">Clínica Médica (Pases y Consultas)</h3>
+                        {externalFeed.pases.map((p: any) => (
+                            <div key={p.id_pase} className="p-3 bg-rose-50/50 border border-rose-200 rounded-lg text-xs">
+                                <div className="flex justify-between font-bold text-zinc-900">
+                                    <span>Pase {p.folio || p.id_pase.slice(0, 8)}</span>
+                                    <span>{p.estatus}</span>
+                                </div>
+                                <p className="text-zinc-600 mt-0.5">{p.motivo || 'Atención médica'} • Salida: {p.fecha_salida || '—'} • Retorno: {p.fecha_retorno || '—'}</p>
+                            </div>
+                        ))}
+                        {externalFeed.pases.length === 0 && externalFeed.consultas.length === 0 && (
+                            <p className="text-xs text-zinc-400">Sin pases médicos o consultas registradas.</p>
+                        )}
+                    </div>
+
+                    {/* Campamento */}
+                    <div className="bg-white rounded-xl border border-zinc-200 p-5 shadow-sm space-y-3">
+                        <h3 className="font-bold text-sm uppercase text-zinc-900">Campamentos (Alojamiento Actual)</h3>
+                        {externalFeed.camas.map((c: any) => (
+                            <div key={c.id_cama} className="p-3 bg-teal-50/50 border border-teal-200 rounded-lg text-xs">
+                                <p className="font-bold text-zinc-900">
+                                    {c.campamento_cuartos?.campamentos?.nombre || 'Campamento'} — Cuarto {c.campamento_cuartos?.nombre || ''} — Cama #{c.numero}
+                                </p>
+                                <p className="text-zinc-600 mt-0.5">Zona: {c.campamento_cuartos?.campamentos?.zona || 'Parajes'} • Lavandería: {c.estatus_lavado}</p>
+                            </div>
+                        ))}
+                        {externalFeed.camas.length === 0 && <p className="text-xs text-zinc-400">Sin cama asignada actualmente en campamento.</p>}
+                    </div>
+
+                    {/* Comedor */}
+                    <div className="bg-white rounded-xl border border-zinc-200 p-5 shadow-sm space-y-3">
+                        <div className="flex justify-between items-center">
+                            <h3 className="font-bold text-sm uppercase text-zinc-900">Comedor (Últimos Consumos)</h3>
+                            <span className="text-xs font-bold text-emerald-700">
+                                Total: ${externalFeed.comedor.reduce((a: number, r: any) => a + Number(r.costo || 0), 0).toFixed(0)} MXN
+                            </span>
+                        </div>
+                        <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                            {externalFeed.comedor.map((r: any) => (
+                                <div key={r.id_registro} className="flex justify-between text-xs p-2 bg-zinc-50 rounded border border-zinc-100">
+                                    <span>{r.fecha} {r.hora} — <strong>{r.servicio}</strong></span>
+                                    <span className="font-bold">${Number(r.costo).toFixed(0)}</span>
+                                </div>
+                            ))}
+                            {externalFeed.comedor.length === 0 && <p className="text-xs text-zinc-400">Sin consumos registrados en comedor.</p>}
+                        </div>
+                    </div>
+
+                    {/* Choferes / Movilidad */}
+                    <div className="bg-white rounded-xl border border-zinc-200 p-5 shadow-sm space-y-3">
+                        <h3 className="font-bold text-sm uppercase text-zinc-900">Movilidad Choferes (Abordajes QR)</h3>
+                        <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                            {externalFeed.viajes.map((v: any) => (
+                                <div key={v.id_reporte} className="flex justify-between text-xs p-2 bg-purple-50/50 rounded border border-purple-200">
+                                    <span>{v.fecha} — Unidad <strong>{v.camion_numero}</strong></span>
+                                    <span>{v.punto_a || 'Origen'} → {v.punto_b || 'Destino'}</span>
+                                </div>
+                            ))}
+                            {externalFeed.viajes.length === 0 && <p className="text-xs text-zinc-400">Sin abordajes QR registrados recientemente.</p>}
+                        </div>
+                    </div>
                 </div>
             )}
 

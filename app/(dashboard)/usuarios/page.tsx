@@ -10,6 +10,7 @@ import {
 export default function UsuariosPage() {
     const [usuarios, setUsuarios] = useState<any[]>([])
     const [departamentos, setDepartamentos] = useState<any[]>([])
+    const [empresasContratistas, setEmpresasContratistas] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [isCreating, setIsCreating] = useState(false)
     const [isEditing, setIsEditing] = useState(false)
@@ -22,9 +23,10 @@ export default function UsuariosPage() {
         email: '',
         password: '',
         nombre_completo: '',
-        rol: 'Chofer', // 'Administrador', 'Recursos Humanos', 'Médico', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Chofer'
+        rol: 'Chofer', // 'Administrador', 'Recursos Humanos', 'Médico', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Chofer', 'Contratista', 'Seguridad'
         id_departamento: '',
-        departamentos_autorizados: [] as string[]
+        departamentos_autorizados: [] as string[],
+        id_empresa_contratista: ''
     })
     
     const [saving, setSaving] = useState(false)
@@ -52,6 +54,9 @@ export default function UsuariosPage() {
 
             const deptsRes = await supabase.from('cat_departamentos').select('*').eq('activo', true).order('departamento')
             if (deptsRes.data) setDepartamentos(deptsRes.data)
+
+            const empRes = await supabase.from('contratistas_empresas').select('id_empresa, razon_social, rfc').order('razon_social')
+            if (empRes.data) setEmpresasContratistas(empRes.data)
         } catch (err) {
             console.error('Error fetching usuarios:', err)
         } finally {
@@ -100,6 +105,7 @@ export default function UsuariosPage() {
                         rol: formData.rol,
                         id_departamento: formData.id_departamento,
                         departamentos_autorizados: formData.departamentos_autorizados,
+                        id_empresa_contratista: formData.rol === 'Contratista' ? (formData.id_empresa_contratista || null) : null,
                         password: formData.password
                     })
                 })
@@ -153,7 +159,8 @@ export default function UsuariosPage() {
             nombre_completo: '',
             rol: 'Chofer',
             id_departamento: '',
-            departamentos_autorizados: []
+            departamentos_autorizados: [],
+            id_empresa_contratista: ''
         })
         setEditingUserId('')
         setShowModalPassword(false)
@@ -175,7 +182,8 @@ export default function UsuariosPage() {
             nombre_completo: user.nombre_completo || '',
             rol: user.rol || 'Chofer',
             id_departamento: user.id_departamento || '',
-            departamentos_autorizados: user.departamentos_autorizados || []
+            departamentos_autorizados: user.departamentos_autorizados || [],
+            id_empresa_contratista: user.id_empresa_contratista || ''
         })
         setEditingUserId(user.id)
         setShowModalPassword(false)
@@ -440,10 +448,30 @@ export default function UsuariosPage() {
                                         <option value="Supervisor">Supervisor</option>
                                         <option value="Médico">🩺 Médico (Módulo Médico y Consultas)</option>
                                         <option value="Jefe Médico">🩺 Jefe Médico (Firma Autorización en Pases)</option>
-                                        <option value="Encargado de Campamento y Comedor">Encargado de Campamento y Comedor</option>
+                                        <option value="Encargado de Campamento y Comedor">🏕️ Encargado de Campamento y Comedor</option>
+                                        <option value="Seguridad">🛡️ Seguridad Industrial & Caseta QR</option>
+                                        <option value="Contratista">👷 Contratista (Portal Individual de Empresa)</option>
                                     </select>
                                 </div>
                             </div>
+
+                            {formData.rol === 'Contratista' && (
+                                <div className="animate-in slide-in-from-top-2">
+                                    <label className="block text-xs font-bold text-zinc-700 uppercase mb-1">Empresa Contratista Vinculada</label>
+                                    <select
+                                        value={formData.id_empresa_contratista}
+                                        onChange={e => setFormData({ ...formData, id_empresa_contratista: e.target.value })}
+                                        className="w-full text-xs font-bold bg-orange-50 border border-orange-300 rounded-xl py-2.5 px-3 focus:bg-white focus:ring-orange-500 focus:border-orange-500"
+                                    >
+                                        <option value="">-- Seleccione Empresa Contratista (o créela en Contratistas) --</option>
+                                        {empresasContratistas.map(emp => (
+                                            <option key={emp.id_empresa} value={emp.id_empresa}>
+                                                {emp.razon_social} ({emp.rfc})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                             
                             {['Jefe de Departamento', 'Superintendente', 'Supervisor'].includes(formData.rol) && (
                                 <div className="animate-in slide-in-from-top-2">

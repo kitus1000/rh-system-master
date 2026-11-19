@@ -189,25 +189,41 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* BANNER ACCESO RÁPIDO BITÁCORA DE RUTAS CHOFERES */}
-      <div className="bg-gradient-to-r from-emerald-900 via-zinc-900 to-zinc-950 p-6 rounded-2xl text-white shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-emerald-500/30">
+      {/* BANNER CENTRO INTEGRADO RH & CONTRATISTAS */}
+      <div className="bg-gradient-to-r from-emerald-900 via-zinc-900 to-zinc-950 p-6 rounded-2xl text-white shadow-xl flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border border-emerald-500/30">
         <div className="flex items-center gap-4">
-          <div className="p-3 bg-emerald-500 text-black rounded-2xl">
+          <div className="p-3 bg-emerald-500 text-black rounded-2xl shrink-0">
             <Activity className="w-8 h-8" />
           </div>
           <div>
-            <div className="text-xs font-black uppercase text-emerald-400 tracking-wider">Acceso Directo Principal</div>
-            <h2 className="text-xl font-black tracking-tight">🚌 Bitácora de Rutas y Conteo de Pasajeros (Choferes)</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Captura de viajes de Punto A a Punto B y control de abordaje</p>
+            <div className="text-xs font-black uppercase text-emerald-400 tracking-wider">Sincronización Interna RH</div>
+            <h2 className="text-xl font-black tracking-tight">Centro Integrado: Médicos, Choferes, Campamentos, Comedor y Contratistas</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">Consolida la operación externa directamente en RH y controla los ingresos multi-factor de contratistas.</p>
           </div>
         </div>
-        <Link
-          href="/logistica/choferes"
-          className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition-all uppercase tracking-wider shrink-0"
-        >
-          <span>Abrir Bitácora de Rutas</span>
-          <ArrowUpRight className="w-4 h-4" />
-        </Link>
+        <div className="flex flex-wrap gap-2 shrink-0">
+          <Link
+            href="/integracion-rh"
+            className="px-5 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition-all uppercase tracking-wider"
+          >
+            <span>Centro Integrado RH</span>
+            <ArrowUpRight className="w-4 h-4" />
+          </Link>
+          <Link
+            href="/contratistas"
+            className="px-5 py-3 bg-orange-500 hover:bg-orange-400 text-black font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition-all uppercase tracking-wider"
+          >
+            <span>Contratistas</span>
+            <ArrowUpRight className="w-4 h-4" />
+          </Link>
+          <Link
+            href="/contratistas-portal"
+            className="px-5 py-3 bg-amber-400 hover:bg-amber-300 text-black font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition-all uppercase tracking-wider"
+          >
+            <span>Portal Contratista</span>
+            <ArrowUpRight className="w-4 h-4" />
+          </Link>
+        </div>
       </div>
 
       {/* KPI GRID */}

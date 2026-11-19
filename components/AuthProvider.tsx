@@ -13,6 +13,7 @@ interface AuthProfile {
     rol: Role
     id_departamento?: string
     departamentos_autorizados?: string[]
+    id_empresa_contratista?: string | null
 }
 
 interface AuthContextType {
@@ -66,19 +67,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                 if (mounted) {
                     if (profData) {
-                        let normalizedRol = profData.rol || 'Jefe de Departamento'
+                        const metaRol = (session.user.user_metadata?.rol || '') as string
+                        const metaEmpresa = (session.user.user_metadata?.id_empresa_contratista || null) as string | null
+                        let normalizedRol = profData.rol || metaRol || 'Jefe de Departamento'
                         const rolLower = normalizedRol.toLowerCase()
+                        const metaRolLower = metaRol.toLowerCase()
                         const nameLower = (profData.nombre_completo || '').toLowerCase()
                         const isChoferName = nameLower.includes('pinales') || nameLower.includes('yañez') || nameLower.includes('yanez') || nameLower.includes('vazquez') || nameLower.includes('linares') || nameLower.includes('madriles') || nameLower.includes('saucedo') || nameLower.includes('chofer')
-                        if (rolLower.includes('chofer') || rolLower.includes('conductor') || rolLower.includes('operador') || isChoferName) normalizedRol = 'Chofer'
+                        if (rolLower.includes('contratista') || metaRolLower.includes('contratista') || nameLower.includes('(contratista)')) normalizedRol = 'Contratista'
+                        else if (rolLower.includes('seguridad') || metaRolLower.includes('seguridad') || nameLower.includes('(seguridad)')) normalizedRol = 'Seguridad'
+                        else if (rolLower.includes('chofer') || rolLower.includes('conductor') || rolLower.includes('operador') || isChoferName) normalizedRol = 'Chofer'
                         else if (rolLower.includes('jefe médico') || rolLower.includes('jefe medico') || nameLower.includes('jefe médico') || nameLower.includes('jefe medico')) normalizedRol = 'Jefe Médico'
                         else if (rolLower.includes('médico') || rolLower.includes('medico') || nameLower.includes('médico') || nameLower.includes('medico')) normalizedRol = 'Médico'
-                        else if (rolLower.includes('campamento') || rolLower.includes('comedor') || rolLower.includes('encargado de campamento')) normalizedRol = 'Encargado de Campamento y Comedor'
+                        else if (rolLower.includes('campamento') || rolLower.includes('comedor') || rolLower.includes('encargado de campamento') || metaRolLower.includes('campamento') || nameLower.includes('(campamento y comedor)')) normalizedRol = 'Encargado de Campamento y Comedor'
+                        else if (rolLower.includes('recursos humanos')) normalizedRol = 'Recursos Humanos'
                         else if (rolLower.includes('admin')) normalizedRol = 'Administrativo'
                         else if (rolLower === 'jefe' || rolLower.includes('jefe de departamento')) normalizedRol = 'Jefe de Departamento'
                         else if (rolLower.includes('superintendente')) normalizedRol = 'Superintendente'
+                        else if (rolLower.includes('supervisor')) normalizedRol = 'Supervisor'
                         
-                        setProfile({ ...profData, rol: normalizedRol } as AuthProfile)
+                        setProfile({
+                            ...profData,
+                            rol: normalizedRol,
+                            id_empresa_contratista: profData.id_empresa_contratista || metaEmpresa
+                        } as AuthProfile)
                     } else {
                         // Create their profile dynamically in the database
                         const newProfile = {
@@ -136,6 +148,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         let denied = false
 
+        // Contratista is strictly locked to their external Portal de Contratistas and Mi Perfil
+        if (profile.rol === 'Contratista') {
+            const allowedContratistaPaths = ['/contratistas-portal', '/mi-perfil']
+            const isAllowed = allowedContratistaPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
+            if (!isAllowed) {
+                denied = true
+            }
+        }
+
+        // Seguridad is strictly locked to Seguridad/Caseta, Mi Perfil and Acerca de
+        if (profile.rol === 'Seguridad') {
+            const allowedSeguridadPaths = ['/seguridad', '/mi-perfil', '/acerca-de']
+            const isAllowed = allowedSeguridadPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
+            if (!isAllowed) {
+                denied = true
+            }
+        }
+
         // Chofer is strictly locked to Portal Choferes and Mi Perfil
         if (profile.rol === 'Chofer') {
             const allowedChoferPaths = ['/logistica/choferes', '/mi-perfil']
@@ -145,18 +175,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         }
 
-        // Encargado de Campamento y Comedor is strictly locked to Campamentos, Comedor, Mi Perfil, Chat, Inicio
+        // Encargado de Campamento y Comedor is strictly locked to Campamentos, Comedor, Mi Perfil, Acerca de (no RH/chofer/medico leaks)
         if (profile.rol === 'Encargado de Campamento y Comedor') {
-            const allowedCampComedorPaths = ['/campamentos', '/comedor', '/mi-perfil', '/chat', '/inicio', '/acerca-de']
+            const allowedCampComedorPaths = ['/campamentos', '/comedor', '/mi-perfil', '/acerca-de']
             const isAllowed = allowedCampComedorPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
             if (!isAllowed) {
                 denied = true
             }
         }
 
-        // Only Administrativos can manage Config, Usuarios, Catalogos
-        if (pathname.startsWith('/configuracion') || pathname.startsWith('/usuarios') || pathname.startsWith('/catalogos')) {
-            if (profile.rol !== 'Administrativo') denied = true
+        // Only Administrativos / RH can manage Config, Usuarios, Catalogos, Integracion RH
+        if (pathname.startsWith('/configuracion') || pathname.startsWith('/usuarios') || pathname.startsWith('/catalogos') || pathname.startsWith('/integracion-rh')) {
+            if (profile.rol !== 'Administrativo' && profile.rol !== 'Recursos Humanos' && profile.rol !== 'Sistemas') denied = true
         }
 
         // Médico and Jefe Médico are strictly restricted to medical, profile, chat and inicio modules
@@ -201,10 +231,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     Tu rol actual ({profile?.rol}) no tiene permisos para acceder a esta sección o dominio. Si crees que esto es un error, contacta al administrador.
                 </p>
                 <button 
-                    onClick={() => { setAccessDenied(false); router.push('/inicio') }} 
+                    onClick={() => {
+                        setAccessDenied(false)
+                        if (profile?.rol === 'Contratista') router.push('/contratistas-portal')
+                        else if (profile?.rol === 'Seguridad') router.push('/seguridad')
+                        else if (profile?.rol === 'Chofer') router.push('/logistica/choferes')
+                        else if (profile?.rol === 'Encargado de Campamento y Comedor') router.push('/campamentos')
+                        else if (profile?.rol === 'Médico' || profile?.rol === 'Jefe Médico') router.push('/medico/consultas')
+                        else router.push('/inicio')
+                    }} 
                     className="mt-6 px-6 py-2 bg-black text-white font-bold rounded-md hover:bg-zinc-800"
                 >
-                    Volver al Inicio
+                    Volver a mi Portal
                 </button>
             </div>
         )

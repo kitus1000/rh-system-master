@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 export async function POST(req: Request) {
     try {
         const body = await req.json()
-        const { email, password, nombre_completo, rol, id_departamento, departamentos_autorizados } = body
+        const { email, password, nombre_completo, rol, id_departamento, departamentos_autorizados, id_empresa_contratista } = body
 
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
         const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -32,7 +32,12 @@ export async function POST(req: Request) {
             const { data: authData, error: authError } = await supabaseClient.auth.admin.createUser({
                 email,
                 password,
-                email_confirm: true
+                email_confirm: true,
+                user_metadata: {
+                    full_name: nombre_completo,
+                    rol,
+                    id_empresa_contratista: id_empresa_contratista || null
+                }
             })
             if (authError) {
                 if (authError.message.toLowerCase().includes('invalid api key')) {
@@ -72,21 +77,40 @@ export async function POST(req: Request) {
         const isChofer = rol === 'Chofer' || (rol && rol.toLowerCase().includes('chofer'))
         const finalNombre = isChofer && !nombre_completo.includes('(Chofer)') ? `${nombre_completo} (Chofer)` : nombre_completo
 
-        const { error: perfilError } = await supabaseClient.from('perfiles').upsert([{
+        const perfilPayload: any = {
             id: userId,
             nombre_completo: finalNombre,
             rol: isChofer ? 'Chofer' : rol,
             id_departamento: id_departamento || null,
             departamentos_autorizados: departamentos_autorizados || []
-        }])
+        }
+        if (id_empresa_contratista) {
+            perfilPayload.id_empresa_contratista = id_empresa_contratista
+        }
+
+        let { error: perfilError } = await supabaseClient.from('perfiles').upsert([perfilPayload])
+
+        // If id_empresa_contratista column doesn't exist yet, retry without it (metadata still holds it)
+        if (perfilError && perfilError.message?.toLowerCase().includes('id_empresa_contratista')) {
+            delete perfilPayload.id_empresa_contratista
+            const retryCol = await supabaseClient.from('perfiles').upsert([perfilPayload])
+            perfilError = retryCol.error
+        }
 
         if (perfilError) {
             // Handle PostgreSQL perfiles_rol_check constraint error
             if (perfilError.message.includes('perfiles_rol_check') || perfilError.code === '23514') {
                 const isJefeMed = rol === 'Jefe Médico' || (rol && rol.toLowerCase().includes('médico') && rol.toLowerCase().includes('jefe'))
                 const isMed = isJefeMed || rol === 'Médico' || (rol && rol.toLowerCase().includes('médic'))
+                const isContratista = rol === 'Contratista'
+                const isSeguridad = rol === 'Seguridad'
+                const isCamp = rol === 'Encargado de Campamento y Comedor'
                 const fallbackRol = isMed ? 'Médico' : 'Jefe'
-                const taggedNombre = isJefeMed && !finalNombre.includes('(Jefe Médico)') ? `${finalNombre} (Jefe Médico)` : finalNombre
+                let taggedNombre = finalNombre
+                if (isJefeMed && !taggedNombre.includes('(Jefe Médico)')) taggedNombre = `${taggedNombre} (Jefe Médico)`
+                else if (isContratista && !taggedNombre.includes('(Contratista)')) taggedNombre = `${taggedNombre} (Contratista)`
+                else if (isSeguridad && !taggedNombre.includes('(Seguridad)')) taggedNombre = `${taggedNombre} (Seguridad)`
+                else if (isCamp && !taggedNombre.includes('(Campamento y Comedor)')) taggedNombre = `${taggedNombre} (Campamento y Comedor)`
 
                 const { error: retryError } = await supabaseClient.from('perfiles').upsert([{
                     id: userId,
