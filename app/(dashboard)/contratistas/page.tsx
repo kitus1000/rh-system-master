@@ -75,6 +75,13 @@ export default function ContratistasAdminPage() {
 
   // Issuing Credentials
   const [issuingId, setIssuingId] = useState<string | null>(null)
+  const [credentialsReady, setCredentialsReady] = useState<{
+    razon_social: string
+    email: string
+    password: string
+    telefono?: string
+    emailAutoSent: boolean
+  } | null>(null)
 
   const rolLower = (profile?.rol || '').toLowerCase()
   const isRHOrAdmin = rolLower.includes('admin') || rolLower.includes('recursos') || rolLower.includes('sistemas') || rolLower.includes('superintendente')
@@ -158,13 +165,15 @@ export default function ContratistasAdminPage() {
 
       if (empErr) throw empErr
 
-      let userMsg = ''
+      let userCreated = false
+      let emailAutoSent = false
       if (empresaForm.crear_usuario && empresaForm.correo.trim()) {
+        const emailLower = empresaForm.correo.trim().toLowerCase()
         const res = await fetch('/api/create-user', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            email: empresaForm.correo.trim().toLowerCase(),
+            email: emailLower,
             password: empresaForm.password_usuario,
             nombre_completo: `${empresaForm.razon_social.trim()}`,
             rol: 'Contratista',
@@ -173,14 +182,36 @@ export default function ContratistasAdminPage() {
         })
         const json = await res.json()
         if (!res.ok) {
-          userMsg = `\n⚠️ Empresa creada, pero hubo un detalle creando usuario: ${json.error}`
+          alert(`⚠️ Empresa creada, pero hubo un detalle creando usuario: ${json.error}`)
         } else {
-          userMsg = `\n✅ Usuario Contratista creado:\nCorreo: ${empresaForm.correo.trim()}\nContraseña: ${empresaForm.password_usuario}`
+          userCreated = true
+          const mailRes = await fetch('/api/contratistas/enviar-credenciales', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: emailLower,
+              password: empresaForm.password_usuario,
+              razon_social: newEmp.razon_social,
+              portal_url: typeof window !== 'undefined' ? window.location.origin : '',
+            }),
+          })
+          const mailJson = await mailRes.json()
+          emailAutoSent = Boolean(mailJson.sent)
         }
       }
 
-      alert(`Empresa "${newEmp.razon_social}" registrada correctamente.${userMsg}`)
       setShowCreateEmpresa(false)
+      if (userCreated) {
+        setCredentialsReady({
+          razon_social: newEmp.razon_social,
+          email: empresaForm.correo.trim().toLowerCase(),
+          password: empresaForm.password_usuario,
+          telefono: empresaForm.telefono,
+          emailAutoSent,
+        })
+      } else {
+        alert(`Empresa "${newEmp.razon_social}" registrada correctamente.`)
+      }
       setEmpresaForm({
         razon_social: '',
         nombre_comercial: '',
@@ -498,7 +529,24 @@ export default function ContratistasAdminPage() {
       return
     }
     await supabase.from('contratistas_empresas').update({ estatus: 'Activa' }).eq('id_empresa', emp.id_empresa)
-    alert(`✅ Usuario creado y empresa activada:\nCorreo: ${emp.correo}\nContraseña: ${pass.trim()}\n\nYa puedes enviárselo al contratista.`)
+    const mailRes = await fetch('/api/contratistas/enviar-credenciales', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: (emp.correo || '').trim().toLowerCase(),
+        password: pass.trim(),
+        razon_social: emp.razon_social,
+        portal_url: typeof window !== 'undefined' ? window.location.origin : '',
+      }),
+    })
+    const mailJson = await mailRes.json()
+    setCredentialsReady({
+      razon_social: emp.razon_social,
+      email: (emp.correo || '').trim().toLowerCase(),
+      password: pass.trim(),
+      telefono: emp.telefono,
+      emailAutoSent: Boolean(mailJson.sent),
+    })
     await fetchAll()
   }
 
@@ -797,6 +845,7 @@ export default function ContratistasAdminPage() {
                 <th className="px-5 py-3.5 text-left">RFC / Especialidad</th>
                 <th className="px-5 py-3.5 text-left">Contacto / Correo Acceso</th>
                 <th className="px-5 py-3.5 text-left">Estatus</th>
+                <th className="px-5 py-3.5 text-right">Acceso</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
@@ -818,6 +867,17 @@ export default function ContratistasAdminPage() {
                     <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded border ${badgeClass(emp.estatus)}`}>
                       {emp.estatus}
                     </span>
+                  </td>
+                  <td className="px-5 py-4 text-right">
+                    {isRHOrAdmin && emp.correo && (
+                      <button
+                        onClick={() => handleActivateAndCreateUser(emp)}
+                        className="px-3 py-1.5 bg-zinc-900 hover:bg-black text-orange-400 text-[10px] font-black rounded-lg inline-flex items-center gap-1"
+                      >
+                        <KeyRound className="w-3 h-3" />
+                        <span>{emp.estatus === 'Pendiente' ? 'Aprobar Usuario' : 'Generar / Reenviar Acceso'}</span>
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1132,6 +1192,69 @@ export default function ContratistasAdminPage() {
               <div className="flex gap-2 shrink-0">
                 <button onClick={() => handleReviewDoc(previewDoc.id_documento, 'Aprobado')} className="px-4 py-2 bg-emerald-600 text-white text-xs font-black rounded-xl">Aprobar Documento</button>
                 <button onClick={() => handleReviewDoc(previewDoc.id_documento, 'Rechazado')} className="px-4 py-2 bg-rose-600 text-white text-xs font-black rounded-xl">Rechazar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CREDENCIALES LISTAS PARA ENVIAR AL CONTRATISTA */}
+      {credentialsReady && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-zinc-200">
+            <div className="bg-zinc-900 text-white p-5 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-orange-400" />
+                <h3 className="font-black text-sm uppercase">Acceso Contratista Activado</h3>
+              </div>
+              <button onClick={() => setCredentialsReady(null)} className="text-zinc-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              {credentialsReady.emailAutoSent ? (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold p-3 rounded-xl">
+                  ✅ Correo enviado automáticamente a {credentialsReady.email}.
+                </div>
+              ) : (
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs p-3 rounded-xl">
+                  <strong>Usuario ya activo</strong> (no requiere link de confirmación). El sistema no tiene SMTP/Resend configurado para envío automático en segundo plano: envíale los datos con un clic abajo.
+                </div>
+              )}
+
+              <div className="bg-zinc-100 rounded-2xl p-4 font-mono text-xs space-y-1.5 border border-zinc-200">
+                <div><span className="text-zinc-500">Empresa:</span> <strong>{credentialsReady.razon_social}</strong></div>
+                <div><span className="text-zinc-500">Usuario:</span> <strong>{credentialsReady.email}</strong></div>
+                <div><span className="text-zinc-500">Contraseña:</span> <strong>{credentialsReady.password}</strong></div>
+                <div><span className="text-zinc-500">Acceso:</span> <strong>{typeof window !== 'undefined' ? window.location.origin : ''} (Portal Contratistas)</strong></div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  onClick={() => {
+                    const url = typeof window !== 'undefined' ? window.location.origin : ''
+                    const msg = `Hola ${credentialsReady.razon_social},\nTu usuario para el Portal de Contratistas ya está activo.\n\nEnlace: ${url}\nEntrar en: "Portal Contratistas"\nUsuario: ${credentialsReady.email}\nContraseña: ${credentialsReady.password}`
+                    navigator.clipboard.writeText(msg)
+                    alert('Datos copiados al portapapeles.')
+                  }}
+                  className="w-full py-2.5 bg-zinc-900 text-white text-xs font-black rounded-xl"
+                >
+                  Copiar Mensaje de Acceso
+                </button>
+                <a
+                  href={`mailto:${encodeURIComponent(credentialsReady.email)}?subject=${encodeURIComponent('Acceso Portal de Contratistas')}&body=${encodeURIComponent(`Hola ${credentialsReady.razon_social},\n\nTu cuenta en el Portal de Contratistas ya está activa.\n\nEnlace: ${typeof window !== 'undefined' ? window.location.origin : ''}\nMódulo: Portal Contratistas\nUsuario: ${credentialsReady.email}\nContraseña: ${credentialsReady.password}\n\nYa puedes subir a tu personal, fotografías y documentos.`)}`}
+                  className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 text-black text-xs font-black rounded-xl text-center block"
+                >
+                  Enviar por Correo (Outlook / Gmail)
+                </a>
+                {credentialsReady.telefono && (
+                  <a
+                    href={`https://wa.me/${credentialsReady.telefono.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${credentialsReady.razon_social}, tu acceso al Portal de Contratistas está activo.\nEnlace: ${typeof window !== 'undefined' ? window.location.origin : ''}\nUsuario: ${credentialsReady.email}\nContraseña: ${credentialsReady.password}`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl text-center block"
+                  >
+                    Enviar por WhatsApp
+                  </a>
+                )}
               </div>
             </div>
           </div>
