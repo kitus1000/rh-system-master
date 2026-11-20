@@ -81,6 +81,7 @@ export async function POST(req: Request) {
             id: userId,
             nombre_completo: finalNombre,
             rol: isChofer ? 'Chofer' : rol,
+            email: email || null,
             id_departamento: id_departamento || null,
             departamentos_autorizados: departamentos_autorizados || []
         }
@@ -90,9 +91,10 @@ export async function POST(req: Request) {
 
         let { error: perfilError } = await supabaseClient.from('perfiles').upsert([perfilPayload])
 
-        // If id_empresa_contratista column doesn't exist yet, retry without it (metadata still holds it)
-        if (perfilError && perfilError.message?.toLowerCase().includes('id_empresa_contratista')) {
-            delete perfilPayload.id_empresa_contratista
+        // If id_empresa_contratista or email column doesn't exist yet, retry without them (metadata still holds them)
+        if (perfilError && (perfilError.message?.toLowerCase().includes('id_empresa_contratista') || perfilError.message?.toLowerCase().includes('email'))) {
+            if (perfilError.message?.toLowerCase().includes('id_empresa_contratista')) delete perfilPayload.id_empresa_contratista
+            if (perfilError.message?.toLowerCase().includes('email')) delete perfilPayload.email
             const retryCol = await supabaseClient.from('perfiles').upsert([perfilPayload])
             perfilError = retryCol.error
         }
@@ -106,13 +108,19 @@ export async function POST(req: Request) {
                 const isCaseta = rol === 'Caseta' || rol === 'Seguridad Patrimonial'
                 const isSeguridad = rol === 'Seguridad Industrial' || rol === 'Seguridad'
                 const isCamp = rol === 'Encargado de Campamento y Comedor'
-                const fallbackRol = isMed ? 'Médico' : 'Jefe'
+                const isCorp = rol === 'Superintendente de RH Corporativo'
+                const isRHUnidad = rol === 'Jefe de RH Unidad'
+                const isSindicato = rol === 'Sindicato'
+                const fallbackRol = isMed ? 'Médico' : (isCorp || isRHUnidad ? 'Administrativo' : 'Jefe')
                 let taggedNombre = finalNombre
                 if (isJefeMed && !taggedNombre.includes('(Jefe Médico)')) taggedNombre = `${taggedNombre} (Jefe Médico)`
                 else if (isContratista && !taggedNombre.includes('(Contratista)')) taggedNombre = `${taggedNombre} (Contratista)`
                 else if (isCaseta && !taggedNombre.includes('(Caseta)')) taggedNombre = `${taggedNombre} (Caseta)`
                 else if (isSeguridad && !taggedNombre.includes('(Seguridad)')) taggedNombre = `${taggedNombre} (Seguridad)`
                 else if (isCamp && !taggedNombre.includes('(Campamento y Comedor)')) taggedNombre = `${taggedNombre} (Campamento y Comedor)`
+                else if (isCorp && !taggedNombre.includes('(RH Corporativo)')) taggedNombre = `${taggedNombre} (RH Corporativo)`
+                else if (isRHUnidad && !taggedNombre.includes('(Jefe RH Unidad)')) taggedNombre = `${taggedNombre} (Jefe RH Unidad)`
+                else if (isSindicato && !taggedNombre.includes('(Sindicato)')) taggedNombre = `${taggedNombre} (Sindicato)`
 
                 const { error: retryError } = await supabaseClient.from('perfiles').upsert([{
                     id: userId,

@@ -4,9 +4,38 @@
 -- Conecta: Sindicato ↔ RH Local ↔ RH Corporativo ↔ Depto Vacante (Mina) ↔ Deptos/Sub-deptos Origen
 -- =====================================================================================
 
+-- 0. HABILITAR ROLES OFICIALES DE AUTORIZACIÓN EN PERFILES
+ALTER TABLE perfiles DROP CONSTRAINT IF EXISTS perfiles_rol_check;
+ALTER TABLE perfiles ADD CONSTRAINT perfiles_rol_check CHECK (
+    rol IN (
+        'Administrativo',
+        'Administrador',
+        'Recursos Humanos',
+        'Jefe de RH Unidad',
+        'Superintendente de RH Corporativo',
+        'Sindicato',
+        'Superintendente',
+        'Jefe',
+        'Jefe de Departamento',
+        'Supervisor',
+        'Médico',
+        'Jefe Médico',
+        'Chofer',
+        'Encargado de Campamento y Comedor',
+        'Contratista',
+        'Seguridad',
+        'Seguridad Industrial',
+        'Caseta',
+        'Seguridad Patrimonial',
+        'Sistemas'
+    )
+);
+ALTER TABLE perfiles ADD COLUMN IF NOT EXISTS email TEXT;
+
 -- 1. ENCARGADOS MULTI-SUBDEPARTAMENTO (Una sola persona encargada de varios departamentos/sub-departamentos)
 CREATE TABLE IF NOT EXISTS movimientos_encargados_subdeptos (
     id_encargado UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id_usuario_encargado UUID,
     nombre_encargado TEXT NOT NULL,
     correo_encargado TEXT NOT NULL,
     telefono_encargado TEXT,
@@ -16,6 +45,8 @@ CREATE TABLE IF NOT EXISTS movimientos_encargados_subdeptos (
     activo BOOLEAN DEFAULT TRUE,
     creado_el TIMESTAMPTZ DEFAULT now()
 );
+
+ALTER TABLE movimientos_encargados_subdeptos ADD COLUMN IF NOT EXISTS id_usuario_encargado UUID;
 
 -- Sembrar encargados multi-subdepartamento base si la tabla está vacía
 INSERT INTO movimientos_encargados_subdeptos (nombre_encargado, correo_encargado, cargo, departamento_principal, sub_departamentos)
@@ -178,3 +209,82 @@ CREATE POLICY "Public access movimientos_historial_estancia" ON movimientos_hist
 ALTER TABLE movimientos_notificaciones_log ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public access movimientos_notificaciones_log" ON movimientos_notificaciones_log;
 CREATE POLICY "Public access movimientos_notificaciones_log" ON movimientos_notificaciones_log FOR ALL USING (true) WITH CHECK (true);
+
+-- 6. MATRIZ DE REGLAS Y TITULARES AUTORIZADORES (Jefe RH Unidad, Supt. RH Corporativo, Sindicato)
+CREATE TABLE IF NOT EXISTS movimientos_reglas_autorizacion (
+    id_regla UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- Titulares asignados (vinculados a perfiles)
+    jefe_rh_unidad_id UUID,
+    jefe_rh_unidad_nombre TEXT DEFAULT 'Jefe de RH Unidad',
+    jefe_rh_unidad_correo TEXT DEFAULT 'jefe.rh.unidad@bacis.com',
+    supt_rh_corporativo_id UUID,
+    supt_rh_corporativo_nombre TEXT DEFAULT 'Superintendente de RH Corporativo',
+    supt_rh_corporativo_correo TEXT DEFAULT 'supt.rh.corporativo@bacis.com',
+    sindicato_id UUID,
+    sindicato_nombre TEXT DEFAULT 'Comité Sindical / Escalafón',
+    sindicato_correo TEXT DEFAULT 'sindicato@bacis.com',
+    -- Reglas configurables del Tablero de Ajedrez
+    regla_vacante_libre_obligatoria BOOLEAN DEFAULT TRUE,
+    regla_orden_secuencial BOOLEAN DEFAULT TRUE,
+    regla_bloqueo_por_usuario BOOLEAN DEFAULT TRUE,
+    regla_requiere_jefe_rh_unidad BOOLEAN DEFAULT TRUE,
+    regla_requiere_supt_rh_corporativo BOOLEAN DEFAULT TRUE,
+    regla_requiere_liberacion_origen BOOLEAN DEFAULT TRUE,
+    regla_permitir_efecto_domino BOOLEAN DEFAULT TRUE,
+    regla_dias_convocatoria INTEGER DEFAULT 10,
+    regla_respetar_10_dias BOOLEAN DEFAULT FALSE,
+    regla_notificar_correo_automatico BOOLEAN DEFAULT TRUE,
+    actualizado_el TIMESTAMPTZ DEFAULT now()
+);
+
+INSERT INTO movimientos_reglas_autorizacion (
+    jefe_rh_unidad_nombre,
+    jefe_rh_unidad_correo,
+    supt_rh_corporativo_nombre,
+    supt_rh_corporativo_correo,
+    sindicato_nombre,
+    sindicato_correo
+)
+SELECT
+    'Jefe de RH Unidad',
+    'jefe.rh.unidad@bacis.com',
+    'Superintendente de RH Corporativo',
+    'supt.rh.corporativo@bacis.com',
+    'Comité Sindical / Escalafón',
+    'sindicato@bacis.com'
+WHERE NOT EXISTS (SELECT 1 FROM movimientos_reglas_autorizacion);
+
+-- 7. COLUMNAS DE AUDITORÍA POR USUARIO EN MOVIMIENTOS_POSTULANTES
+ALTER TABLE movimientos_postulantes ADD COLUMN IF NOT EXISTS autorizado_rh_local_por TEXT;
+ALTER TABLE movimientos_postulantes ADD COLUMN IF NOT EXISTS autorizado_rh_local_user_id UUID;
+ALTER TABLE movimientos_postulantes ADD COLUMN IF NOT EXISTS fecha_autorizacion_rh_local TIMESTAMPTZ;
+ALTER TABLE movimientos_postulantes ADD COLUMN IF NOT EXISTS autorizado_rh_corporativo_por TEXT;
+ALTER TABLE movimientos_postulantes ADD COLUMN IF NOT EXISTS autorizado_rh_corporativo_user_id UUID;
+ALTER TABLE movimientos_postulantes ADD COLUMN IF NOT EXISTS fecha_autorizacion_rh_corporativo TIMESTAMPTZ;
+ALTER TABLE movimientos_postulantes ADD COLUMN IF NOT EXISTS seleccionado_por_usuario TEXT;
+ALTER TABLE movimientos_postulantes ADD COLUMN IF NOT EXISTS fecha_seleccion_destino TIMESTAMPTZ;
+
+-- 8. BANDEJA DE NOTIFICACIONES Y AUTORIZACIONES PENDIENTES POR USUARIO
+CREATE TABLE IF NOT EXISTS movimientos_bandeja_notificaciones (
+    id_alerta UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id_usuario_destino UUID,
+    rol_destino TEXT NOT NULL,
+    correo_destino TEXT,
+    departamento_destino TEXT,
+    id_vacante UUID REFERENCES movimientos_vacantes(id_vacante) ON DELETE CASCADE,
+    id_postulacion UUID REFERENCES movimientos_postulantes(id_postulacion) ON DELETE CASCADE,
+    etapa TEXT NOT NULL,
+    titulo TEXT NOT NULL,
+    mensaje TEXT NOT NULL,
+    leida BOOLEAN DEFAULT FALSE,
+    atendida BOOLEAN DEFAULT FALSE,
+    creado_el TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE movimientos_reglas_autorizacion ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public access movimientos_reglas_autorizacion" ON movimientos_reglas_autorizacion;
+CREATE POLICY "Public access movimientos_reglas_autorizacion" ON movimientos_reglas_autorizacion FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE movimientos_bandeja_notificaciones ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public access movimientos_bandeja_notificaciones" ON movimientos_bandeja_notificaciones;
+CREATE POLICY "Public access movimientos_bandeja_notificaciones" ON movimientos_bandeja_notificaciones FOR ALL USING (true) WITH CHECK (true);

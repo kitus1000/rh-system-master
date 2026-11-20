@@ -27,6 +27,8 @@ import {
   AlertTriangle,
   X,
   CalendarPlus,
+  Bell,
+  ArrowRight,
 } from 'lucide-react'
 import { formatShortDate, diffDaysInclusive } from '@/utils/contratistasConfig'
 import {
@@ -50,6 +52,7 @@ export default function MiDepartamentoPage() {
   const [credencialesContratistas, setCredencialesContratistas] = useState<any[]>([])
   const [prorrogasContratistas, setProrrogasContratistas] = useState<any[]>([])
   const [solicitudesInternas, setSolicitudesInternas] = useState<any[]>([])
+  const [movAlertas, setMovAlertas] = useState<any[]>([])
 
   // Filtros internos
   const [paseFilterType, setPaseFilterType] = useState<'todos' | 'titular' | 'acompanante' | 'vigentes'>('todos')
@@ -159,8 +162,8 @@ export default function MiDepartamentoPage() {
       }
       setPasesAll(pasesList)
 
-      // Cargar Contratistas (Solicitudes, Credenciales, Prórrogas)
-      const [solCntRes, credCntRes, prorCntRes, solIntRes] = await Promise.all([
+      // Cargar Contratistas (Solicitudes, Credenciales, Prórrogas) y Bandeja de Movimientos Sindicales
+      const [solCntRes, credCntRes, prorCntRes, solIntRes, movAlertRes] = await Promise.all([
         supabase
           .from('contratistas_solicitudes')
           .select('*, contratistas_empresas(*), contratistas_solicitud_personal(*, contratistas_personal(*))')
@@ -191,12 +194,18 @@ export default function MiDepartamentoPage() {
             )
           `)
           .order('creado_el', { ascending: false }),
+        supabase
+          .from('movimientos_bandeja_notificaciones')
+          .select('*')
+          .eq('atendida', false)
+          .order('creado_el', { ascending: false }),
       ])
 
       setSolicitudesContratistas(solCntRes.data || [])
       setCredencialesContratistas(credCntRes.data || [])
       setProrrogasContratistas(prorCntRes.data || [])
       setSolicitudesInternas(solIntRes.data || [])
+      setMovAlertas(movAlertRes?.data || [])
     } catch (e) {
       console.error('Error cargando portal de departamento:', e)
     } finally {
@@ -236,6 +245,18 @@ export default function MiDepartamentoPage() {
     }
     return false
   }
+
+  const myMovAlerts = useMemo(() => {
+    const myId = user?.id || profile?.id || null
+    const myEmail = (user?.email || (profile as any)?.email || '').toLowerCase().trim()
+    return movAlertas.filter((a) => {
+      if (a.atendida) return false
+      if (myId && a.id_usuario_destino && a.id_usuario_destino === myId) return true
+      if (myEmail && a.correo_destino && a.correo_destino.toLowerCase().trim() === myEmail) return true
+      if (a.departamento_destino && matchesSelectedDepartment(null, a.departamento_destino)) return true
+      return false
+    })
+  }, [movAlertas, user, profile, currentDept])
 
   // 1. Empleados propios de este departamento
   const deptEmployees = useMemo(() => {
@@ -585,6 +606,39 @@ export default function MiDepartamentoPage() {
           </button>
         </div>
       </div>
+
+      {/* BANNER DE ALERTAS PENDIENTES DE MOVIMIENTOS Y SINDICATO PARA ESTE DEPARTAMENTO / USUARIO */}
+      {myMovAlerts.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-3xl p-5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-amber-950 font-black text-xs uppercase">
+              <Bell className="w-4 h-4 text-amber-600 animate-pulse" />
+              <span>
+                Tienes {myMovAlerts.length} Autorización(es) Pendiente(s) en Movimientos, Sindicato y Ajedrez
+              </span>
+            </div>
+            <div className="space-y-1">
+              {myMovAlerts.slice(0, 3).map((alerta) => (
+                <p key={alerta.id_alerta} className="text-xs text-zinc-800">
+                  • <span className="font-mono font-black text-[10px] bg-zinc-900 text-amber-400 px-1.5 py-0.5 rounded mr-1">{alerta.etapa}</span>
+                  <strong>{alerta.titulo}</strong> — {alerta.mensaje}
+                </p>
+              ))}
+              {myMovAlerts.length > 3 && (
+                <p className="text-[11px] font-bold text-amber-800">+ {myMovAlerts.length - 3} notificación(es) adicional(es) en bandeja...</p>
+              )}
+            </div>
+          </div>
+
+          <Link
+            href="/movimientos-sindicato"
+            className="inline-flex items-center gap-2 px-5 py-3 bg-zinc-900 hover:bg-black text-amber-400 font-black text-xs rounded-2xl shadow-lg shrink-0"
+          >
+            <span>Revisar y Autorizar Ahora</span>
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+      )}
 
       {/* 4 TARJETAS KPI DEL DEPARTAMENTO */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

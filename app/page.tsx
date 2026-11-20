@@ -55,6 +55,7 @@ export default function LandingHub() {
     const resolveRedirectByRole = (rolRaw: string, nameRaw: string, target: LoginTarget): string => {
         const r = `${rolRaw} ${nameRaw}`.toLowerCase()
         if (r.includes('contratista')) return '/contratistas-portal'
+        if (r.includes('corporativo') || r.includes('rh unidad') || r.includes('sindicato')) return '/movimientos-sindicato'
         if (r.includes('caseta') || r.includes('patrimonial')) return '/caseta'
         if (r.includes('seguridad') && !r.includes('jefe')) return '/seguridad'
         if (r.includes('chofer') || r.includes('conductor')) return '/logistica/choferes'

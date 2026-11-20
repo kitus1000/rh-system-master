@@ -18,7 +18,9 @@ export default function UsuariosPage() {
     const [showModalPassword, setShowModalPassword] = useState(false)
     const [seedingLoading, setSeedingLoading] = useState(false)
     const [seedingDeptsLoading, setSeedingDeptsLoading] = useState(false)
+    const [seedingAuthLoading, setSeedingAuthLoading] = useState(false)
     const [seededDeptAccounts, setSeededDeptAccounts] = useState<any[] | null>(null)
+    const [seededModalTitle, setSeededModalTitle] = useState('Accesos por Departamento Sincronizados')
 
     // Form state
     const [formData, setFormData] = useState({
@@ -89,12 +91,30 @@ export default function UsuariosPage() {
             const res = await fetch('/api/seed-departamentos', { method: 'POST' })
             const data = await res.json()
             if (!res.ok) throw new Error(data.error || 'Error al sincronizar accesos por departamento')
+            setSeededModalTitle('Accesos por Departamento Sincronizados')
             setSeededDeptAccounts(data.accounts || [])
             fetchData()
         } catch (e: any) {
             alert('Error: ' + e.message)
         } finally {
             setSeedingDeptsLoading(false)
+        }
+    }
+
+    async function handleSeedAutorizadores() {
+        if (!confirm('¿Crear y vincular automáticamente las cuentas oficiales de Jefe de RH Unidad, Superintendente de RH Corporativo y Sindicato (con contraseña "Bacis2026!") en la Matriz de Reglas?')) return
+        setSeedingAuthLoading(true)
+        try {
+            const res = await fetch('/api/seed-autorizadores-rh', { method: 'POST' })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || 'Error al sincronizar autorizadores RH y Sindicato')
+            setSeededModalTitle('Autorizadores Oficiales (RH Unidad, RH Corp. y Sindicato)')
+            setSeededDeptAccounts(data.accounts || [])
+            fetchData()
+        } catch (e: any) {
+            alert('Error: ' + e.message)
+        } finally {
+            setSeedingAuthLoading(false)
         }
     }
 
@@ -239,6 +259,16 @@ export default function UsuariosPage() {
                 </div>
                 
                 <div className="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={handleSeedAutorizadores}
+                        disabled={seedingAuthLoading}
+                        className="inline-flex items-center bg-zinc-900 hover:bg-black text-amber-400 border border-amber-500/40 px-4 py-2 rounded-xl font-black text-xs transition-all shadow-sm gap-1.5"
+                    >
+                        <Shield className={`w-4 h-4 ${seedingAuthLoading ? 'animate-spin' : ''}`} />
+                        <span>{seedingAuthLoading ? 'Sincronizando...' : '👑 Sincronizar Autorizadores (RH Unidad, RH Corp. y Sindicato)'}</span>
+                    </button>
+
                     <button
                         type="button"
                         onClick={handleSeedDepartamentos}
@@ -470,6 +500,9 @@ export default function UsuariosPage() {
                                     >
                                         <option value="Chofer">🚌 Chofer (Acceso Exclusivo a Rutas, Checklists y QR)</option>
                                         <option value="Recursos Humanos">👥 Recursos Humanos (RH)</option>
+                                        <option value="Jefe de RH Unidad">🏛️ Jefe de RH Unidad (Autorizador Paso 1 Movimientos)</option>
+                                        <option value="Superintendente de RH Corporativo">👑 Superintendente de RH Corporativo (Autorizador Paso 2 Movimientos)</option>
+                                        <option value="Sindicato">🤝 Sindicato / Escalafón (Convocatorias y Seguimiento)</option>
                                         <option value="Administrador">👑 Administrador (Control Total)</option>
                                         <option value="Superintendente">Superintendente</option>
                                         <option value="Jefe de Departamento">Jefe de Departamento</option>
@@ -596,10 +629,10 @@ export default function UsuariosPage() {
                                 </div>
                                 <div>
                                     <h3 className="text-sm font-black uppercase tracking-wide">
-                                        Accesos por Departamento Sincronizados ({seededDeptAccounts.length})
+                                        {seededModalTitle} ({seededDeptAccounts.length})
                                     </h3>
                                     <p className="text-[11px] text-zinc-400">
-                                        Cada Jefe entra en &quot;Jefes de Área &amp; Superintendentes&quot; para ver sus contratistas, pases médicos y acompañantes.
+                                        Cada usuario ingresa en el portal correspondiente para revisar su bandeja de autorizaciones y movimientos asignados.
                                     </p>
                                 </div>
                             </div>

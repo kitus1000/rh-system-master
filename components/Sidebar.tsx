@@ -50,11 +50,11 @@ const navigationGroups = [
         bgClass: "bg-zinc-800",
         isCollapsible: false,
         items: [
-            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Médico', 'Jefe Médico', 'Recursos Humanos', 'Sistemas', 'Chofer', 'Encargado de Campamento y Comedor', 'Contratista', 'Seguridad Industrial', 'Seguridad', 'Caseta', 'Seguridad Patrimonial'] },
-            { name: '🏢 Mi Departamento (Área)', href: '/mi-departamento', icon: Building, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos', 'Sistemas'] },
+            { name: 'Mi Perfil', href: '/mi-perfil', icon: UserCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Médico', 'Jefe Médico', 'Recursos Humanos', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo', 'Sindicato', 'Sistemas', 'Chofer', 'Encargado de Campamento y Comedor', 'Contratista', 'Seguridad Industrial', 'Seguridad', 'Caseta', 'Seguridad Patrimonial'] },
+            { name: '🏢 Mi Departamento (Área)', href: '/mi-departamento', icon: Building, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo', 'Sistemas'] },
             { name: 'Portal Contratista', href: '/contratistas-portal', icon: HardHat, roles: ['Contratista'] },
             { name: '🚌 Bitácora de Rutas Choferes', href: '/logistica/choferes', icon: Bus, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Chofer', 'Sistemas'] },
-            { name: 'Chat y Muro', href: '/chat', icon: MessageCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos', 'Sistemas'] },
+            { name: 'Chat y Muro', href: '/chat', icon: MessageCircle, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo', 'Sindicato', 'Sistemas'] },
         ]
     },
     {
@@ -65,16 +65,16 @@ const navigationGroups = [
         isCollapsible: true,
         defaultExpanded: true,
         items: [
-            { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos'] },
-            { name: 'Portal Mi Departamento', href: '/mi-departamento', icon: Building, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos', 'Sistemas'] },
-            { name: '♟️ Vacantes, Sindicato y Ajedrez', href: '/movimientos-sindicato', icon: Layers, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos', 'Sistemas'] },
-            { name: 'Centro Integrado RH', href: '/integracion-rh', icon: Layers, roles: ['Administrativo', 'Recursos Humanos', 'Sistemas'] },
-            { name: 'Empleados', href: '/empleados', icon: Users, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
+            { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo'] },
+            { name: 'Portal Mi Departamento', href: '/mi-departamento', icon: Building, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo', 'Sistemas'] },
+            { name: '♟️ Vacantes, Sindicato y Ajedrez', href: '/movimientos-sindicato', icon: Layers, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Recursos Humanos', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo', 'Sindicato', 'Sistemas'] },
+            { name: 'Centro Integrado RH', href: '/integracion-rh', icon: Layers, roles: ['Administrativo', 'Recursos Humanos', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo', 'Sistemas'] },
+            { name: 'Empleados', href: '/empleados', icon: Users, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo'] },
             { name: 'Credenciales QR', href: '/empleados/credenciales', icon: QrCode, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
-            { name: 'Solicitudes', href: '/solicitudes', icon: FileText, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
-            { name: 'Autorizaciones', href: '/autorizaciones', icon: CheckSquare, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor'] },
+            { name: 'Solicitudes', href: '/solicitudes', icon: FileText, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo'] },
+            { name: 'Autorizaciones', href: '/autorizaciones', icon: CheckSquare, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Supervisor', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo'] },
             { name: 'Calendario', href: '/calendario', icon: Calendar, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
-            { name: 'Pre-Nómina', href: '/reportes/prenomina', icon: ClipboardList, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos'] },
+            { name: 'Pre-Nómina', href: '/reportes/prenomina', icon: ClipboardList, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Recursos Humanos', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo'] },
         ]
     },
     {
@@ -91,7 +91,7 @@ const navigationGroups = [
             { name: 'Clínicas Externas', href: '/medico/clinicas', icon: Hospital, roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos'] },
             { name: 'Pases Médicos', href: '/medico/pases', icon: FileText, roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos'] },
             { name: 'Pase de Hotel', href: '/medico/hotel', icon: Building, roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos'] },
-            { name: 'Portal de Ausencias', href: '/consulta-medica', icon: ClipboardList, roles: ['Administrativo', 'Administrador', 'Médico', 'Jefe Médico', 'Jefe de Departamento', 'Superintendente', 'Supervisor', 'Recursos Humanos'] },
+            { name: 'Portal de Ausencias', href: '/consulta-medica', icon: ClipboardList, roles: ['Administrativo', 'Administrador', 'Médico', 'Jefe Médico', 'Jefe de Departamento', 'Superintendente', 'Supervisor', 'Recursos Humanos', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo'] },
         ]
     },
     {
@@ -117,7 +117,7 @@ const navigationGroups = [
         isCollapsible: true,
         defaultExpanded: true,
         items: [
-            { name: 'Contratistas & Accesos', href: '/contratistas', icon: HardHat, roles: ['Administrativo', 'Recursos Humanos', 'Superintendente', 'Jefe de Departamento', 'Sistemas'] },
+            { name: 'Contratistas & Accesos', href: '/contratistas', icon: HardHat, roles: ['Administrativo', 'Recursos Humanos', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo', 'Superintendente', 'Jefe de Departamento', 'Sistemas'] },
             { name: 'Portal Individual Contratista', href: '/contratistas-portal', icon: Users, roles: ['Administrativo', 'Recursos Humanos', 'Sistemas', 'Contratista'] },
             { name: 'Seguridad Industrial (Inducciones)', href: '/seguridad', icon: ShieldCheck, roles: ['Administrativo', 'Recursos Humanos', 'Seguridad Industrial', 'Seguridad', 'Sistemas'] },
             { name: 'Caseta (Credenciales QR)', href: '/caseta', icon: QrCode, roles: ['Administrativo', 'Recursos Humanos', 'Caseta', 'Seguridad Patrimonial', 'Sistemas'] },
@@ -149,7 +149,7 @@ const navigationGroups = [
             { name: 'Catálogos', href: '/catalogos', icon: Library, roles: ['Administrativo', 'Sistemas'] },
             { name: 'Usuarios', href: '/usuarios', icon: Shield, roles: ['Administrativo', 'Sistemas'] },
             { name: 'Configuración', href: '/configuracion', icon: Settings, roles: ['Administrativo', 'Sistemas'] },
-            { name: 'Acerca de', href: '/acerca-de', icon: Info, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento'] },
+            { name: 'Acerca de', href: '/acerca-de', icon: Info, roles: ['Administrativo', 'Superintendente', 'Jefe de Departamento', 'Jefe de RH Unidad', 'Superintendente de RH Corporativo', 'Sindicato'] },
         ]
     }
 ]

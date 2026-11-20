@@ -75,6 +75,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         const nameLower = (profData.nombre_completo || '').toLowerCase()
                         const isChoferName = nameLower.includes('pinales') || nameLower.includes('yañez') || nameLower.includes('yanez') || nameLower.includes('vazquez') || nameLower.includes('linares') || nameLower.includes('madriles') || nameLower.includes('saucedo') || nameLower.includes('chofer')
                         if (rolLower.includes('contratista') || metaRolLower.includes('contratista') || nameLower.includes('(contratista)')) normalizedRol = 'Contratista'
+                        else if (rolLower.includes('corporativo') || metaRolLower.includes('corporativo') || nameLower.includes('(rh corporativo)')) normalizedRol = 'Superintendente de RH Corporativo'
+                        else if (rolLower.includes('jefe de rh unidad') || rolLower.includes('rh unidad') || metaRolLower.includes('rh unidad') || nameLower.includes('(jefe rh unidad)')) normalizedRol = 'Jefe de RH Unidad'
+                        else if (rolLower.includes('sindicato') || metaRolLower.includes('sindicato') || nameLower.includes('(sindicato)')) normalizedRol = 'Sindicato'
                         else if (rolLower === 'jefe' || rolLower.includes('jefe de departamento')) normalizedRol = 'Jefe de Departamento'
                         else if (rolLower.includes('caseta') || rolLower.includes('patrimonial') || metaRolLower.includes('caseta') || metaRolLower.includes('patrimonial') || nameLower.includes('(caseta)')) normalizedRol = 'Caseta'
                         else if (rolLower.includes('seguridad') || metaRolLower.includes('seguridad') || nameLower.includes('(seguridad)')) normalizedRol = 'Seguridad Industrial'
@@ -195,9 +198,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         }
 
+        // Sindicato is strictly locked to Movimientos/Escalafón, Mi Perfil, Chat and Acerca de
+        if (profile.rol === 'Sindicato') {
+            const allowedSindicatoPaths = ['/movimientos-sindicato', '/mi-perfil', '/chat', '/acerca-de']
+            const isAllowed = allowedSindicatoPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
+            if (!isAllowed) {
+                denied = true
+            }
+        }
+
+        // Jefe de RH Unidad y Superintendente de RH Corporativo
+        if (profile.rol === 'Jefe de RH Unidad' || profile.rol === 'Superintendente de RH Corporativo') {
+            const allowedRHExecutivePaths = [
+                '/movimientos-sindicato', '/mi-departamento', '/integracion-rh', '/contratistas',
+                '/empleados', '/autorizaciones', '/dashboard', '/inicio', '/mi-perfil', '/chat',
+                '/reportes/prenomina', '/consulta-medica', '/solicitudes', '/calendario', '/acerca-de'
+            ]
+            const isAllowed = allowedRHExecutivePaths.some(p => pathname === p || pathname.startsWith(p + '/'))
+            if (!isAllowed) {
+                denied = true
+            }
+        }
+
         // Only Administrativos / RH can manage Config, Usuarios, Catalogos, Integracion RH
-        if (pathname.startsWith('/configuracion') || pathname.startsWith('/usuarios') || pathname.startsWith('/catalogos') || pathname.startsWith('/integracion-rh')) {
+        if (pathname.startsWith('/configuracion') || pathname.startsWith('/usuarios') || pathname.startsWith('/catalogos')) {
             if (profile.rol !== 'Administrativo' && profile.rol !== 'Recursos Humanos' && profile.rol !== 'Sistemas') denied = true
+        }
+        if (pathname.startsWith('/integracion-rh')) {
+            if (
+                profile.rol !== 'Administrativo' &&
+                profile.rol !== 'Recursos Humanos' &&
+                profile.rol !== 'Sistemas' &&
+                profile.rol !== 'Jefe de RH Unidad' &&
+                profile.rol !== 'Superintendente de RH Corporativo'
+            ) {
+                denied = true
+            }
         }
 
         // Médico and Jefe Médico are strictly restricted to medical, profile, chat and inicio modules
@@ -251,6 +287,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         else if (profile?.rol === 'Encargado de Campamento y Comedor') router.push('/campamentos')
                         else if (profile?.rol === 'Médico' || profile?.rol === 'Jefe Médico') router.push('/medico/consultas')
                         else if (profile?.rol === 'Jefe de Departamento' || profile?.rol === 'Supervisor') router.push('/mi-departamento')
+                        else if (
+                            profile?.rol === 'Sindicato' ||
+                            profile?.rol === 'Jefe de RH Unidad' ||
+                            profile?.rol === 'Superintendente de RH Corporativo'
+                        ) router.push('/movimientos-sindicato')
                         else router.push('/inicio')
                     }} 
                     className="mt-6 px-6 py-2 bg-black text-white font-bold rounded-md hover:bg-zinc-800"
