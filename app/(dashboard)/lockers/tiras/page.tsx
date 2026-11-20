@@ -5,10 +5,11 @@ import Link from 'next/link'
 import QRCode from 'qrcode'
 import { supabase } from '@/utils/supabase/client'
 import { buildLockerQrUrl, getAreaTheme } from '@/utils/lockerMeta'
+import { generateLockersEtiquetasPDF, generateLockersPlanogramaPDF } from '@/utils/lockersQrPdf'
 import { 
   Printer, ArrowLeft, RefreshCw, Scissors, Layers, Tag, 
   Building2, CheckCircle2, AlertTriangle, QrCode, FileText, 
-  FolderLock, Smartphone, ChevronRight, Globe, ExternalLink
+  FolderLock, Smartphone, ChevronRight, Globe, ExternalLink, Download
 } from 'lucide-react'
 
 interface Empleado {
@@ -62,6 +63,7 @@ export default function TirasPlanogramaPage() {
   const [filtroBateria, setFiltroBateria] = useState('TODAS')
   const [filtroEstatus, setFiltroEstatus] = useState('TODOS')
   const [modoPreCenso, setModoPreCenso] = useState(false)
+  const [generatingPdf, setGeneratingPdf] = useState(false)
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -176,6 +178,21 @@ export default function TirasPlanogramaPage() {
     return list
   }, [modulosFiltrados, filtroEstatus])
 
+  const handleDescargarPdf = async () => {
+    setGeneratingPdf(true)
+    try {
+      if (tipoTira === 'PLANOGRAMA') {
+        await generateLockersPlanogramaPDF(tirasPlanograma, modoPreCenso)
+      } else {
+        await generateLockersEtiquetasPDF(casillerosEtiquetas, baseUrl, modoPreCenso)
+      }
+    } catch (err: any) {
+      alert('Error generando PDF: ' + (err?.message || err))
+    } finally {
+      setGeneratingPdf(false)
+    }
+  }
+
   const handlePrint = () => {
     window.print()
   }
@@ -203,13 +220,23 @@ export default function TirasPlanogramaPage() {
             </div>
           </div>
 
-          <button
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-sm rounded-xl shadow-lg shadow-amber-500/20 transition-all active:scale-95"
-          >
-            <Printer className="w-4 h-4" />
-            <span>Imprimir Formato</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={handleDescargarPdf}
+              disabled={generatingPdf}
+              className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-black text-sm rounded-xl shadow-lg shadow-amber-500/20 transition-all active:scale-95"
+            >
+              <Download className="w-4 h-4" />
+              <span>{generatingPdf ? 'Generando PDF...' : 'Descargar PDF Limpio (Solo Etiquetas/Tiras)'}</span>
+            </button>
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl transition-all active:scale-95"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Imprimir Navegador</span>
+            </button>
+          </div>
         </div>
 
         {/* Configuración del Enlace QR */}
@@ -355,7 +382,7 @@ export default function TirasPlanogramaPage() {
         /* ========================================================================= */
         /* OPCIÓN 1: TIRAS HORIZONTALES DE PLANOGRAMACIÓN (CABEZALES / PASILLO)       */
         /* ========================================================================= */
-        <div className="space-y-8 print:space-y-6">
+        <div className="space-y-8 print:space-y-6 print:p-[8mm]">
           {tirasPlanograma.map((grupoModulos, indexTira) => (
             <div
               key={indexTira}
@@ -474,7 +501,7 @@ export default function TirasPlanogramaPage() {
         /* ========================================================================= */
         /* OPCIÓN 2: TIRAS CHICAS DE CASILLERO (ETIQUETAS ADHESIVAS PARA PUERTAS)     */
         /* ========================================================================= */
-        <div className="space-y-6">
+        <div className="space-y-6 print:p-[8mm]">
           <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 gap-3 print:grid-cols-2 print:gap-2">
             {casillerosEtiquetas.map(({ casillero, modulo }) => {
               const emp = casillero.empleados
@@ -559,11 +586,37 @@ export default function TirasPlanogramaPage() {
         @media print {
           @page {
             size: letter portrait;
-            margin: 8mm;
+            margin: 0 !important;
           }
-          body {
+          header,
+          nav,
+          aside,
+          [role="navigation"],
+          .sidebar,
+          [data-sidebar],
+          .print\:hidden,
+          [class*="print:hidden"],
+          .no-print {
+            display: none !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            overflow: hidden !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+          }
+          html, body {
             background: white !important;
             color: black !important;
+            height: auto !important;
+            overflow: visible !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           .tira-contenedor {
             page-break-inside: avoid !important;

@@ -15,11 +15,11 @@ export default function DashboardLayout({
 
     return (
         <AuthProvider>
-            <div className="flex h-screen bg-slate-100 overflow-hidden">
+            <div className="flex h-screen bg-slate-100 overflow-hidden print:block print:h-auto print:overflow-visible print:bg-white">
                 {/* Mobile Sidebar Overlay */}
                 {mobileMenuOpen && (
                     <div 
-                        className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm transition-opacity"
+                        className="print:hidden fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm transition-opacity"
                         onClick={() => setMobileMenuOpen(false)}
                     />
                 )}
@@ -31,9 +31,9 @@ export default function DashboardLayout({
                     onCloseMobile={() => setMobileMenuOpen(false)}
                 />
                 
-                <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+                <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden print:block print:h-auto print:overflow-visible">
                     {/* Mobile Topbar */}
-                    <header className="md:hidden bg-zinc-950 text-white flex items-center justify-between p-4 border-b border-zinc-900 shrink-0 z-30 shadow-md">
+                    <header className="print:!hidden print:hidden md:hidden bg-zinc-950 text-white flex items-center justify-between p-4 border-b border-zinc-900 shrink-0 z-30 shadow-md">
                         <div className="flex items-center gap-3">
                             <button 
                                 onClick={() => setMobileMenuOpen(true)}
@@ -48,7 +48,7 @@ export default function DashboardLayout({
                         </div>
                     </header>
 
-                    <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 transition-all duration-300">
+                    <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 transition-all duration-300 print:overflow-visible print:p-0 print:m-0">
                         {children}
                     </main>
                 </div>

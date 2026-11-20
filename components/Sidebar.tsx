@@ -221,7 +221,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }: Side
 
     return (
         <div className={cn(
-            "flex h-screen flex-col bg-zinc-950 text-zinc-300 border-r border-zinc-900 transition-all duration-300 relative z-50",
+            "print:!hidden print:hidden flex h-screen flex-col bg-zinc-950 text-zinc-300 border-r border-zinc-900 transition-all duration-300 relative z-50",
             "fixed inset-y-0 left-0 md:relative",
             mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
             collapsed ? "md:w-20 w-64" : "w-64"

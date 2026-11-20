@@ -199,51 +199,42 @@ export default function CredencialesMasivasPage() {
       {/* Estilos de Impresión CSS con separación perfecta y saltos de página */}
       <style jsx global>{`
         @media print {
+          @page {
+            size: letter portrait;
+            margin: 0;
+          }
           html, body {
             margin: 0 !important;
             padding: 0 !important;
+            height: auto !important;
+            overflow: visible !important;
             background: white !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
-          }
-          body * {
-            visibility: hidden;
-          }
-          #seccion-impresion-credenciales, #seccion-impresion-credenciales * {
-            visibility: visible;
-          }
-          #seccion-impresion-credenciales {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: white !important;
           }
           .no-print {
             display: none !important;
           }
           .hoja-impresion {
-            width: 100% !important;
+            width: 215.9mm !important;
             max-width: 215.9mm !important;
-            min-height: 279.4mm !important;
+            height: 279.4mm !important;
             max-height: 279.4mm !important;
             margin: 0 auto !important;
-            padding: 3mm !important;
+            padding: 6mm !important;
             page-break-after: always !important;
             break-after: page !important;
             box-sizing: border-box !important;
             display: block !important;
           }
+          .hoja-impresion:last-child {
+            page-break-after: auto !important;
+            break-after: auto !important;
+          }
           .guia-corte {
             border: 1px dashed #9ca3af !important;
             padding: 1mm !important;
             box-sizing: border-box !important;
-          }
-          @page {
-            size: letter portrait;
-            margin: 3mm;
           }
         }
       `}</style>
@@ -532,7 +523,7 @@ export default function CredencialesMasivasPage() {
               {/* CUADRÍCULA SEGÚN ORIENTACIÓN */}
               {orientacion === 'vertical' ? (
                 /* CUADRÍCULA 4 COLUMNAS X 3 FILAS = 12 CREDENCIALES VERTICALES */
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 print:grid-cols-4 gap-2.5 print:gap-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 print:grid-cols-4 gap-2.5 print:gap-1">
                   {grupoPagina.map((emp, idx) => {
                     const qrUrl = qrCache[emp.id_empleado]
                     const numeroNomina = emp.numero_empleado ? `#${emp.numero_empleado}` : 'N/A'
@@ -546,7 +537,7 @@ export default function CredencialesMasivasPage() {
                         className={`${mostrarGuiasCorte ? 'guia-corte rounded-xl p-1 border border-dashed border-zinc-400 bg-zinc-50/40' : 'p-0.5'} flex items-center justify-center`}
                       >
                         {/* CREDENCIAL VERTICAL CON QR MAXIMIZADO */}
-                        <div className={`w-[185px] h-[275px] print:w-[48mm] print:h-[84mm] bg-white rounded-xl overflow-hidden border-2 border-zinc-400 shadow-xs flex flex-col justify-between relative print:shadow-none print:border-zinc-600`}>
+                        <div className={`w-[185px] h-[275px] print:w-[46mm] print:h-[80mm] bg-white rounded-xl overflow-hidden border-2 border-zinc-400 shadow-xs flex flex-col justify-between relative print:shadow-none print:border-zinc-600`}>
                           
                           {/* Cabecera Corporativa Bacis */}
                           <div className={`${themeStyles.headerBg} p-1 text-white text-center shrink-0`}>
@@ -560,10 +551,10 @@ export default function CredencialesMasivasPage() {
                           </div>
 
                           {/* Sección Superior: Foto, Nombre y Puesto */}
-                          <div className="p-1 flex flex-col items-center text-center space-y-1 grow justify-between">
+                          <div className="p-1 flex flex-col items-center text-center space-y-1 grow min-h-0 justify-between overflow-hidden">
                             
                             {/* Fila Foto + Datos */}
-                            <div className="w-full flex items-center gap-1.5 px-0.5 pt-0.5">
+                            <div className="w-full flex items-center gap-1.5 px-0.5 pt-0.5 min-w-0">
                               {/* Foto */}
                               <div className="shrink-0">
                                 <div className={`w-11 h-11 rounded-xl overflow-hidden border-2 ${themeStyles.borderAccent} bg-zinc-100 flex items-center justify-center shadow-xs`}>
@@ -578,35 +569,35 @@ export default function CredencialesMasivasPage() {
                               </div>
 
                               {/* Nombre, Puesto y Nómina */}
-                              <div className="grow text-left overflow-hidden">
-                                <h3 className="text-[10px] font-black text-zinc-950 uppercase leading-tight line-clamp-2">
+                              <div className="grow min-w-0 text-left overflow-hidden">
+                                <h3 className="text-[9.5px] font-black text-zinc-950 uppercase leading-tight line-clamp-2 break-words">
                                   {nombreCompleto}
                                 </h3>
                                 <div className={`text-[7px] font-black uppercase px-1 py-0.2 rounded inline-block truncate max-w-full border mt-0.5 ${themeStyles.badgeBg}`}>
                                   {puesto}
                                 </div>
-                                <div className="text-[7px] text-zinc-600 font-mono font-bold leading-none mt-0.5">
+                                <div className="text-[7px] text-zinc-600 font-mono font-bold leading-none mt-0.5 truncate">
                                   Nómina: <strong className={themeStyles.accentText}>{numeroNomina}</strong>
                                 </div>
                               </div>
                             </div>
 
                             {/* SECCIÓN DEL CÓDIGO QR AMPLIO */}
-                            <div className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-1 flex flex-col items-center justify-center">
+                            <div className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-1 flex flex-col items-center justify-center overflow-hidden">
                               {qrUrl ? (
-                                <img src={qrUrl} alt="QR" className="w-[84px] h-[84px] print:w-[24mm] print:h-[24mm] object-contain" />
+                                <img src={qrUrl} alt="QR" className="w-[80px] h-[80px] print:w-[22mm] print:h-[22mm] object-contain" />
                               ) : (
-                                <div className="w-[84px] h-[84px] bg-zinc-100 flex items-center justify-center text-[8px] text-zinc-400 font-mono">
+                                <div className="w-[80px] h-[80px] bg-zinc-100 flex items-center justify-center text-[8px] text-zinc-400 font-mono">
                                   Generando QR...
                                 </div>
                               )}
                               
                               {/* Texto bajo el QR */}
-                              <div className="text-center mt-0.5 leading-none">
-                                <span className="text-[7px] font-mono font-black text-zinc-900 block">
+                              <div className="text-center mt-0.5 leading-none w-full min-w-0">
+                                <span className="text-[7px] font-mono font-black text-zinc-900 block truncate">
                                   ID: {emp.numero_empleado || emp.id_empleado.slice(0, 6)}
                                 </span>
-                                <span className="text-[6px] font-bold text-zinc-500 uppercase block truncate max-w-[150px]">
+                                <span className="text-[6px] font-bold text-zinc-500 uppercase block truncate max-w-full px-1">
                                   {emp.nombre} {emp.apellido_paterno || ''}
                                 </span>
                               </div>
@@ -625,7 +616,7 @@ export default function CredencialesMasivasPage() {
                 </div>
               ) : (
                 /* CUADRÍCULA 2 COLUMNAS X 4 FILAS = 8 CREDENCIALES HORIZONTALES */
-                <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-3 print:gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-3 print:gap-1.5">
                   {grupoPagina.map((emp, idx) => {
                     const qrUrl = qrCache[emp.id_empleado]
                     const numeroNomina = emp.numero_empleado ? `#${emp.numero_empleado}` : 'N/A'
@@ -639,23 +630,23 @@ export default function CredencialesMasivasPage() {
                         className={`${mostrarGuiasCorte ? 'guia-corte rounded-xl p-1 border border-dashed border-zinc-400 bg-zinc-50/40' : 'p-0.5'} flex items-center justify-center`}
                       >
                         {/* CREDENCIAL HORIZONTAL CON QR GRANDE */}
-                        <div className={`w-[350px] h-[195px] print:w-[95mm] print:h-[60mm] bg-white rounded-xl overflow-hidden border-2 border-zinc-400 shadow-xs flex flex-col justify-between relative print:shadow-none print:border-zinc-600`}>
+                        <div className={`w-[350px] h-[195px] print:w-[92mm] print:h-[58mm] bg-white rounded-xl overflow-hidden border-2 border-zinc-400 shadow-xs flex flex-col justify-between relative print:shadow-none print:border-zinc-600`}>
                           
                           {/* Cabecera */}
                           <div className={`${themeStyles.headerBg} p-1.5 text-white flex justify-between items-center shrink-0`}>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 min-w-0">
                               <img src="/logo-bacis.png" alt="Bacis" className="h-4 object-contain filter brightness-0 invert" onError={(e)=>{ (e.target as any).style.display='none' }} />
-                              <span className="text-[10.5px] font-black uppercase tracking-wider">MINAS DE BACIS</span>
+                              <span className="text-[10.5px] font-black uppercase tracking-wider truncate">MINAS DE BACIS</span>
                             </div>
-                            <span className="text-[7.5px] font-black uppercase bg-black/40 px-2 py-0.5 rounded-full text-amber-200">
+                            <span className="text-[7.5px] font-black uppercase bg-black/40 px-2 py-0.5 rounded-full text-amber-200 shrink-0">
                               CREDENCIAL OFICIAL
                             </span>
                           </div>
 
                           {/* Cuerpo */}
-                          <div className="p-2 flex items-center justify-between gap-3 grow">
+                          <div className="p-2 flex items-center justify-between gap-2.5 grow min-h-0 overflow-hidden">
                             {/* Lado Izquierdo: Foto + Datos */}
-                            <div className="flex items-center gap-2.5 grow overflow-hidden">
+                            <div className="flex items-center gap-2.5 grow min-w-0 overflow-hidden">
                               {/* Foto */}
                               <div className="shrink-0 flex flex-col items-center">
                                 <div className={`w-14 h-14 rounded-xl overflow-hidden border-2 ${themeStyles.borderAccent} bg-zinc-100 flex items-center justify-center shadow-xs`}>
@@ -673,18 +664,18 @@ export default function CredencialesMasivasPage() {
                               </div>
 
                               {/* Datos */}
-                              <div className="grow text-left space-y-0.5 overflow-hidden">
-                                <h3 className="text-[11px] font-black text-zinc-950 uppercase leading-tight line-clamp-2">
+                              <div className="grow min-w-0 text-left space-y-0.5 overflow-hidden">
+                                <h3 className="text-[10.5px] font-black text-zinc-950 uppercase leading-tight line-clamp-2 break-words">
                                   {nombreCompleto}
                                 </h3>
-                                <div className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded inline-block border ${themeStyles.badgeBg}`}>
+                                <div className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded inline-block truncate max-w-full border ${themeStyles.badgeBg}`}>
                                   {puesto}
                                 </div>
                                 <div className="text-[8px] text-zinc-500 font-bold truncate">
                                   {departamento}
                                 </div>
                                 {emp.nss && (
-                                  <div className="text-[7.5px] text-zinc-400 font-mono">
+                                  <div className="text-[7.5px] text-zinc-400 font-mono truncate">
                                     NSS: {emp.nss}
                                   </div>
                                 )}
@@ -692,16 +683,16 @@ export default function CredencialesMasivasPage() {
                             </div>
 
                             {/* Lado Derecho: Código QR Maximizado */}
-                            <div className="shrink-0 flex flex-col items-center pl-2 border-l border-zinc-200 bg-zinc-50 p-1 rounded-lg">
+                            <div className="shrink-0 flex flex-col items-center pl-2 border-l border-zinc-200 bg-zinc-50 p-1 rounded-lg max-w-[92px] overflow-hidden">
                               {qrUrl ? (
-                                <img src={qrUrl} alt="QR" className="w-[78px] h-[78px] print:w-[26mm] print:h-[26mm] object-contain" />
+                                <img src={qrUrl} alt="QR" className="w-[74px] h-[74px] print:w-[23mm] print:h-[23mm] object-contain" />
                               ) : (
-                                <div className="w-[78px] h-[78px] bg-zinc-100 flex items-center justify-center text-[7px]">QR</div>
+                                <div className="w-[74px] h-[74px] bg-zinc-100 flex items-center justify-center text-[7px]">QR</div>
                               )}
-                              <span className="text-[7px] font-mono font-black text-zinc-900 uppercase mt-0.5 leading-none">
+                              <span className="text-[7px] font-mono font-black text-zinc-900 uppercase mt-0.5 leading-none truncate max-w-full">
                                 {numeroNomina}
                               </span>
-                              <span className="text-[6px] font-bold text-zinc-500 uppercase leading-none mt-0.5">
+                              <span className="text-[6px] font-bold text-zinc-500 uppercase leading-none mt-0.5 truncate max-w-[78px]">
                                 {emp.nombre}
                               </span>
                             </div>
@@ -725,7 +716,7 @@ export default function CredencialesMasivasPage() {
                   <span className="no-print text-xs font-bold text-zinc-400 uppercase tracking-wider block mb-2">Reverso de Seguridad</span>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 print:grid-cols-4 gap-2">
                     {grupoPagina.map((emp, idx) => (
-                      <div key={`rev-${emp.id_empleado}-${idx}`} className="guia-corte p-1 rounded-xl bg-zinc-900 text-white text-[7px] font-mono flex flex-col justify-between h-[275px] print:h-[84mm] p-2">
+                      <div key={`rev-${emp.id_empleado}-${idx}`} className="guia-corte p-1 rounded-xl bg-zinc-900 text-white text-[7px] font-mono flex flex-col justify-between h-[275px] print:h-[80mm] p-2">
                         <div className="text-center border-b border-zinc-800 pb-1">
                           <strong className="text-amber-400 block text-[8px]">MINAS DE BACIS</strong>
                           <span>FICHA DE EMERGENCIA</span>

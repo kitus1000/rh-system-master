@@ -1537,7 +1537,7 @@ export default function MovimientosSindicatoPage() {
                 className="px-3 py-1.5 bg-zinc-900 text-amber-400 text-xs font-black rounded-xl inline-flex items-center gap-1.5"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Boletín Convocatoria 10 Días (PDF)</span>
+                <span>Aviso de Vacante (PDF)</span>
               </button>
               <button
                 type="button"
@@ -1645,7 +1645,7 @@ export default function MovimientosSindicatoPage() {
                       className="px-3 py-2 bg-zinc-900 hover:bg-black text-amber-400 text-xs font-black rounded-xl inline-flex items-center gap-1.5"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Anuncio PDF (10 Días)</span>
+                      <span>Aviso de Vacante (PDF)</span>
                     </button>
 
                     <button

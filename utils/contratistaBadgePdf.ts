@@ -74,6 +74,81 @@ export interface ContractorBadgeData {
   size_format?: BadgeSizeFormat
 }
 
+function fitSingleLine(
+  doc: jsPDF,
+  rawText: string,
+  maxW: number,
+  initialPt: number,
+  minPt = 3.8
+): { text: string; fontSize: number } {
+  const safeMax = Math.max(4, maxW)
+  const clean = (rawText || '').replace(/\s+/g, ' ').trim()
+  if (!clean) return { text: '', fontSize: initialPt }
+
+  let pt = initialPt
+  while (pt > minPt) {
+    doc.setFontSize(pt)
+    if (doc.getTextWidth(clean) <= safeMax) {
+      return { text: clean, fontSize: pt }
+    }
+    pt = Math.max(minPt, Number((pt - 0.3).toFixed(2)))
+    if (pt === minPt) break
+  }
+
+  doc.setFontSize(minPt)
+  if (doc.getTextWidth(clean) <= safeMax) {
+    return { text: clean, fontSize: minPt }
+  }
+
+  let truncated = clean
+  while (truncated.length > 1 && doc.getTextWidth(`${truncated}...`) > safeMax) {
+    truncated = truncated.slice(0, -1).trimEnd()
+  }
+  return {
+    text: truncated.length < clean.length ? `${truncated}...` : truncated,
+    fontSize: minPt,
+  }
+}
+
+function fitMultiLine(
+  doc: jsPDF,
+  rawText: string,
+  maxW: number,
+  maxLines: number,
+  initialPt: number,
+  minPt = 3.8
+): { lines: string[]; fontSize: number } {
+  const safeMax = Math.max(4, maxW)
+  const clean = (rawText || '').replace(/\s+/g, ' ').trim()
+  if (!clean) return { lines: [], fontSize: initialPt }
+
+  let pt = initialPt
+  while (pt > minPt) {
+    doc.setFontSize(pt)
+    const lines = doc.splitTextToSize(clean, safeMax) as string[]
+    if (lines.length <= maxLines) {
+      return { lines, fontSize: pt }
+    }
+    pt = Math.max(minPt, Number((pt - 0.3).toFixed(2)))
+    if (pt === minPt) break
+  }
+
+  doc.setFontSize(minPt)
+  const lines = doc.splitTextToSize(clean, safeMax) as string[]
+  if (lines.length <= maxLines) {
+    return { lines, fontSize: minPt }
+  }
+
+  const sliced = lines.slice(0, maxLines)
+  const lastIdx = sliced.length - 1
+  let last = sliced[lastIdx] || ''
+  while (last.length > 1 && doc.getTextWidth(`${last}...`) > safeMax) {
+    last = last.slice(0, -1).trimEnd()
+  }
+  sliced[lastIdx] = `${last}...`
+  return { lines: sliced, fontSize: minPt }
+}
+
 async function fetchImageAsBase64(url: string): Promise<string | null> {
   try {
     if (url.startsWith('data:image')) return url
@@ -99,64 +174,62 @@ function drawBacisMiningLogo(doc: jsPDF, cx: number, cy: number, size: number) {
   const left = cx - r
   const top = cy - r
 
-  // Base exterior tipo portal de mina (acero oscuro / borde plata)
+  // Base exterior tipo portal de mina
   doc.setFillColor(15, 23, 42)
-  doc.setDrawColor(217, 119, 6) // dorado minero
-  doc.setLineWidth(0.35 * (size / 14))
+  doc.setDrawColor(217, 119, 6)
+  doc.setLineWidth(0.32 * (size / 14))
   doc.roundedRect(left, top, size, size, size * 0.22, size * 0.22, 'FD')
 
   // Arco interior Azul Cobalto Bacís
   const pad = size * 0.1
-  doc.setFillColor(29, 78, 216) // Royal Blue Bacís (#1D4ED8)
-  doc.setDrawColor(148, 163, 184) // Acero (#94A3B8)
-  doc.setLineWidth(0.25 * (size / 14))
+  doc.setFillColor(29, 78, 216)
+  doc.setDrawColor(148, 163, 184)
+  doc.setLineWidth(0.24 * (size / 14))
   doc.roundedRect(left + pad, top + pad, size - pad * 2, size - pad * 2, size * 0.18, size * 0.18, 'FD')
 
   // Solera / base del túnel en la parte inferior del emblema
   doc.setFillColor(15, 23, 42)
-  doc.rect(left + pad * 0.7, top + size - pad * 1.65, size - pad * 1.4, pad * 0.85, 'F')
+  doc.rect(left + pad * 0.85, top + size - pad * 1.6, size - pad * 1.7, pad * 0.78, 'F')
 
   // Pico y Pala cruzados en la parte superior del arco (Dorado)
-  doc.setDrawColor(245, 158, 11) // Amber gold
-  doc.setLineWidth(0.45 * (size / 14))
-  const toolY1 = cy - r * 0.55
-  const toolY2 = cy - r * 0.05
-  doc.line(cx - r * 0.35, toolY2, cx + r * 0.35, toolY1)
-  doc.line(cx - r * 0.35, toolY1, cx + r * 0.35, toolY2)
+  doc.setDrawColor(245, 158, 11)
+  doc.setLineWidth(0.4 * (size / 14))
+  const toolY1 = cy - r * 0.56
+  const toolY2 = cy - r * 0.14
+  doc.line(cx - r * 0.34, toolY2, cx + r * 0.34, toolY1)
+  doc.line(cx - r * 0.34, toolY1, cx + r * 0.34, toolY2)
 
-  // Cabeza de pico y pala (pequeños trazos transversales)
-  doc.setLineWidth(0.35 * (size / 14))
-  doc.line(cx - r * 0.42, toolY1 + r * 0.08, cx - r * 0.24, toolY1 - r * 0.08)
-  doc.line(cx + r * 0.24, toolY1 - r * 0.08, cx + r * 0.42, toolY1 + r * 0.08)
+  // Cabeza de pico y pala
+  doc.setLineWidth(0.3 * (size / 14))
+  doc.line(cx - r * 0.4, toolY1 + r * 0.08, cx - r * 0.24, toolY1 - r * 0.08)
+  doc.line(cx + r * 0.24, toolY1 - r * 0.08, cx + r * 0.4, toolY1 + r * 0.08)
 
-  // Letras emblemáticas "GB" en la parte inferior del túnel
+  // Letras emblemáticas "GB" contenidas dentro del arco sin salir del borde
   doc.setFont('times', 'bold')
-  doc.setFontSize(Math.max(5.5, size * 1.15))
-  // Sombra dorada
+  doc.setFontSize(Math.max(4.4, size * 0.68))
   doc.setTextColor(245, 158, 11)
-  doc.text('GB', cx + 0.18, cy + r * 0.52 + 0.15, { align: 'center' })
-  // Texto blanco/plata principal
+  doc.text('GB', cx + 0.15, cy + r * 0.52 + 0.12, { align: 'center' })
   doc.setTextColor(248, 250, 252)
   doc.text('GB', cx, cy + r * 0.52, { align: 'center' })
 }
 
 /**
- * Dibuja franja minera de seguridad (chevrons amarillo/ámbar y negro/azul oscuro)
+ * Dibuja franja minera de seguridad (amarillo/ámbar y obsidiana)
  */
 function drawSafetyStripeBar(doc: jsPDF, x: number, y: number, w: number, h: number) {
-  doc.setFillColor(245, 158, 11) // Amber 500
+  doc.setFillColor(245, 158, 11)
   doc.rect(x, y, w, h, 'F')
 
   const stripeCount = 12
   const segW = w / stripeCount
-  doc.setFillColor(11, 17, 32) // Obsidian Navy
+  doc.setFillColor(11, 17, 32)
   for (let i = 0; i < stripeCount; i += 2) {
     doc.rect(x + i * segW, y, segW * 0.55, h, 'F')
   }
 }
 
 /**
- * Renderiza el FRENTE de la credencial adaptándose proporcionalmente a cualquier tamaño (cardW x cardH)
+ * Renderiza el FRENTE de la credencial ajustado estrictamente a los márgenes internos
  */
 async function renderBadgeFront(
   doc: jsPDF,
@@ -168,95 +241,106 @@ async function renderBadgeFront(
   qrDataUrl: string,
   photoB64: string | null
 ) {
-  const s = cardW / 90 // Factor de escala horizontal respecto al diseño base de 90mm
-  const sy = cardH / 135 // Factor de escala vertical respecto a 135mm
-  const f = Math.min(s, sy) // Factor tipográfico proporcional
+  const s = cardW / 90
+  const sy = cardH / 135
+  const f = Math.min(s, sy)
 
   // 1. Fondo Principal Obsidiana Minera
-  doc.setFillColor(11, 17, 32) // #0B1120
-  doc.setDrawColor(217, 119, 6) // Borde Dorado Bacís
+  doc.setFillColor(11, 17, 32)
+  doc.setDrawColor(217, 119, 6)
   doc.setLineWidth(0.5 * f)
-  doc.roundedRect(cardX, cardY, cardW, cardH, 3.2 * f, 3.2 * f, 'FD')
+  doc.roundedRect(cardX, cardY, cardW, cardH, 3.0 * f, 3.0 * f, 'FD')
 
-  // Marco estructural interior tipo acero/azul real
+  // Marco estructural interior azul real
   const inPad = 1.6 * f
-  doc.setDrawColor(30, 58, 138) // #1E3A8A
+  const innerPadX = inPad + 2.0 * s
+  const cardInnerX = cardX + innerPadX
+  const innerW = cardW - innerPadX * 2
+
+  doc.setDrawColor(30, 58, 138)
   doc.setLineWidth(0.3 * f)
   doc.roundedRect(cardX + inPad, cardY + inPad, cardW - inPad * 2, cardH - inPad * 2, 2.2 * f, 2.2 * f, 'D')
 
-  // 2. Franja Superior de Seguridad Minera (0% a 2.4%)
-  const stripeH = 2.8 * sy
+  // 2. Franja Superior de Seguridad Minera
+  const stripeH = 2.6 * sy
   drawSafetyStripeBar(doc, cardX + inPad, cardY + inPad, cardW - inPad * 2, stripeH)
 
-  // 3. Encabezado Corporativo Grupo Minero Bacís (2.4% a 17.5%)
+  // 3. Encabezado Corporativo Grupo Minero Bacís
   const headerY = cardY + inPad + stripeH
-  const headerH = 19.5 * sy
-  doc.setFillColor(23, 37, 84) // Azul Cobalto Oscuro Bacís (#172554)
+  const headerH = 20.5 * sy
+  doc.setFillColor(23, 37, 84)
   doc.rect(cardX + inPad, headerY, cardW - inPad * 2, headerH, 'F')
 
   // Línea divisoria dorada bajo el header
   doc.setFillColor(245, 158, 11)
-  doc.rect(cardX + inPad, headerY + headerH - 0.9 * sy, cardW - inPad * 2, 0.9 * sy, 'F')
+  doc.rect(cardX + inPad, headerY + headerH - 0.85 * sy, cardW - inPad * 2, 0.85 * sy, 'F')
 
-  // Marca de perforación (slot para porta-gafete) arriba al centro
-  const slotW = 11 * s
-  const slotH = 2.0 * sy
+  // Ranura porta-gafete arriba centrada
+  const slotW = 10 * s
+  const slotH = 1.7 * sy
   doc.setFillColor(11, 17, 32)
   doc.setDrawColor(100, 116, 139)
   doc.setLineWidth(0.2 * f)
-  doc.roundedRect(cardX + (cardW - slotW) / 2, headerY + 1.2 * sy, slotW, slotH, 0.9 * f, 0.9 * f, 'FD')
+  doc.roundedRect(cardX + (cardW - slotW) / 2, headerY + 1.0 * sy, slotW, slotH, 0.8 * f, 0.8 * f, 'FD')
 
-  // Emblema GB a la izquierda del encabezado
-  const logoSize = 13.5 * f
-  const logoCX = cardX + inPad + 3.2 * s + logoSize / 2
-  const logoCY = headerY + headerH / 2 + 0.8 * sy
+  // Emblema GB a la izquierda
+  const logoSize = 12 * f
+  const logoCX = cardX + inPad + 2.6 * s + logoSize / 2
+  const logoCY = headerY + headerH / 2 + 1.1 * sy
   drawBacisMiningLogo(doc, logoCX, logoCY, logoSize)
 
-  // Textos Corporativos Bacís a la derecha del logo
-  const textCenterX = cardX + inPad + logoSize + 4.5 * s + (cardW - inPad * 2 - logoSize - 5.5 * s) / 2
+  // Zona segura de textos corporativos a la derecha del logo
+  const textLeftX = logoCX + logoSize / 2 + 2.2 * s
+  const textRightEdge = cardX + cardW - inPad - 2.2 * s
+  const textColW = textRightEdge - textLeftX
+  const textCenterX = textLeftX + textColW / 2
+
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(8.8 * f)
+  const t1 = fitSingleLine(doc, 'GRUPO MINERO BACÍS', textColW - 2 * s, 8.2 * f, 4.2 * f)
+  doc.setFontSize(t1.fontSize)
   doc.setTextColor(255, 255, 255)
-  doc.text('GRUPO MINERO BACÍS', textCenterX, headerY + 7.2 * sy, { align: 'center' })
+  doc.text(t1.text, textCenterX, headerY + 7.5 * sy, { align: 'center' })
 
-  doc.setFontSize(6.6 * f)
-  doc.setTextColor(251, 191, 36) // Dorado brillante
-  doc.text('UNIDAD "EL HERRERO"', textCenterX, headerY + 11.8 * sy, { align: 'center' })
+  const t2 = fitSingleLine(doc, 'UNIDAD "EL HERRERO"', textColW - 2 * s, 6.2 * f, 3.8 * f)
+  doc.setFontSize(t2.fontSize)
+  doc.setTextColor(251, 191, 36)
+  doc.text(t2.text, textCenterX, headerY + 11.7 * sy, { align: 'center' })
 
-  // Cintillo PASE CONTRATISTA
-  const badgePillW = cardW - inPad * 2 - logoSize - 8 * s
+  // Cintillo ACREDITACIÓN CONTRATISTA estrictamente contenido en textColW
+  const badgePillW = textColW - 1.6 * s
   const badgePillH = 3.8 * sy
   const badgePillX = textCenterX - badgePillW / 2
-  const badgePillY = headerY + 13.5 * sy
+  const badgePillY = headerY + 13.7 * sy
   doc.setFillColor(245, 158, 11)
-  doc.roundedRect(badgePillX, badgePillY, badgePillW, badgePillH, 0.9 * f, 0.9 * f, 'F')
+  doc.roundedRect(badgePillX, badgePillY, badgePillW, badgePillH, 0.8 * f, 0.8 * f, 'F')
+
+  const tPill = fitSingleLine(doc, 'ACREDITACIÓN CONTRATISTA', badgePillW - 2 * s, 5.4 * f, 3.6 * f)
+  doc.setFontSize(tPill.fontSize)
   doc.setTextColor(11, 17, 32)
-  doc.setFontSize(5.7 * f)
-  doc.text('ACREDITACIÓN CONTRATISTA', textCenterX, badgePillY + 2.75 * sy, { align: 'center' })
+  doc.text(tPill.text, textCenterX, badgePillY + badgePillH * 0.72, { align: 'center' })
 
-  // 4. Sección Central Superior: Fotografía + Indicadores Médicos/Seguridad (19% a 42.5%)
-  const photoSectionY = headerY + headerH + 2.5 * sy
-  const photoW = 26 * s
+  // 4. Sección Central Superior: Fotografía + Tarjetas de Sangre, NSS, Depto y Acceso
+  const photoSectionY = headerY + headerH + 2.2 * sy
+  const photoW = 24.5 * s
   const photoH = 29 * sy
-  const photoX = cardX + 5.5 * s
+  const photoX = cardInnerX
 
-  // Marco exterior dorado de la fotografía
   doc.setFillColor(30, 41, 59)
   doc.setDrawColor(245, 158, 11)
-  doc.setLineWidth(0.55 * f)
-  doc.roundedRect(photoX, photoSectionY, photoW, photoH, 2.2 * f, 2.2 * f, 'FD')
+  doc.setLineWidth(0.5 * f)
+  doc.roundedRect(photoX, photoSectionY, photoW, photoH, 2.0 * f, 2.0 * f, 'FD')
 
   if (photoB64) {
     const fmt = photoB64.includes('png') ? 'PNG' : 'JPEG'
     try {
       doc.addImage(photoB64, fmt, photoX + 0.8 * s, photoSectionY + 0.8 * sy, photoW - 1.6 * s, photoH - 1.6 * sy)
     } catch {
-      // Fallback initials if image fails
+      // Fallback silencioso a iniciales si la foto remota falla
     }
   } else {
     doc.setTextColor(245, 158, 11)
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(13 * f)
+    doc.setFontSize(12 * f)
     const initials = data.nombre_completo
       .split(' ')
       .filter(Boolean)
@@ -267,126 +351,161 @@ async function renderBadgeFront(
     doc.text(initials || 'GB', photoX + photoW / 2, photoSectionY + photoH / 2 + 1.8 * sy, { align: 'center' })
   }
 
-  // Columna derecha junto a la foto: Tarjetas de Sangre, NSS, Folio y Estatus
-  const rightColX = photoX + photoW + 3.5 * s
-  const rightColW = cardX + cardW - inPad - 3.5 * s - rightColX
+  // Columna derecha junto a la foto
+  const rightColX = photoX + photoW + 2.4 * s
+  const rightColW = cardX + cardW - innerPadX - rightColX
 
   // Tarjeta 1: Tipo de Sangre + NSS
-  const card1H = 9.2 * sy
-  doc.setFillColor(23, 37, 84) // Azul Bacís
+  const card1H = 9.4 * sy
+  doc.setFillColor(23, 37, 84)
   doc.setDrawColor(59, 130, 246)
   doc.setLineWidth(0.25 * f)
-  doc.roundedRect(rightColX, photoSectionY, rightColW, card1H, 1.5 * f, 1.5 * f, 'FD')
+  doc.roundedRect(rightColX, photoSectionY, rightColW, card1H, 1.4 * f, 1.4 * f, 'FD')
 
-  // Pill Roja Tipo de Sangre
-  const bloodW = 16.5 * s
-  doc.setFillColor(185, 28, 28) // Rojo médico
-  doc.roundedRect(rightColX + rightColW - bloodW - 1.2 * s, photoSectionY + 1.1 * sy, bloodW, card1H - 2.2 * sy, 1.1 * f, 1.1 * f, 'F')
-  doc.setTextColor(255, 255, 255)
+  const bloodW = Math.min(15 * s, rightColW * 0.36)
+  const bloodX = rightColX + rightColW - bloodW - 1.1 * s
+  doc.setFillColor(185, 28, 28)
+  doc.roundedRect(bloodX, photoSectionY + 1.0 * sy, bloodW, card1H - 2.0 * sy, 1.0 * f, 1.0 * f, 'F')
+
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(4.6 * f)
-  doc.text('SANGRE', rightColX + rightColW - bloodW / 2 - 1.2 * s, photoSectionY + 3.6 * sy, { align: 'center' })
-  doc.setFontSize(6.8 * f)
-  doc.text((data.tipo_sangre || 'N/E').toUpperCase(), rightColX + rightColW - bloodW / 2 - 1.2 * s, photoSectionY + 7.2 * sy, { align: 'center' })
-
-  // NSS a la izquierda de Sangre
-  doc.setTextColor(148, 163, 184)
-  doc.setFontSize(4.8 * f)
-  doc.text('IMSS / NSS:', rightColX + 2.2 * s, photoSectionY + 3.6 * sy)
   doc.setTextColor(255, 255, 255)
-  doc.setFontSize(6.6 * f)
-  doc.text((data.nss || 'SIN NSS').slice(0, 13), rightColX + 2.2 * s, photoSectionY + 7.3 * sy)
+  const bloodLbl = fitSingleLine(doc, 'SANGRE', bloodW - 2 * s, 4.4 * f, 3.2 * f)
+  doc.setFontSize(bloodLbl.fontSize)
+  doc.text(bloodLbl.text, bloodX + bloodW / 2, photoSectionY + 3.6 * sy, { align: 'center' })
+
+  const bloodVal = fitSingleLine(doc, (data.tipo_sangre || 'N/E').toUpperCase(), bloodW - 2 * s, 6.4 * f, 3.6 * f)
+  doc.setFontSize(bloodVal.fontSize)
+  doc.text(bloodVal.text, bloodX + bloodW / 2, photoSectionY + 7.2 * sy, { align: 'center' })
+
+  const nssMaxW = bloodX - (rightColX + 1.8 * s) - 1.2 * s
+  doc.setTextColor(148, 163, 184)
+  doc.setFontSize(4.6 * f)
+  doc.text('IMSS / NSS:', rightColX + 1.8 * s, photoSectionY + 3.6 * sy)
+
+  doc.setTextColor(255, 255, 255)
+  const nssFit = fitSingleLine(doc, data.nss || 'SIN NSS', nssMaxW, 6.2 * f, 3.8 * f)
+  doc.setFontSize(nssFit.fontSize)
+  doc.text(nssFit.text, rightColX + 1.8 * s, photoSectionY + 7.2 * sy)
 
   // Tarjeta 2: Área / Departamento Autorizado
-  const card2Y = photoSectionY + card1H + 1.6 * sy
-  const card2H = 9.5 * sy
+  const card2Y = photoSectionY + card1H + 1.5 * sy
+  const card2H = 9.8 * sy
   doc.setFillColor(19, 30, 58)
   doc.setDrawColor(217, 119, 6)
-  doc.roundedRect(rightColX, card2Y, rightColW, card2H, 1.5 * f, 1.5 * f, 'FD')
+  doc.setLineWidth(0.25 * f)
+  doc.roundedRect(rightColX, card2Y, rightColW, card2H, 1.4 * f, 1.4 * f, 'FD')
+
   doc.setTextColor(251, 191, 36)
-  doc.setFontSize(4.7 * f)
-  doc.text('ÁREA / DEPTO AUTORIZADO:', rightColX + 2.2 * s, card2Y + 3.4 * sy)
+  const deptoHdr = fitSingleLine(doc, 'ÁREA / DEPTO AUTORIZADO:', rightColW - 3.6 * s, 4.6 * f, 3.4 * f)
+  doc.setFontSize(deptoHdr.fontSize)
+  doc.text(deptoHdr.text, rightColX + 1.8 * s, card2Y + 3.2 * sy)
+
   doc.setTextColor(255, 255, 255)
-  doc.setFontSize(6.2 * f)
   const deptoClean = (data.departamento_autorizado || 'MINA / SERVICIOS').toUpperCase()
-  const deptoLines = doc.splitTextToSize(deptoClean, rightColW - 4 * s)
-  doc.text(deptoLines[0] || 'GENERAL', rightColX + 2.2 * s, card2Y + 7.3 * sy)
+  const deptoFit = fitMultiLine(doc, deptoClean, rightColW - 3.6 * s, 2, 5.8 * f, 3.8 * f)
+  doc.setFontSize(deptoFit.fontSize)
+  deptoFit.lines.forEach((ln, idx) => {
+    doc.text(ln, rightColX + 1.8 * s, card2Y + (6.1 + idx * 2.7) * sy)
+  })
 
-  // Tarjeta 3: Sello Seguridad Industrial / Vigencia
-  const card3Y = card2Y + card2H + 1.6 * sy
-  const card3H = 7.1 * sy
-  doc.setFillColor(6, 78, 59) // Verde Esmeralda Oscuro
+  // Tarjeta 3: Sello Seguridad Industrial con punto vectorial verde (sin Unicode roto)
+  const card3Y = card2Y + card2H + 1.5 * sy
+  const card3H = 6.8 * sy
+  doc.setFillColor(6, 78, 59)
   doc.setDrawColor(16, 185, 129)
-  doc.roundedRect(rightColX, card3Y, rightColW, card3H, 1.4 * f, 1.4 * f, 'FD')
-  doc.setTextColor(167, 243, 208)
-  doc.setFontSize(5.4 * f)
-  doc.text('✓ INDUCCIÓN Y ACCESO VALIDADO', rightColX + rightColW / 2, card3Y + 4.6 * sy, { align: 'center' })
+  doc.roundedRect(rightColX, card3Y, rightColW, card3H, 1.3 * f, 1.3 * f, 'FD')
 
-  // 5. Bloque Nombre del Trabajador, Puesto y Empresa Contratista (44% a 61.5%)
+  doc.setFillColor(52, 211, 153)
+  doc.circle(rightColX + 2.8 * s, card3Y + card3H / 2, 0.85 * f, 'F')
+
+  doc.setTextColor(167, 243, 208)
+  const sealFit = fitSingleLine(doc, 'INDUCCIÓN Y ACCESO VALIDADO', rightColW - 6.0 * s, 5.1 * f, 3.5 * f)
+  doc.setFontSize(sealFit.fontSize)
+  doc.text(sealFit.text, rightColX + 4.4 * s, card3Y + card3H * 0.63)
+
+  // 5. Bloque Nombre del Trabajador, Puesto y Empresa Contratista
   const infoY = photoSectionY + photoH + 2.2 * sy
   const infoBoxH = 22.5 * sy
   doc.setFillColor(17, 27, 51)
   doc.setDrawColor(30, 58, 138)
   doc.setLineWidth(0.3 * f)
-  doc.roundedRect(cardX + 4 * s, infoY, cardW - 8 * s, infoBoxH, 2 * f, 2 * f, 'FD')
+  doc.roundedRect(cardInnerX, infoY, innerW, infoBoxH, 2.0 * f, 2.0 * f, 'FD')
 
-  // Nombre del trabajador
   doc.setTextColor(255, 255, 255)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(8.6 * f)
-  const nameLines = doc.splitTextToSize(data.nombre_completo.toUpperCase(), cardW - 12 * s)
-  doc.text(nameLines[0] || '', cardX + cardW / 2, infoY + 5.2 * sy, { align: 'center' })
-  if (nameLines[1]) {
-    doc.setFontSize(7.6 * f)
-    doc.text(nameLines[1], cardX + cardW / 2, infoY + 9.2 * sy, { align: 'center' })
+  const nameFit = fitMultiLine(doc, (data.nombre_completo || '').toUpperCase(), innerW - 5 * s, 2, 8.2 * f, 4.4 * f)
+  doc.setFontSize(nameFit.fontSize)
+  doc.text(nameFit.lines[0] || '', cardX + cardW / 2, infoY + 4.9 * sy, { align: 'center' })
+  if (nameFit.lines[1]) {
+    doc.text(nameFit.lines[1], cardX + cardW / 2, infoY + 8.5 * sy, { align: 'center' })
   }
 
-  // Cinta dorada del Puesto
-  const puestoY = infoY + (nameLines[1] ? 10.6 * sy : 7.8 * sy)
-  const puestoH = 4.4 * sy
+  // Píldora dorada del Puesto
+  const puestoW = innerW - 6 * s
+  const puestoX = cardX + (cardW - puestoW) / 2
+  const puestoY = infoY + (nameFit.lines.length > 1 ? 10.1 * sy : 7.8 * sy)
+  const puestoH = 4.5 * sy
   doc.setFillColor(245, 158, 11)
-  doc.roundedRect(cardX + 10 * s, puestoY, cardW - 20 * s, puestoH, 1 * f, 1 * f, 'F')
+  doc.roundedRect(puestoX, puestoY, puestoW, puestoH, 0.9 * f, 0.9 * f, 'F')
+
   doc.setTextColor(11, 17, 32)
-  doc.setFontSize(6.2 * f)
-  doc.text((data.puesto || 'CONTRATISTA ESPECIALIZADO').toUpperCase().slice(0, 34), cardX + cardW / 2, puestoY + 3.1 * sy, { align: 'center' })
+  const puestoFit = fitSingleLine(
+    doc,
+    (data.puesto || 'CONTRATISTA ESPECIALIZADO').toUpperCase(),
+    puestoW - 4 * s,
+    5.9 * f,
+    3.8 * f
+  )
+  doc.setFontSize(puestoFit.fontSize)
+  doc.text(puestoFit.text, cardX + cardW / 2, puestoY + puestoH * 0.72, { align: 'center' })
 
   // Empresa Contratista
-  doc.setTextColor(147, 197, 253) // Azul claro corporativo
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(6.8 * f)
-  const empClean = (data.empresa || 'EMPRESA CONTRATISTA').toUpperCase()
-  const empLines = doc.splitTextToSize(empClean, cardW - 12 * s)
-  doc.text(empLines[0] || '', cardX + cardW / 2, infoY + infoBoxH - 2.2 * sy, { align: 'center' })
+  doc.setTextColor(147, 197, 253)
+  const empFit = fitSingleLine(
+    doc,
+    (data.empresa || 'EMPRESA CONTRATISTA').toUpperCase(),
+    innerW - 5 * s,
+    6.2 * f,
+    4.0 * f
+  )
+  doc.setFontSize(empFit.fontSize)
+  doc.text(empFit.text, cardX + cardW / 2, infoY + infoBoxH - 2.2 * sy, { align: 'center' })
 
-  // 6. Barra de Vigencia Autorizada (62.5% a 68.5%)
-  const vigY = infoY + infoBoxH + 1.6 * sy
-  const vigH = 6.8 * sy
-  doc.setFillColor(30, 58, 138) // Azul Real Bacís
+  // 6. Barra de Vigencia Autorizada
+  const vigY = infoY + infoBoxH + 1.7 * sy
+  const vigH = 6.5 * sy
+  doc.setFillColor(30, 58, 138)
   doc.setDrawColor(245, 158, 11)
-  doc.setLineWidth(0.35 * f)
-  doc.roundedRect(cardX + 4 * s, vigY, cardW - 8 * s, vigH, 1.5 * f, 1.5 * f, 'FD')
+  doc.setLineWidth(0.32 * f)
+  doc.roundedRect(cardInnerX, vigY, innerW, vigH, 1.4 * f, 1.4 * f, 'FD')
+
   doc.setTextColor(254, 240, 138)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(6.3 * f)
-  doc.text(
+  const vigFit = fitSingleLine(
+    doc,
     `VIGENCIA: ${formatShortDate(data.vigencia_desde)}  AL  ${formatShortDate(data.vigencia_hasta)}`,
-    cardX + cardW / 2,
-    vigY + 4.5 * sy,
-    { align: 'center' }
+    innerW - 5 * s,
+    6.0 * f,
+    3.8 * f
   )
+  doc.setFontSize(vigFit.fontSize)
+  doc.text(vigFit.text, cardX + cardW / 2, vigY + vigH * 0.67, { align: 'center' })
 
-  // 7. Zona Exclusiva del Código QR (70% a 90.5%) — 100% libre de texto encimado
-  const qrTopY = vigY + vigH + 2.0 * sy
-  const qrBoxSize = 26.5 * Math.min(s, sy)
+  // 7. Zona Exclusiva del Código QR y Barra Inferior calculadas dinámicamente
+  const cardBottomSafe = cardY + cardH - inPad - 1.5 * sy
+  const footerPillH = 5.2 * sy
+  const qrTopY = vigY + vigH + 1.8 * sy
+  const gapBetweenQrAndFooter = 1.4 * sy
+  const availableHeightForQr = Math.max(8, cardBottomSafe - qrTopY - footerPillH - gapBetweenQrAndFooter)
+  const qrBoxSize = Math.min(26.5 * Math.min(s, sy), availableHeightForQr, cardW - 18 * s)
   const qrBoxX = cardX + (cardW - qrBoxSize) / 2
 
-  // Contenedor blanco puro con margen limpio para lectura instantánea del escáner
   doc.setFillColor(255, 255, 255)
   doc.setDrawColor(245, 158, 11)
   doc.setLineWidth(0.45 * f)
-  doc.roundedRect(qrBoxX, qrTopY, qrBoxSize, qrBoxSize, 2.2 * f, 2.2 * f, 'FD')
+  doc.roundedRect(qrBoxX, qrTopY, qrBoxSize, qrBoxSize, 2.0 * f, 2.0 * f, 'FD')
 
-  const qrInnerPad = 1.4 * Math.min(s, sy)
+  const qrInnerPad = 1.3 * Math.min(s, sy)
   doc.addImage(
     qrDataUrl,
     'PNG',
@@ -396,23 +515,23 @@ async function renderBadgeFront(
     qrBoxSize - qrInnerPad * 2
   )
 
-  // 8. Barra Inferior Independiente para el Código QR en Texto (92% a 98%) — FUERA del QR
-  const footerPillY = qrTopY + qrBoxSize + 1.5 * sy
-  const footerPillH = 5.4 * sy
-  const footerPillW = cardW - 14 * s
+  // 8. Barra Inferior Independiente para el Código QR en Texto
+  const footerPillY = qrTopY + qrBoxSize + gapBetweenQrAndFooter
+  const footerPillW = Math.min(innerW, cardW - 12 * s)
   const footerPillX = cardX + (cardW - footerPillW) / 2
 
-  doc.setFillColor(245, 158, 11) // Fondo Dorado Minero
-  doc.roundedRect(footerPillX, footerPillY, footerPillW, footerPillH, 1.4 * f, 1.4 * f, 'F')
+  doc.setFillColor(245, 158, 11)
+  doc.roundedRect(footerPillX, footerPillY, footerPillW, footerPillH, 1.3 * f, 1.3 * f, 'F')
 
-  doc.setTextColor(11, 17, 32) // Letras negras/obsidiana de alto contraste sobre barra dorada
+  doc.setTextColor(11, 17, 32)
   doc.setFont('courier', 'bold')
-  doc.setFontSize(7.5 * f)
-  doc.text(`QR: ${data.codigo_qr}`, cardX + cardW / 2, footerPillY + 3.8 * sy, { align: 'center' })
+  const qrTxtFit = fitSingleLine(doc, `QR: ${data.codigo_qr}`, footerPillW - 4 * s, 7.2 * f, 4.2 * f)
+  doc.setFontSize(qrTxtFit.fontSize)
+  doc.text(qrTxtFit.text, cardX + cardW / 2, footerPillY + footerPillH * 0.72, { align: 'center' })
 }
 
 /**
- * Renderiza el REVERSO de la credencial adaptándose proporcionalmente a cualquier tamaño (cardW x cardH)
+ * Renderiza el REVERSO de la credencial sin desbordes ni símbolos Unicode rotos
  */
 function renderBadgeBack(
   doc: jsPDF,
@@ -430,7 +549,7 @@ function renderBadgeBack(
   doc.setFillColor(248, 250, 252)
   doc.setDrawColor(23, 37, 84)
   doc.setLineWidth(0.5 * f)
-  doc.roundedRect(backX, cardY, cardW, cardH, 3.2 * f, 3.2 * f, 'FD')
+  doc.roundedRect(backX, cardY, cardW, cardH, 3.0 * f, 3.0 * f, 'FD')
 
   const inPad = 1.6 * f
   doc.setDrawColor(217, 119, 6)
@@ -443,96 +562,121 @@ function renderBadgeBack(
   doc.rect(backX + inPad, cardY + inPad, cardW - inPad * 2, headerH, 'F')
 
   doc.setFillColor(245, 158, 11)
-  doc.rect(backX + inPad, cardY + inPad + headerH - 0.9 * sy, cardW - inPad * 2, 0.9 * sy, 'F')
+  doc.rect(backX + inPad, cardY + inPad + headerH - 0.85 * sy, cardW - inPad * 2, 0.85 * sy, 'F')
 
-  // Emblema mini en el reverso
-  drawBacisMiningLogo(doc, backX + inPad + 7 * s, cardY + inPad + headerH / 2, 9.5 * f)
+  const miniLogoSize = 9.2 * f
+  const miniLogoCX = backX + inPad + 2.4 * s + miniLogoSize / 2
+  drawBacisMiningLogo(doc, miniLogoCX, cardY + inPad + headerH / 2, miniLogoSize)
 
-  doc.setTextColor(255, 255, 255)
+  const hdrTextLeft = miniLogoCX + miniLogoSize / 2 + 2.2 * s
+  const hdrTextRight = backX + cardW - inPad - 2.0 * s
+  const hdrTextW = hdrTextRight - hdrTextLeft
+  const hdrTextCenter = hdrTextLeft + hdrTextW / 2
+
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7.2 * f)
-  doc.text('CONTROL DE CASETA Y SEGURIDAD', backX + cardW / 2 + 3.5 * s, cardY + inPad + 6.5 * sy, { align: 'center' })
+  doc.setTextColor(255, 255, 255)
+  const backH1 = fitSingleLine(doc, 'CONTROL DE CASETA Y SEGURIDAD', hdrTextW - 2 * s, 6.8 * f, 3.8 * f)
+  doc.setFontSize(backH1.fontSize)
+  doc.text(backH1.text, hdrTextCenter, cardY + inPad + 6.4 * sy, { align: 'center' })
+
   doc.setTextColor(251, 191, 36)
-  doc.setFontSize(5.8 * f)
-  doc.text('GRUPO MINERO BACÍS • UNIDAD "EL HERRERO"', backX + cardW / 2 + 3.5 * s, cardY + inPad + 11.2 * sy, { align: 'center' })
+  const backH2 = fitSingleLine(doc, 'GRUPO MINERO BACÍS - UNIDAD EL HERRERO', hdrTextW - 2 * s, 5.4 * f, 3.5 * f)
+  doc.setFontSize(backH2.fontSize)
+  doc.text(backH2.text, hdrTextCenter, cardY + inPad + 11.2 * sy, { align: 'center' })
+
+  // Zona Segura para cajas del reverso
+  const boxX = backX + inPad + 2.2 * s
+  const boxW = cardW - (inPad + 2.2 * s) * 2
+  let by = cardY + inPad + headerH + 2.8 * sy
 
   // Bloque de Datos de Respaldo y Emergencia
-  let by = cardY + inPad + headerH + 3.5 * sy
-  const boxX = backX + 4.5 * s
-  const boxW = cardW - 9 * s
-  const dataBoxH = 34 * sy
-
+  const dataBoxH = 33 * sy
   doc.setFillColor(241, 245, 249)
   doc.setDrawColor(203, 213, 225)
-  doc.roundedRect(boxX, by, boxW, dataBoxH, 2 * f, 2 * f, 'FD')
+  doc.setLineWidth(0.25 * f)
+  doc.roundedRect(boxX, by, boxW, dataBoxH, 1.8 * f, 1.8 * f, 'FD')
 
-  doc.setTextColor(15, 23, 42)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(6.3 * f)
-  let rowY = by + 5 * sy
-  const stepY = 5.4 * sy
+  const infoRows: { label: string; red?: boolean }[] = [
+    { label: `FOLIO ACCESO: ${data.folio_solicitud || 'N/A'}` },
+    { label: `RFC EMPRESA: ${data.rfc_empresa || 'N/A'}` },
+    { label: `CURP TITULAR: ${data.curp || 'N/A'}` },
+    { label: `ZONA TRABAJO: ${data.area_trabajo || data.departamento_autorizado || 'GENERAL'}` },
+    { label: `EMERGENCIA: ${data.contacto_emergencia || 'Seguridad Mina'}`, red: true },
+  ]
 
-  doc.text(`FOLIO DE ACCESO:  ${data.folio_solicitud}`, boxX + 3 * s, rowY)
-  rowY += stepY
-  doc.text(`RFC CONTRATISTA:  ${data.rfc_empresa || 'N/A'}`, boxX + 3 * s, rowY)
-  rowY += stepY
-  doc.text(`CURP TRABAJADOR:  ${data.curp || 'N/A'}`, boxX + 3 * s, rowY)
-  rowY += stepY
-  doc.text(`ZONA DE TRABAJO:  ${(data.area_trabajo || data.departamento_autorizado).slice(0, 30)}`, boxX + 3 * s, rowY)
-  rowY += stepY
-  doc.setTextColor(185, 28, 28)
-  doc.text(`TEL. EMERGENCIA:  ${(data.contacto_emergencia || 'Reportar a Seguridad Mina').slice(0, 30)}`, boxX + 3 * s, rowY)
+  infoRows.forEach((row, idx) => {
+    const rowY = by + (5.2 + idx * 5.5) * sy
+    doc.setTextColor(row.red ? 185 : 15, row.red ? 28 : 23, row.red ? 28 : 42)
+    const rowFit = fitSingleLine(doc, row.label, boxW - 5 * s, 6.0 * f, 3.8 * f)
+    doc.setFontSize(rowFit.fontSize)
+    doc.text(rowFit.text, boxX + 2.5 * s, rowY)
+  })
 
-  // Checklist Multi-Factor
-  by += dataBoxH + 3 * sy
-  const checkH = 29 * sy
-  doc.setFillColor(254, 243, 199) // Amber 100
+  // Checklist Multi-Factor (con círculos vectoriales verdes en lugar de ✓)
+  by += dataBoxH + 2.5 * sy
+  const checkH = 28 * sy
+  doc.setFillColor(254, 243, 199)
   doc.setDrawColor(245, 158, 11)
-  doc.roundedRect(boxX, by, boxW, checkH, 2 * f, 2 * f, 'FD')
+  doc.roundedRect(boxX, by, boxW, checkH, 1.8 * f, 1.8 * f, 'FD')
 
   doc.setTextColor(146, 64, 14)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(6.4 * f)
-  doc.text('SELLOS DE VALIDACIÓN MULTI-FACTOR', boxX + 3 * s, by + 5.2 * sy)
+  const chkTitle = fitSingleLine(doc, 'SELLOS DE VALIDACIÓN MULTI-FACTOR', boxW - 5 * s, 6.0 * f, 3.8 * f)
+  doc.setFontSize(chkTitle.fontSize)
+  doc.text(chkTitle.text, boxX + 2.5 * s, by + 5.0 * sy)
 
+  const checkItems = [
+    '1. Opinión SAT / Alta IMSS / NSS Verificados',
+    '2. Autorización del Departamento Solicitante',
+    '3. Inducción de Seguridad Industrial Aprobada',
+    '4. Control de Campamentos y Recursos Humanos',
+  ]
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(5.9 * f)
-  doc.setTextColor(30, 41, 59)
-  doc.text('✓ 1. Opinión SAT / Alta IMSS / NSS Verificados', boxX + 3.5 * s, by + 10.5 * sy)
-  doc.text('✓ 2. Autorización del Departamento Solicitante', boxX + 3.5 * s, by + 15.5 * sy)
-  doc.text('✓ 3. Inducción de Seguridad Industrial Aprobada', boxX + 3.5 * s, by + 20.5 * sy)
-  doc.text('✓ 4. Control de Campamentos y Recursos Humanos', boxX + 3.5 * s, by + 25.5 * sy)
+  checkItems.forEach((txt, idx) => {
+    const cyRow = by + (9.8 + idx * 4.8) * sy
+    doc.setFillColor(16, 185, 129)
+    doc.circle(boxX + 3.4 * s, cyRow - 0.8 * f, 0.75 * f, 'F')
+    doc.setTextColor(30, 41, 59)
+    const itemFit = fitSingleLine(doc, txt, boxW - 8 * s, 5.6 * f, 3.6 * f)
+    doc.setFontSize(itemFit.fontSize)
+    doc.text(itemFit.text, boxX + 5.2 * s, cyRow)
+  })
 
   // Protocolo de Caseta y Devolución Obligatoria
-  by += checkH + 3.2 * sy
-  const ruleH = 23 * sy
+  by += checkH + 2.5 * sy
+  const ruleH = 25 * sy
   doc.setFillColor(23, 37, 84)
-  doc.roundedRect(boxX, by, boxW, ruleH, 2 * f, 2 * f, 'F')
+  doc.roundedRect(boxX, by, boxW, ruleH, 1.8 * f, 1.8 * f, 'F')
 
   doc.setTextColor(251, 191, 36)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(5.9 * f)
-  doc.text('REGLAMENTO DE PORTACIÓN Y DEVOLUCIÓN:', boxX + 3 * s, by + 4.8 * sy)
+  const ruleTitle = fitSingleLine(doc, 'REGLAMENTO DE PORTACIÓN Y DEVOLUCIÓN:', boxW - 5 * s, 5.6 * f, 3.6 * f)
+  doc.setFontSize(ruleTitle.fontSize)
+  doc.text(ruleTitle.text, boxX + 2.5 * s, by + 4.8 * sy)
 
   doc.setTextColor(241, 245, 249)
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(5.4 * f)
-  const notice = doc.splitTextToSize(
-    'Este gafete es propiedad de Grupo Minero Bacís. Su portación visible y el uso de EPP completo son obligatorios en todo momento. Al concluir sus trabajos o salir de la unidad minera, DEBERÁ ENTREGAR ESTA CREDENCIAL en Caseta de Vigilancia para registrar su salida.',
-    boxW - 6 * s
-  )
-  doc.text(notice, boxX + 3 * s, by + 9.2 * sy)
+  const noticeText =
+    'Este gafete es propiedad de Grupo Minero Bacís. Su portación visible y el uso de EPP completo son obligatorios en todo momento. Al concluir sus trabajos o salir de la unidad minera, DEBERÁ ENTREGAR ESTA CREDENCIAL en Caseta de Vigilancia.'
+  const noticeFit = fitMultiLine(doc, noticeText, boxW - 5 * s, 5, 5.0 * f, 3.5 * f)
+  doc.setFontSize(noticeFit.fontSize)
+  const lineH = noticeFit.fontSize * 0.42
+  noticeFit.lines.forEach((ln, idx) => {
+    doc.text(ln, boxX + 2.5 * s, by + 8.6 * sy + idx * lineH)
+  })
 
   // Línea de Firma y Sello
-  const signY = cardY + cardH - 10 * sy
+  const signY = cardY + cardH - inPad - 8.2 * sy
   doc.setDrawColor(100, 116, 139)
   doc.setLineWidth(0.3 * f)
-  doc.line(backX + 14 * s, signY, backX + cardW - 14 * s, signY)
+  doc.line(backX + 12 * s, signY, backX + cardW - 12 * s, signY)
 
   doc.setTextColor(71, 85, 105)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(5.5 * f)
-  doc.text('FIRMA Y SELLO DE SEGURIDAD / CASETA', backX + cardW / 2, signY + 3.6 * sy, { align: 'center' })
+  const signFit = fitSingleLine(doc, 'FIRMA Y SELLO DE SEGURIDAD / CASETA', cardW - 14 * s, 5.2 * f, 3.5 * f)
+  doc.setFontSize(signFit.fontSize)
+  doc.text(signFit.text, backX + cardW / 2, signY + 3.4 * sy, { align: 'center' })
 
   // Franja inferior de seguridad
   drawSafetyStripeBar(doc, backX + inPad, cardY + cardH - inPad - 2.2 * sy, cardW - inPad * 2, 2.2 * sy)
@@ -542,7 +686,6 @@ export async function generateContractorCredentialPDF(data: ContractorBadgeData)
   const formatId: BadgeSizeFormat = data.size_format || 'gafete_medio'
   const sizeSpec = BADGE_SIZE_OPTIONS.find((o) => o.id === formatId) || BADGE_SIZE_OPTIONS[2]
 
-  // Pre-cargar QR en alta definición y foto del trabajador
   const qrDataUrl = await QRCode.toDataURL(data.codigo_qr, {
     width: 480,
     margin: 1,
@@ -573,30 +716,41 @@ export async function generateContractorCredentialPDF(data: ContractorBadgeData)
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
   const pageW = 215.9
 
-  // Encabezado de la hoja de impresión con instrucciones de recorte y enmicado
+  // Encabezado de la hoja de impresión
   doc.setFillColor(15, 23, 42)
   doc.roundedRect(14, 10, pageW - 28, 16, 2.5, 2.5, 'F')
   doc.setTextColor(251, 191, 36)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9.5)
-  doc.text('GRUPO MINERO BACÍS S.A. DE C.V. — EMISIÓN OFICIAL DE CREDENCIAL CONTRATISTA', 20, 16.5)
+  const hdr1 = fitSingleLine(
+    doc,
+    'GRUPO MINERO BACÍS S.A. DE C.V. — EMISIÓN OFICIAL DE CREDENCIAL CONTRATISTA',
+    pageW - 38,
+    9.5,
+    6.5
+  )
+  doc.setFontSize(hdr1.fontSize)
+  doc.text(hdr1.text, 20, 16.5)
+
   doc.setTextColor(203, 213, 225)
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7.5)
-  doc.text(
-    `Formato seleccionado: ${sizeSpec.label} (${sizeSpec.dimensions})  •  Recorta por la línea punteada exterior y dobla al centro para enmicar.`,
-    20,
-    22
+  const hdr2 = fitSingleLine(
+    doc,
+    `Formato seleccionado: ${sizeSpec.label} (${sizeSpec.dimensions})  •  Recorta por la línea punteada y dobla al centro para enmicar.`,
+    pageW - 38,
+    7.5,
+    5.5
   )
+  doc.setFontSize(hdr2.fontSize)
+  doc.text(hdr2.text, 20, 22)
 
   // Posicionar Frente y Reverso centrados en la hoja
-  const gap = formatId === 'cr80_enmicar' ? 2 : 6 // En CR80 enmicar van casi pegados para doblar como libro
+  const gap = formatId === 'cr80_enmicar' ? 2 : 6
   const totalW = cardW * 2 + gap
   const startX = (pageW - totalW) / 2
   const startY = 36
   const backX = startX + cardW + gap
 
-  // Guía exterior de corte punteada (✂)
+  // Guía exterior de corte punteada
   doc.setDrawColor(148, 163, 184)
   doc.setLineWidth(0.25)
   doc.setLineDashPattern([2, 1.5], 0)
@@ -610,35 +764,42 @@ export async function generateContractorCredentialPDF(data: ContractorBadgeData)
   doc.setTextColor(100, 116, 139)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(6.5)
-  doc.text('✂ GUÍA DE RECORTE EXTERIOR', startX, startY - 3.5)
-  doc.text('LÍNEA DE DOBLEZ', foldX, startY - 6, { align: 'center' })
+  doc.text('--- GUIA DE RECORTE EXTERIOR ---', startX, startY - 3.5)
+  doc.text('LINEA DE DOBLEZ', foldX, startY - 6, { align: 'center' })
   doc.text('FRENTE (ANVERSO)', startX + cardW / 2, startY + cardH + 6, { align: 'center' })
   doc.text('VUELTA (REVERSO)', backX + cardW / 2, startY + cardH + 6, { align: 'center' })
 
-  // Renderizar Frente y Reverso
   await renderBadgeFront(doc, data, startX, startY, cardW, cardH, qrDataUrl, photoB64)
   renderBadgeBack(doc, data, backX, startY, cardW, cardH)
 
-  // Pie de hoja con ficha de control RH
+  // Pie de hoja con ficha de control RH ajustado al ancho
   const footY = startY + cardH + 15
   doc.setFillColor(248, 250, 252)
   doc.setDrawColor(226, 232, 240)
   doc.roundedRect(14, footY, pageW - 28, 20, 2, 2, 'FD')
+
   doc.setTextColor(51, 65, 85)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7.5)
-  doc.text(
-    `COMPROBANTE DE EMISIÓN: ${data.nombre_completo.toUpperCase()}  |  EMPRESA: ${data.empresa.toUpperCase()}  |  QR: ${data.codigo_qr}`,
-    20,
-    footY + 7
+  const footLine1 = fitSingleLine(
+    doc,
+    `COMPROBANTE DE EMISION: ${data.nombre_completo.toUpperCase()}  |  EMPRESA: ${data.empresa.toUpperCase()}  |  QR: ${data.codigo_qr}`,
+    pageW - 38,
+    7.5,
+    5.2
   )
+  doc.setFontSize(footLine1.fontSize)
+  doc.text(footLine1.text, 20, footY + 7.2)
+
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7)
-  doc.text(
-    `Medida física real: ${cardW} mm de ancho × ${cardH} mm de alto. Al imprimir desde tu navegador o Adobe Reader, selecciona escala "Tamaño real (100%)" sin ajustar a página.`,
-    20,
-    footY + 13.5
+  const footLine2 = fitSingleLine(
+    doc,
+    `Medida física real: ${cardW} mm de ancho x ${cardH} mm de alto. Al imprimir selecciona escala "Tamaño real (100%)" sin ajustar a página.`,
+    pageW - 38,
+    7.0,
+    5.0
   )
+  doc.setFontSize(footLine2.fontSize)
+  doc.text(footLine2.text, 20, footY + 13.8)
 
   doc.save(`Credencial_Bacis_${formatId}_${data.codigo_qr}.pdf`)
 }
