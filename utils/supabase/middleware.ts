@@ -43,6 +43,7 @@ export async function updateSession(request: NextRequest) {
         !request.nextUrl.pathname.startsWith('/caseta-qr') &&
         !request.nextUrl.pathname.startsWith('/api/caseta') &&
         !request.nextUrl.pathname.startsWith('/api/contratistas/solicitar-cuenta') &&
+        !request.nextUrl.pathname.startsWith('/api/movimientos/responder-correo') &&
         !request.nextUrl.pathname.startsWith('/auth')
     ) {
         // no user, redirect to login page (which is now root '/')

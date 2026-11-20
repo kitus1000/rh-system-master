@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/utils/supabase/client'
 import { useAuth } from '@/components/AuthProvider'
 import {
@@ -567,6 +568,13 @@ export default function MiDepartamentoPage() {
               </select>
             </div>
           )}
+
+          <Link
+            href="/movimientos-sindicato"
+            className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs px-4 py-2.5 rounded-xl shadow"
+          >
+            <span>♟️ Vacantes, Sindicato y Ajedrez</span>
+          </Link>
 
           <button
             onClick={fetchAllDepartmentData}
