@@ -32,6 +32,7 @@ import {
   invertEmployeeNameFields,
   normalizeNameTokens,
   getEmployeeFullName,
+  getEmployeeRegimenClassification,
 } from '@/utils/dataNormalization'
 
 export default function EmpleadosPage() {
@@ -45,7 +46,9 @@ export default function EmpleadosPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('Activo') // 'Todos', 'Activo', 'Baja'
   const [deptFilter, setDeptFilter] = useState('TODOS')
-  const [regimenFilter, setRegimenFilter] = useState<'TODOS' | 'SEMANAL_SINDICATO' | 'QUINCENAL_CONFIANZA' | 'CON_BENEFICIARIOS'>('TODOS')
+  const [regimenFilter, setRegimenFilter] = useState<
+    'TODOS' | 'SEMANAL_SINDICATO' | 'SEMANAL_CONFIANZA' | 'QUINCENAL_CONFIANZA' | 'CON_BENEFICIARIOS'
+  >('TODOS')
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
   const [canManage, setCanManage] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -195,35 +198,13 @@ export default function EmpleadosPage() {
     return emp?.puesto || adsPuesto || 'General'
   }
 
-  // Clasificador de Nómina Semanal (Sindicato Secc. 45) vs Quincenal (Confianza)
+  // Clasificador Oficial Bacís de Nómina (Semanal / Quincenal) y Pertenencia Sindical (Sección 45 / Confianza)
   const getEmployeeRegimen = (emp: any) => {
-    const puesto = getResolvedPuesto(emp).toUpperCase()
-    const dept = getResolvedDepartment(emp).officialName.toUpperCase()
-    const combined = `${puesto} ${dept}`
-    const isQuincenal =
-      combined.includes('SUPERINTENDENTE') ||
-      combined.includes('JEFE') ||
-      combined.includes('SUPERVISOR') ||
-      combined.includes('GERENTE') ||
-      combined.includes('INGENIERO') ||
-      combined.includes('CONTADOR') ||
-      combined.includes('RECURSOS HUMANOS') ||
-      combined.includes('ADMINISTRATIV') ||
-      combined.includes('MEDICO') ||
-      combined.includes('MÉDICO') ||
-      combined.includes('SISTEMAS') ||
-      combined.includes('COORDINADOR')
-    return isQuincenal
-      ? {
-          code: 'QUINCENAL_CONFIANZA' as const,
-          label: '📆 Quincenal · Confianza',
-          badgeClass: 'bg-indigo-100 text-indigo-900 border-indigo-300',
-        }
-      : {
-          code: 'SEMANAL_SINDICATO' as const,
-          label: '🗓️ Semanal · Sindicato Secc. 45',
-          badgeClass: 'bg-amber-100 text-amber-950 border-amber-300',
-        }
+    return getEmployeeRegimenClassification({
+      ...emp,
+      puesto: getResolvedPuesto(emp),
+      departamento: getResolvedDepartment(emp).officialName,
+    })
   }
 
   const beneficiariosByEmpleado = useMemo(() => {
@@ -437,18 +418,20 @@ export default function EmpleadosPage() {
   }
 
   const regimenSummaryCounts = useMemo(() => {
-    let semanal = 0
+    let semanalSindicato = 0
+    let semanalConfianza = 0
     let quincenal = 0
     let conBeneficiarios = 0
     empleados.forEach((emp) => {
       const reg = getEmployeeRegimen(emp)
-      if (reg.code === 'SEMANAL_SINDICATO') semanal++
+      if (reg.code === 'SEMANAL_SINDICATO') semanalSindicato++
+      else if (reg.code === 'SEMANAL_CONFIANZA') semanalConfianza++
       else quincenal++
       if ((beneficiariosByEmpleado.get(String(emp.id_empleado)) || []).length > 0) {
         conBeneficiarios++
       }
     })
-    return { semanal, quincenal, conBeneficiarios }
+    return { semanalSindicato, semanalConfianza, quincenal, conBeneficiarios }
   }, [empleados, beneficiariosByEmpleado])
 
   const filteredEmpleados = useMemo(() => {
@@ -773,12 +756,12 @@ export default function EmpleadosPage() {
         </div>
       )}
 
-      {/* TARJETAS INTERACTIVAS DE RÉGIMEN: SEMANALES (SINDICATO), QUINCENALES (CONFIANZA) Y BENEFICIARIOS */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* TARJETAS INTERACTIVAS DE RÉGIMEN: SEMANALES (SINDICATO), SEMANALES (CONFIANZA), QUINCENALES (CONFIANZA) Y BENEFICIARIOS */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
         <button
           type="button"
           onClick={() => setRegimenFilter('TODOS')}
-          className={`card-interactive p-4 rounded-2xl border-2 text-left cursor-pointer transition-all ${
+          className={`card-interactive p-3.5 rounded-2xl border-2 text-left cursor-pointer transition-all ${
             regimenFilter === 'TODOS'
               ? 'bg-zinc-900 text-white border-amber-500 shadow-md'
               : 'bg-white text-zinc-900 border-zinc-200 hover:border-zinc-300'
@@ -794,49 +777,65 @@ export default function EmpleadosPage() {
         <button
           type="button"
           onClick={() => setRegimenFilter('SEMANAL_SINDICATO')}
-          className={`card-interactive p-4 rounded-2xl border-2 text-left cursor-pointer transition-all ${
+          className={`card-interactive p-3.5 rounded-2xl border-2 text-left cursor-pointer transition-all ${
             regimenFilter === 'SEMANAL_SINDICATO'
               ? 'bg-zinc-900 text-white border-amber-500 shadow-md'
               : 'bg-white text-zinc-900 border-zinc-200 hover:border-amber-300'
           }`}
         >
           <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 block">
-            2. Nómina Semanal (Raya)
+            2. Semanal Sindicato
           </span>
-          <div className="text-2xl font-black mt-1">{regimenSummaryCounts.semanal}</div>
-          <span className="text-[11px] font-semibold opacity-75">🗓️ Sindicato Secc. 45 / Operativos</span>
+          <div className="text-2xl font-black mt-1">{regimenSummaryCounts.semanalSindicato}</div>
+          <span className="text-[11px] font-semibold opacity-75">🗓️ Secc. 45 / Operativos</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setRegimenFilter('SEMANAL_CONFIANZA')}
+          className={`card-interactive p-3.5 rounded-2xl border-2 text-left cursor-pointer transition-all ${
+            regimenFilter === 'SEMANAL_CONFIANZA'
+              ? 'bg-zinc-900 text-white border-emerald-500 shadow-md'
+              : 'bg-white text-zinc-900 border-zinc-200 hover:border-emerald-300'
+          }`}
+        >
+          <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 block">
+            3. Semanal Confianza
+          </span>
+          <div className="text-2xl font-black mt-1">{regimenSummaryCounts.semanalConfianza}</div>
+          <span className="text-[11px] font-semibold opacity-75">🗓️ Confianza semanal</span>
         </button>
 
         <button
           type="button"
           onClick={() => setRegimenFilter('QUINCENAL_CONFIANZA')}
-          className={`card-interactive p-4 rounded-2xl border-2 text-left cursor-pointer transition-all ${
+          className={`card-interactive p-3.5 rounded-2xl border-2 text-left cursor-pointer transition-all ${
             regimenFilter === 'QUINCENAL_CONFIANZA'
               ? 'bg-zinc-900 text-white border-indigo-500 shadow-md'
               : 'bg-white text-zinc-900 border-zinc-200 hover:border-indigo-300'
           }`}
         >
           <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 block">
-            3. Nómina Quincenal
+            4. Quincenal Confianza
           </span>
           <div className="text-2xl font-black mt-1">{regimenSummaryCounts.quincenal}</div>
-          <span className="text-[11px] font-semibold opacity-75">📆 Confianza / Supervisores / Staff</span>
+          <span className="text-[11px] font-semibold opacity-75">📆 Directivos / Staff</span>
         </button>
 
         <button
           type="button"
           onClick={() => setRegimenFilter('CON_BENEFICIARIOS')}
-          className={`card-interactive p-4 rounded-2xl border-2 text-left cursor-pointer transition-all ${
+          className={`card-interactive p-3.5 rounded-2xl border-2 text-left cursor-pointer transition-all ${
             regimenFilter === 'CON_BENEFICIARIOS'
               ? 'bg-zinc-900 text-white border-rose-500 shadow-md'
               : 'bg-white text-zinc-900 border-zinc-200 hover:border-rose-300'
           }`}
         >
           <span className="text-[10px] font-black uppercase tracking-wider text-rose-500 block">
-            4. Sindicato + Beneficiarios
+            5. Con Beneficiarios
           </span>
           <div className="text-2xl font-black mt-1">{regimenSummaryCounts.conBeneficiarios}</div>
-          <span className="text-[11px] font-semibold opacity-75">👨‍👩‍👧‍👦 Con Familiares en Clínica ({pacientes.length})</span>
+          <span className="text-[11px] font-semibold opacity-75">👨‍👩‍👧‍👦 En Clínica ({pacientes.length})</span>
         </button>
       </div>
 

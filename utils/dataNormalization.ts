@@ -729,3 +729,153 @@ export function matchesFlexiblePersonSearch(emp: any, query: string): boolean {
 
   return qTokens.every((token) => searchableText.includes(token))
 }
+
+export type RegimenLaboralCode =
+  | 'SEMANAL_SINDICATO'
+  | 'SEMANAL_CONFIANZA'
+  | 'QUINCENAL_CONFIANZA'
+  | 'QUINCENAL_SINDICATO'
+
+export interface EmployeeRegimenInfo {
+  code: RegimenLaboralCode
+  tipoNomina: 'SEMANAL' | 'QUINCENAL'
+  esSindicalizado: boolean
+  label: string
+  shortLabel: string
+  badgeClass: string
+  sindicatoNombre: string
+}
+
+/**
+ * Clasificador oficial de Régimen de Nómina y Pertenencia Sindical
+ * adaptado a la estructura de Grupo Minero Bacís (Sección 45 y Personal de Confianza).
+ *
+ * Reconoce:
+ * 1. Semanales Sindicalizados (Sección 45) -> Operativos Mina / Planta / Mtto
+ * 2. Semanales de Confianza -> Supervisores de cuadrilla / Administrativos semanales
+ * 3. Quincenales de Confianza -> Superintendentes / Jefaturas / Contabilidad / Médicos
+ * 4. Quincenales Sindicalizados -> Casos excepcionales escalafonados
+ */
+export function getEmployeeRegimenClassification(emp: any): EmployeeRegimenInfo {
+  const rawNomina = String(emp?.tipo_nomina || '').toUpperCase().trim()
+  const rawSind = emp?.es_sindicalizado
+  const rawSindStr = String(emp?.sindicato || '').toUpperCase().trim()
+
+  const puesto = String(
+    emp?.puesto || emp?.empleado_adscripciones?.[0]?.cat_puestos?.puesto || ''
+  ).toUpperCase().trim()
+
+  const deptRaw =
+    emp?.departamento ||
+    emp?.empleado_adscripciones?.[0]?.cat_departamentos?.departamento ||
+    ''
+  const deptInfo = canonicalizeDepartment(deptRaw)
+  const combined = `${puesto} ${deptInfo.officialName} ${deptRaw}`.toUpperCase()
+
+  // 1. Determinar periodicidad de nómina
+  let tipoNomina: 'SEMANAL' | 'QUINCENAL' = 'SEMANAL'
+  if (rawNomina.includes('QUINCENAL')) {
+    tipoNomina = 'QUINCENAL'
+  } else if (rawNomina.includes('SEMANAL')) {
+    tipoNomina = 'SEMANAL'
+  } else {
+    // Inferencia por puesto si no está explícito en BD
+    const isQuincenalInferred =
+      combined.includes('SUPERINTENDENTE') ||
+      combined.includes('GERENTE') ||
+      combined.includes('SUBDIRECTOR') ||
+      combined.includes('DIRECTOR') ||
+      combined.includes('CONTADOR') ||
+      combined.includes('MEDICO') ||
+      combined.includes('MÉDICO') ||
+      combined.includes('RECURSOS HUMANOS CORPORATIVO')
+
+    tipoNomina = isQuincenalInferred ? 'QUINCENAL' : 'SEMANAL'
+  }
+
+  // 2. Determinar pertenencia sindical vs confianza
+  let esSindicalizado = true
+  if (
+    rawSind === false ||
+    rawSind === 'false' ||
+    rawSindStr === 'CONFIANZA' ||
+    rawSindStr === 'NO' ||
+    rawSindStr === 'NO_APLICA'
+  ) {
+    esSindicalizado = false
+  } else if (
+    rawSind === true ||
+    rawSind === 'true' ||
+    rawSindStr.includes('SECC') ||
+    rawSindStr.includes('45') ||
+    rawSindStr.includes('SINDICATO')
+  ) {
+    esSindicalizado = true
+  } else {
+    // Inferencia de confianza para personal técnico, jefaturas intermedias o semanal de confianza
+    if (combined.includes('CONFIANZA')) {
+      esSindicalizado = false
+    } else if (
+      tipoNomina === 'QUINCENAL' ||
+      combined.includes('SUPERINTENDENTE') ||
+      combined.includes('GERENTE') ||
+      combined.includes('SUPERVISOR') ||
+      combined.includes('COORDINADOR') ||
+      combined.includes('JEFE') ||
+      combined.includes('ADMINISTRATIV') ||
+      combined.includes('SISTEMAS') ||
+      combined.includes('CONTADOR') ||
+      combined.includes('MEDICO') ||
+      combined.includes('MÉDICO')
+    ) {
+      esSindicalizado = false
+    } else {
+      esSindicalizado = true
+    }
+  }
+
+  if (tipoNomina === 'QUINCENAL') {
+    if (esSindicalizado) {
+      return {
+        code: 'QUINCENAL_SINDICATO',
+        tipoNomina: 'QUINCENAL',
+        esSindicalizado: true,
+        label: '📆 Quincenal · Sindicato Secc. 45',
+        shortLabel: 'Quincenal Sindicato',
+        badgeClass: 'bg-purple-100 text-purple-950 border-purple-300',
+        sindicatoNombre: 'S.N.T.M.M.S.S.R.M. Secc. 45',
+      }
+    }
+    return {
+      code: 'QUINCENAL_CONFIANZA',
+      tipoNomina: 'QUINCENAL',
+      esSindicalizado: false,
+      label: '📆 Quincenal · Confianza',
+      shortLabel: 'Quincenal Confianza',
+      badgeClass: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+      sindicatoNombre: 'Personal de Confianza',
+    }
+  } else {
+    if (esSindicalizado) {
+      return {
+        code: 'SEMANAL_SINDICATO',
+        tipoNomina: 'SEMANAL',
+        esSindicalizado: true,
+        label: '🗓️ Semanal · Sindicato Secc. 45',
+        shortLabel: 'Semanal Sindicato',
+        badgeClass: 'bg-amber-100 text-amber-950 border-amber-300',
+        sindicatoNombre: 'S.N.T.M.M.S.S.R.M. Secc. 45',
+      }
+    }
+    return {
+      code: 'SEMANAL_CONFIANZA',
+      tipoNomina: 'SEMANAL',
+      esSindicalizado: false,
+      label: '🗓️ Semanal · Confianza',
+      shortLabel: 'Semanal Confianza',
+      badgeClass: 'bg-emerald-100 text-emerald-950 border-emerald-300',
+      sindicatoNombre: 'Semanal de Confianza',
+    }
+  }
+}
+

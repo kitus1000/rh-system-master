@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/utils/supabase/client'
 import { ArrowLeft, User, Briefcase, FileText, AlertTriangle, Edit, X, MapPin, CreditCard, ShieldCheck, Home, FolderLock, QrCode, ArrowLeftRight, HardHat } from 'lucide-react'
@@ -11,7 +11,7 @@ import { TurnoRolManager } from '@/components/TurnoRolManager'
 import { IncidenciasManager } from '@/components/IncidenciasManager'
 import { VacationBalanceManager } from '@/components/VacationBalanceManager'
 import CapturaFotoEmpleado from '@/components/CapturaFotoEmpleado'
-import { canonicalizeDepartment, invertEmployeeNameFields } from '@/utils/dataNormalization'
+import { canonicalizeDepartment, invertEmployeeNameFields, getEmployeeRegimenClassification } from '@/utils/dataNormalization'
 import { TrayectoriaMinaHistorial } from '@/components/TrayectoriaMinaHistorial'
 
 export default function EmpleadoDetallePage() {
@@ -247,7 +247,11 @@ export default function EmpleadoDetallePage() {
                 id_turno: data.id_turno || '',
                 // Puesto y Departamento resueltos
                 puesto: data.puesto || data.empleado_adscripciones?.[0]?.cat_puestos?.puesto || '',
-                departamento: data.departamento || data.empleado_adscripciones?.[0]?.cat_departamentos?.departamento || ''
+                departamento: data.departamento || data.empleado_adscripciones?.[0]?.cat_departamentos?.departamento || '',
+                // Régimen de Nómina y Pertenencia Sindical Bacís
+                tipo_nomina: data.tipo_nomina || (String(data.puesto || '').toUpperCase().includes('SUPERINTENDENTE') || String(data.puesto || '').toUpperCase().includes('GERENTE') || String(data.puesto || '').toUpperCase().includes('DIRECTOR') ? 'QUINCENAL' : 'SEMANAL'),
+                es_sindicalizado: data.es_sindicalizado !== undefined && data.es_sindicalizado !== null ? Boolean(data.es_sindicalizado) : !(String(data.puesto || '').toUpperCase().includes('JEFE') || String(data.puesto || '').toUpperCase().includes('SUPERVISOR') || String(data.puesto || '').toUpperCase().includes('COORDINADOR') || data.tipo_nomina === 'QUINCENAL'),
+                sindicato: data.sindicato || (data.es_sindicalizado ? 'S.N.T.M.M.S.S.R.M. Secc. 45' : 'Confianza')
             })
             if (data.foto_url) {
                 setFotoPreview(data.foto_url)
@@ -353,26 +357,40 @@ export default function EmpleadoDetallePage() {
             }
 
             // 1. Update Main Employee Table
-            const { error: empError } = await supabase
+            const updatePayload: any = {
+                nombre: editForm.nombre,
+                apellido_paterno: editForm.apellido_paterno,
+                apellido_materno: editForm.apellido_materno,
+                telefono: editForm.telefono,
+                correo_electronico: editForm.correo_electronico,
+                sexo: editForm.sexo,
+                fecha_nacimiento: editForm.fecha_nacimiento,
+                estado_civil: editForm.estado_civil,
+                rfc: editForm.rfc,
+                curp: editForm.curp,
+                nss: editForm.nss,
+                puesto: editForm.puesto || null,
+                departamento: editForm.departamento || null,
+                foto_url: newFotoUrl,
+                id_turno: editForm.id_turno || null,
+                tipo_nomina: editForm.tipo_nomina || 'SEMANAL',
+                es_sindicalizado: editForm.es_sindicalizado ?? true,
+                sindicato: editForm.es_sindicalizado ? 'S.N.T.M.M.S.S.R.M. Secc. 45' : 'Confianza'
+            }
+
+            let { error: empError } = await supabase
                 .from('empleados')
-                .update({
-                    nombre: editForm.nombre,
-                    apellido_paterno: editForm.apellido_paterno,
-                    apellido_materno: editForm.apellido_materno,
-                    telefono: editForm.telefono,
-                    correo_electronico: editForm.correo_electronico,
-                    sexo: editForm.sexo,
-                    fecha_nacimiento: editForm.fecha_nacimiento,
-                    estado_civil: editForm.estado_civil,
-                    rfc: editForm.rfc,
-                    curp: editForm.curp,
-                    nss: editForm.nss,
-                    puesto: editForm.puesto || null,
-                    departamento: editForm.departamento || null,
-                    foto_url: newFotoUrl,
-                    id_turno: editForm.id_turno || null
-                })
+                .update(updatePayload)
                 .eq('id_empleado', id)
+
+            if (empError) {
+                // Si la BD aún no cuenta con las columnas, reintentar sin ellas
+                delete updatePayload.tipo_nomina
+                delete updatePayload.es_sindicalizado
+                delete updatePayload.sindicato
+                const retry = await supabase.from('empleados').update(updatePayload).eq('id_empleado', id)
+                empError = retry.error
+            }
 
             if (empError) throw empError
 
@@ -461,6 +479,22 @@ export default function EmpleadoDetallePage() {
     const resolvedDepartamento = canonicalizeDepartment(rawDepto).officialName
     const resolvedPuesto = empleado.puesto || latestAdscripcion?.cat_puestos?.puesto || 'Sin puesto asignado'
 
+    const workerRegimen = useMemo(() => {
+        return getEmployeeRegimenClassification({
+            ...empleado,
+            puesto: resolvedPuesto,
+            departamento: resolvedDepartamento
+        })
+    }, [empleado, resolvedPuesto, resolvedDepartamento])
+
+    const editRegimenPreview = useMemo(() => {
+        return getEmployeeRegimenClassification({
+            ...editForm,
+            puesto: editForm.puesto,
+            departamento: editForm.departamento
+        })
+    }, [editForm.tipo_nomina, editForm.es_sindicalizado, editForm.puesto, editForm.departamento])
+
     const authRolUpper = (authProfile?.rol || '').toUpperCase()
     const canEvaluateTrayectoria =
         canManage ||
@@ -514,6 +548,10 @@ export default function EmpleadoDetallePage() {
                             •{' '}
                             <span className={isBaja ? 'text-rose-600 font-black' : 'text-emerald-600 font-black'}>
                                 {empleado.estado_empleado}
+                            </span>{' '}
+                            •{' '}
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-lg border text-[11px] font-black ${workerRegimen.badgeClass}`}>
+                                {workerRegimen.label}
                             </span>
                         </p>
                     </div>
@@ -816,6 +854,24 @@ export default function EmpleadoDetallePage() {
                                     <dt className="text-xs font-medium text-zinc-500">Turno Asignado</dt>
                                     <dd className="text-sm font-bold text-zinc-900">
                                         {empleado.turnos?.nombre || 'Sin Turno Asignado'}
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt className="text-xs font-medium text-zinc-500">Régimen y Periodicidad</dt>
+                                    <dd className="text-sm font-bold text-zinc-900 mt-1">
+                                        <span className={`inline-flex items-center px-2.5 py-1 rounded-xl text-xs font-black border ${workerRegimen.badgeClass}`}>
+                                            {workerRegimen.label}
+                                        </span>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt className="text-xs font-medium text-zinc-500">Pertenencia Sindical</dt>
+                                    <dd className="text-sm font-bold text-zinc-900 mt-1">
+                                        {workerRegimen.esSindicalizado ? (
+                                            <span className="text-amber-800 font-black">⚙️ Sindicato Secc. 45</span>
+                                        ) : (
+                                            <span className="text-emerald-800 font-black">👔 Personal de Confianza</span>
+                                        )}
                                     </dd>
                                 </div>
                             </dl>
@@ -1169,6 +1225,60 @@ export default function EmpleadoDetallePage() {
                                         <div>
                                             <label className="block text-xs font-medium text-zinc-500 mb-1">Departamento Actual</label>
                                             <input type="text" className="w-full text-sm border-zinc-300 rounded-md text-black bg-white uppercase" value={editForm.departamento || ''} onChange={e => setEditForm({ ...editForm, departamento: e.target.value })} placeholder="Ej. MINA" />
+                                        </div>
+
+                                        {/* SECCIÓN NUEVA EMPRESA: NÓMINA (SEMANAL/QUINCENAL) Y SINDICATO SECCIÓN 45 */}
+                                        <div className="col-span-1 md:col-span-2 p-4 rounded-xl bg-zinc-50 border-2 border-zinc-200 space-y-3">
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-200 pb-2">
+                                                <div>
+                                                    <h4 className="text-xs font-black uppercase text-zinc-900 tracking-wider flex items-center gap-1.5">
+                                                        <span>📋 Régimen de Nómina y Clasificación Sindical</span>
+                                                    </h4>
+                                                    <p className="text-[11px] text-zinc-500 font-medium">
+                                                        Define si el trabajador cobra Semanal Sindicalizado (Secc. 45), Semanal de Confianza o Quincenal.
+                                                    </p>
+                                                </div>
+                                                <div className={`px-3 py-1.5 rounded-xl border text-xs font-black shadow-xs shrink-0 ${editRegimenPreview.badgeClass}`}>
+                                                    {editRegimenPreview.label}
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-xs font-black text-zinc-700 mb-1 uppercase tracking-wider">
+                                                        Periodicidad de Pago / Nómina *
+                                                    </label>
+                                                    <select
+                                                        value={editForm.tipo_nomina || 'SEMANAL'}
+                                                        onChange={e => setEditForm({ ...editForm, tipo_nomina: e.target.value })}
+                                                        className="w-full rounded-xl border-zinc-300 bg-white p-2.5 text-xs font-bold text-zinc-900 focus:border-amber-500 focus:ring-amber-500"
+                                                    >
+                                                        <option value="SEMANAL">🗓️ Semanal (Pago semanal - Operativos / Confianza semanal)</option>
+                                                        <option value="QUINCENAL">📆 Quincenal (Pago quincenal - Directivos / Administrativos)</option>
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-black text-zinc-700 mb-1 uppercase tracking-wider">
+                                                        Pertenencia Sindical / Tipo de Contratación *
+                                                    </label>
+                                                    <select
+                                                        value={editForm.es_sindicalizado ? 'true' : 'false'}
+                                                        onChange={e => {
+                                                            const isSind = e.target.value === 'true'
+                                                            setEditForm({
+                                                                ...editForm,
+                                                                es_sindicalizado: isSind,
+                                                                sindicato: isSind ? 'S.N.T.M.M.S.S.R.M. Secc. 45' : 'Confianza'
+                                                            })
+                                                        }}
+                                                        className="w-full rounded-xl border-zinc-300 bg-white p-2.5 text-xs font-bold text-zinc-900 focus:border-amber-500 focus:ring-amber-500"
+                                                    >
+                                                        <option value="true">⚙️ Sindicalizado (S.N.T.M.M.S.S.R.M. Sección 45)</option>
+                                                        <option value="false">👔 Personal de Confianza (No sindicalizado / Semanal o Quincenal)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
                                         </div>
                                         <div>
                                             <label className="block text-xs font-medium text-zinc-500 mb-1">Fecha Ingreso</label>

@@ -675,7 +675,6 @@ export default function CentroDepuracionDuplicadosPage() {
 
     // 2. Re-vincular todas las tablas satélites de cada duplicado hacia el Maestro
     const tablesWithIdEmpleado = [
-      'pacientes',
       'pases_medicos',
       'consultas_medicas',
       'logistica_viajes_programados',
@@ -695,6 +694,54 @@ export default function CentroDepuracionDuplicadosPage() {
     for (const dup of duplicateItems) {
       const dupId = dup.id_empleado
       if (String(dupId) === String(masterId)) continue
+
+      // 2.a Consolidar de forma inteligente pacientes y beneficiarios médicos para evitar duplicados
+      try {
+        const { data: masterPacientes } = await supabase.from('pacientes').select('*').eq('id_empleado', masterId)
+        const { data: dupPacientes } = await supabase.from('pacientes').select('*').eq('id_empleado', dupId)
+
+        const mList = masterPacientes || []
+        const dList = dupPacientes || []
+
+        const masterTitular = mList.find(p => String(p.parentesco || '').toUpperCase().includes('TITULAR'))
+
+        for (const dp of dList) {
+          const isTitular = String(dp.parentesco || '').toUpperCase().includes('TITULAR')
+          if (isTitular && masterTitular) {
+            // Re-vincular consultas y pases al titular maestro y eliminar el titular duplicado
+            await supabase.from('consultas_medicas').update({ id_paciente: masterTitular.id_paciente }).eq('id_paciente', dp.id_paciente)
+            await supabase.from('pases_medicos').update({ id_paciente: masterTitular.id_paciente }).eq('id_paciente', dp.id_paciente)
+            await supabase.from('pacientes').delete().eq('id_paciente', dp.id_paciente)
+          } else {
+            // Es un beneficiario / familiar: verificar si ya existe en el maestro
+            const dpTokens = normalizeNameTokens(dp.nombre_completo || '').join('|')
+            const existingMasterBeneficiary = mList.find(mp => {
+              if (String(mp.parentesco || '').toUpperCase().includes('TITULAR')) return false
+              const mpTokens = normalizeNameTokens(mp.nombre_completo || '').join('|')
+              return mpTokens && mpTokens === dpTokens
+            })
+
+            if (existingMasterBeneficiary) {
+              // Ya existe este beneficiario en el maestro: consolidar consultas/pases y eliminar el repetido
+              await supabase.from('consultas_medicas').update({ id_paciente: existingMasterBeneficiary.id_paciente }).eq('id_paciente', dp.id_paciente)
+              await supabase.from('pases_medicos').update({ id_paciente: existingMasterBeneficiary.id_paciente }).eq('id_paciente', dp.id_paciente)
+              const patch: any = {}
+              if (!existingMasterBeneficiary.parentesco && dp.parentesco) patch.parentesco = dp.parentesco
+              if (!existingMasterBeneficiary.fecha_nacimiento && dp.fecha_nacimiento) patch.fecha_nacimiento = dp.fecha_nacimiento
+              if (!existingMasterBeneficiary.acompanante && dp.acompanante) patch.acompanante = dp.acompanante
+              if (Object.keys(patch).length > 0) {
+                await supabase.from('pacientes').update(patch).eq('id_paciente', existingMasterBeneficiary.id_paciente)
+              }
+              await supabase.from('pacientes').delete().eq('id_paciente', dp.id_paciente)
+            } else {
+              // No existe aún en el maestro: conservarlo y reasignar id_empleado al maestro
+              await supabase.from('pacientes').update({ id_empleado: masterId }).eq('id_paciente', dp.id_paciente)
+            }
+          }
+        }
+      } catch (pacErr) {
+        console.warn('Aviso en consolidación médica al unificar empleado:', pacErr)
+      }
 
       for (const table of tablesWithIdEmpleado) {
         try {

@@ -1,9 +1,30 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Heart, Plus, Search, Users, Trash2, UserCheck, UserPlus, Building2, Briefcase, AlertTriangle, ShieldX, CheckCircle, FileText, X, Sparkles } from 'lucide-react'
+import {
+    Heart,
+    Plus,
+    Search,
+    Users,
+    Trash2,
+    UserCheck,
+    UserPlus,
+    Building2,
+    Briefcase,
+    AlertTriangle,
+    ShieldX,
+    CheckCircle,
+    FileText,
+    X,
+    Sparkles,
+    ArrowLeftRight,
+    Check,
+    ShieldCheck,
+    RefreshCw
+} from 'lucide-react'
 import Link from 'next/link'
+import { normalizeNameTokens, getEmployeeFullName } from '@/utils/dataNormalization'
 
 export default function PacientesPage() {
     const [activeTab, setActiveTab] = useState<'trabajadores' | 'beneficiarios'>('trabajadores')
@@ -16,6 +37,13 @@ export default function PacientesPage() {
     const [searchQuery, setSearchQuery] = useState('')
     const [selectedWorkerModal, setSelectedWorkerModal] = useState<any | null>(null)
     const [updatingStatus, setUpdatingStatus] = useState(false)
+
+    // Unificación de Beneficiarios
+    const [showUnificarModal, setShowUnificarModal] = useState(false)
+    const [selectedMasterMap, setSelectedMasterMap] = useState<Record<string, string>>({})
+    const [isMerging, setIsMerging] = useState(false)
+    const [consultasCountMap, setConsultasCountMap] = useState<Record<string, number>>({})
+    const [pasesCountMap, setPasesCountMap] = useState<Record<string, number>>({})
     
     // Beneficiary form state
     const [formData, setFormData] = useState({ 
@@ -47,11 +75,39 @@ export default function PacientesPage() {
 
     const fetchPacientes = async () => {
         setLoading(true)
-        const { data } = await supabase
-            .from('pacientes')
-            .select('*, empleados (id_empleado, nombre, apellido_paterno, apellido_materno, departamento, puesto, estado_empleado)')
-            .order('nombre_completo')
-        if (data) setPacientes(data)
+        const [pacRes, conRes, pasRes] = await Promise.all([
+            supabase
+                .from('pacientes')
+                .select('*, empleados (id_empleado, nombre, apellido_paterno, apellido_materno, departamento, puesto, estado_empleado)')
+                .order('nombre_completo'),
+            supabase.from('consultas_medicas').select('id_paciente'),
+            supabase.from('pases_medicos').select('id_paciente')
+        ])
+
+        if (pacRes.data) setPacientes(pacRes.data)
+
+        // Conteo de consultas por paciente
+        const cMap: Record<string, number> = {}
+        if (conRes.data) {
+            conRes.data.forEach((c: any) => {
+                if (c.id_paciente) {
+                    cMap[c.id_paciente] = (cMap[c.id_paciente] || 0) + 1
+                }
+            })
+        }
+        setConsultasCountMap(cMap)
+
+        // Conteo de pases médicos por paciente
+        const pMap: Record<string, number> = {}
+        if (pasRes.data) {
+            pasRes.data.forEach((p: any) => {
+                if (p.id_paciente) {
+                    pMap[p.id_paciente] = (pMap[p.id_paciente] || 0) + 1
+                }
+            })
+        }
+        setPasesCountMap(pMap)
+
         setLoading(false)
     }
 
@@ -244,6 +300,176 @@ export default function PacientesPage() {
         return nameMatch || parentMatch || empName.includes(searchQuery.toLowerCase())
     })
 
+    // Detección de beneficiarios duplicados o con nombres invertidos
+    const duplicateBeneficiaryGroups = useMemo(() => {
+        const nonTitulars = pacientes.filter(p => {
+            const pUpper = String(p.parentesco || '').toUpperCase()
+            return pUpper !== 'TITULAR (TRABAJADOR)' && pUpper !== 'TITULAR' && pUpper !== 'ELLA MISMA'
+        })
+
+        const map: Record<string, any[]> = {}
+        nonTitulars.forEach(p => {
+            const tokens = normalizeNameTokens(p.nombre_completo || '')
+            if (tokens.length < 2) return
+            const key = tokens.join('|')
+            if (!map[key]) map[key] = []
+            map[key].push(p)
+        })
+
+        const groups: {
+            key: string
+            normalizedName: string
+            items: any[]
+            recommendedMasterId: string
+        }[] = []
+
+        Object.entries(map).forEach(([key, items]) => {
+            if (items.length > 1) {
+                let bestItem = items[0]
+                let bestScore = -1
+                items.forEach(it => {
+                    const cCount = consultasCountMap[it.id_paciente] || 0
+                    const pCount = pasesCountMap[it.id_paciente] || 0
+                    let score = (cCount * 10) + (pCount * 5)
+                    if (it.id_empleado) score += 20
+                    if (it.parentesco && it.parentesco !== 'Población General') score += 5
+                    if (it.acompanante) score += 2
+                    if (score > bestScore) {
+                        bestScore = score
+                        bestItem = it
+                    }
+                })
+
+                groups.push({
+                    key,
+                    normalizedName: items[0].nombre_completo,
+                    items,
+                    recommendedMasterId: bestItem.id_paciente
+                })
+            }
+        })
+
+        return groups
+    }, [pacientes, consultasCountMap, pasesCountMap])
+
+    useEffect(() => {
+        setSelectedMasterMap(prev => {
+            const next = { ...prev }
+            duplicateBeneficiaryGroups.forEach(g => {
+                if (!next[g.key]) {
+                    next[g.key] = g.recommendedMasterId
+                }
+            })
+            return next
+        })
+    }, [duplicateBeneficiaryGroups])
+
+    // Alerta en vivo si en el formulario se captura un beneficiario que ya existe
+    const formDuplicateWarning = useMemo(() => {
+        if (!formData.nombre_completo.trim()) return null
+        const tokens = normalizeNameTokens(formData.nombre_completo)
+        if (tokens.length < 2) return null
+        const key = tokens.join('|')
+        return pacientes.find(p => {
+            const pTokens = normalizeNameTokens(p.nombre_completo || '').join('|')
+            return pTokens && pTokens === key
+        })
+    }, [formData.nombre_completo, pacientes])
+
+    // Función segura para unificar un grupo de beneficiarios sin perder consultas ni duplicar
+    const mergeBeneficiaryGroup = async (group: any) => {
+        const masterId = selectedMasterMap[group.key] || group.recommendedMasterId
+        const masterItem = group.items.find((i: any) => i.id_paciente === masterId) || group.items[0]
+        const duplicates = group.items.filter((i: any) => i.id_paciente !== masterId)
+
+        if (duplicates.length === 0) return
+
+        setIsMerging(true)
+        try {
+            for (const dup of duplicates) {
+                // 1. Re-vincular consultas médicas al Maestro
+                await supabase
+                    .from('consultas_medicas')
+                    .update({ id_paciente: masterId })
+                    .eq('id_paciente', dup.id_paciente)
+
+                // 2. Re-vincular pases médicos al Maestro
+                await supabase
+                    .from('pases_medicos')
+                    .update({ id_paciente: masterId })
+                    .eq('id_paciente', dup.id_paciente)
+
+                // 3. Consolidar campos vacíos en el Maestro
+                const patch: any = {}
+                if (!masterItem.id_empleado && dup.id_empleado) patch.id_empleado = dup.id_empleado
+                if ((!masterItem.parentesco || masterItem.parentesco === 'Población General') && dup.parentesco && dup.parentesco !== 'Población General') {
+                    patch.parentesco = dup.parentesco
+                    patch.es_poblacion_general = false
+                }
+                if (!masterItem.fecha_nacimiento && dup.fecha_nacimiento) patch.fecha_nacimiento = dup.fecha_nacimiento
+                if (!masterItem.acompanante && dup.acompanante) patch.acompanante = dup.acompanante
+                if (Object.keys(patch).length > 0) {
+                    await supabase.from('pacientes').update(patch).eq('id_paciente', masterId)
+                }
+
+                // 4. Eliminar el registro duplicado secundario
+                await supabase.from('pacientes').delete().eq('id_paciente', dup.id_paciente)
+            }
+
+            await fetchPacientes()
+            alert(`¡Beneficiario "${group.normalizedName}" consolidado exitosamente en un solo registro maestro sin duplicar!`)
+        } catch (err: any) {
+            console.error('Error al unificar beneficiario:', err)
+            alert('Error al unificar: ' + err.message)
+        } finally {
+            setIsMerging(false)
+        }
+    }
+
+    // Unificación masiva de todos los beneficiarios duplicados
+    const mergeAllBeneficiaryGroups = async () => {
+        if (!confirm(`¿Deseas unificar los ${duplicateBeneficiaryGroups.length} grupos de beneficiarios duplicados?\n\nSe conservarán íntegras todas las consultas y pases médicos en el registro más completo de cada persona y se eliminarán los duplicados redundantes.`)) {
+            return
+        }
+
+        setIsMerging(true)
+        try {
+            for (const group of duplicateBeneficiaryGroups) {
+                const masterId = selectedMasterMap[group.key] || group.recommendedMasterId
+                const masterItem = group.items.find((i: any) => i.id_paciente === masterId) || group.items[0]
+                const duplicates = group.items.filter((i: any) => i.id_paciente !== masterId)
+
+                for (const dup of duplicates) {
+                    await supabase.from('consultas_medicas').update({ id_paciente: masterId }).eq('id_paciente', dup.id_paciente)
+                    await supabase.from('pases_medicos').update({ id_paciente: masterId }).eq('id_paciente', dup.id_paciente)
+
+                    const patch: any = {}
+                    if (!masterItem.id_empleado && dup.id_empleado) patch.id_empleado = dup.id_empleado
+                    if ((!masterItem.parentesco || masterItem.parentesco === 'Población General') && dup.parentesco && dup.parentesco !== 'Población General') {
+                        patch.parentesco = dup.parentesco
+                        patch.es_poblacion_general = false
+                    }
+                    if (!masterItem.fecha_nacimiento && dup.fecha_nacimiento) patch.fecha_nacimiento = dup.fecha_nacimiento
+                    if (!masterItem.acompanante && dup.acompanante) patch.acompanante = dup.acompanante
+                    if (Object.keys(patch).length > 0) {
+                        await supabase.from('pacientes').update(patch).eq('id_paciente', masterId)
+                    }
+
+                    await supabase.from('pacientes').delete().eq('id_paciente', dup.id_paciente)
+                }
+            }
+
+            await fetchPacientes()
+            setShowUnificarModal(false)
+            alert(`¡Se unificaron exitosamente todos los beneficiarios duplicados! Se conservó todo el historial médico y se eliminaron las duplicidades.`)
+        } catch (err: any) {
+            console.error('Error en unificación masiva:', err)
+            alert('Error al unificar en lote: ' + err.message)
+        } finally {
+            setIsMerging(false)
+        }
+    }
+
     return (
         <div className="space-y-6">
             {/* Top Bar Header */}
@@ -259,12 +485,27 @@ export default function PacientesPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                        type="button"
+                        onClick={() => setShowUnificarModal(true)}
+                        className="bg-indigo-600 text-white px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-2 hover:bg-indigo-500 transition-all shadow-md active:scale-95 cursor-pointer"
+                        title="Unificar beneficiarios con nombres similares o registros duplicados conservando consultas y pases"
+                    >
+                        <ArrowLeftRight className="w-4 h-4 text-indigo-200" />
+                        <span>🔄 Unificar Beneficiarios</span>
+                        {duplicateBeneficiaryGroups.length > 0 && (
+                            <span className="bg-amber-400 text-amber-950 px-2 py-0.5 rounded-full text-[10px] font-black">
+                                {duplicateBeneficiaryGroups.length}
+                            </span>
+                        )}
+                    </button>
+
                     <Link
                         href="/empleados/duplicados"
                         className="bg-amber-100 border border-amber-300 text-amber-950 px-4 py-2.5 rounded-2xl text-xs font-black flex items-center gap-2 hover:bg-amber-200 transition-all shadow-xs"
                     >
                         <Sparkles className="w-4 h-4 text-amber-700" />
-                        🧹 Depurar Duplicados
+                        🧹 Depurar Todo
                     </Link>
 
                     <button
@@ -536,6 +777,23 @@ export default function PacientesPage() {
                                 onChange={e => setFormData({...formData, acompanante: e.target.value})}
                             />
                         </div>
+
+                        {formDuplicateWarning && (
+                            <div className="col-span-1 md:col-span-2 lg:col-span-3 p-3.5 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-950 flex items-start gap-2.5 text-xs">
+                                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                                <div>
+                                    <p className="font-black uppercase">
+                                        ⚠️ Beneficiario similar detectado en el padrón
+                                    </p>
+                                    <p className="mt-0.5">
+                                        Ya existe: <strong>{formDuplicateWarning.nombre_completo}</strong> ({formDuplicateWarning.parentesco || 'Sin parentesco'} · Titular: {formDuplicateWarning.empleados ? getEmpFullName(formDuplicateWarning.empleados) : 'Población General'}).
+                                    </p>
+                                    <p className="text-[11px] font-semibold text-amber-800 mt-1">
+                                        Puedes guardarlo si es un familiar homónimo, o usar el botón <strong>"🔄 Unificar Beneficiarios"</strong> para consolidar consultas y pases en un solo expediente.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex justify-end pt-2 gap-2">
@@ -681,7 +939,32 @@ export default function PacientesPage() {
 
             {/* TAB 2: BENEFICIARIOS Y FAMILIARES */}
             {activeTab === 'beneficiarios' && (
-                <div className="bg-white rounded-3xl shadow-sm border border-zinc-150 overflow-hidden">
+                <div className="space-y-4">
+                    {duplicateBeneficiaryGroups.length > 0 && (
+                        <div className="p-4 rounded-3xl bg-amber-50 border-2 border-amber-300 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                            <div className="flex items-start gap-2.5 text-xs">
+                                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                                <div>
+                                    <p className="font-black uppercase">
+                                        Se detectaron {duplicateBeneficiaryGroups.length} grupo(s) de beneficiarios duplicados
+                                    </p>
+                                    <p className="text-zinc-600 mt-0.5 font-medium">
+                                        Existen familiares registrados con nombres repetidos o invertidos. Puedes unificarlos en un solo clic conservando todas sus consultas médicas y pases.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowUnificarModal(true)}
+                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shrink-0 shadow-sm flex items-center gap-1.5 cursor-pointer"
+                            >
+                                <ArrowLeftRight className="w-4 h-4 text-indigo-200" />
+                                Unificar Beneficiarios Ahora &rarr;
+                            </button>
+                        </div>
+                    )}
+
+                    <div className="bg-white rounded-3xl shadow-sm border border-zinc-150 overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full text-xs text-left">
                             <thead className="bg-zinc-50 text-zinc-400 font-black uppercase tracking-wider border-b border-zinc-150 text-[10px]">
@@ -750,6 +1033,7 @@ export default function PacientesPage() {
                         </table>
                     </div>
                 </div>
+            </div>
             )}
 
             {/* DETAILED WORKER MODAL / EXPEDIENTE */}
@@ -903,6 +1187,203 @@ export default function PacientesPage() {
                                 className="bg-zinc-200 text-zinc-800 px-5 py-2.5 rounded-2xl font-black text-xs hover:bg-zinc-300"
                             >
                                 Cerrar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* MODAL DE UNIFICACIÓN INTELIGENTE DE BENEFICIARIOS DUPLICADOS */}
+            {showUnificarModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border border-zinc-200">
+                        {/* Modal Header */}
+                        <div className="p-6 bg-gradient-to-r from-indigo-900 via-indigo-950 to-zinc-900 text-white flex justify-between items-start shrink-0">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <ArrowLeftRight className="w-5 h-5 text-amber-400" />
+                                    <h2 className="text-lg font-black tracking-tight">
+                                        Unificación de Beneficiarios y Familiares
+                                    </h2>
+                                    <span className="px-2.5 py-0.5 bg-amber-400 text-amber-950 text-[10px] font-black rounded-full">
+                                        {duplicateBeneficiaryGroups.length} grupo(s) detectado(s)
+                                    </span>
+                                </div>
+                                <p className="text-xs text-indigo-200 mt-1 max-w-2xl font-medium">
+                                    Consolida consultas médicas, dispensaciones y pases en un solo expediente maestro sin duplicar ni perder información.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowUnificarModal(false)}
+                                className="p-2 text-zinc-400 hover:text-white rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-6 overflow-y-auto space-y-6 flex-1 bg-zinc-50/50">
+                            {duplicateBeneficiaryGroups.length === 0 ? (
+                                <div className="p-12 text-center bg-white rounded-3xl border border-zinc-200 space-y-3">
+                                    <ShieldCheck className="w-12 h-12 text-emerald-600 mx-auto" />
+                                    <h3 className="text-base font-black text-zinc-900">
+                                        ¡Padrón de Beneficiarios 100% Limpio y Consolidado!
+                                    </h3>
+                                    <p className="text-xs text-zinc-500 max-w-md mx-auto">
+                                        No se detectaron familiares duplicados ni nombres repetidos en la clínica médica. Todos los historiales están íntegros.
+                                    </p>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-indigo-50 border border-indigo-200 rounded-2xl">
+                                        <div>
+                                            <span className="text-xs font-black text-indigo-950 block">
+                                                Acción Rápida en Lote
+                                            </span>
+                                            <span className="text-[11px] text-indigo-800 font-medium">
+                                                Unifica todos los grupos conservando automáticamente el registro con mayor cantidad de consultas y datos.
+                                            </span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            disabled={isMerging}
+                                            onClick={mergeAllBeneficiaryGroups}
+                                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-2 shrink-0 cursor-pointer"
+                                        >
+                                            {isMerging ? (
+                                                <>
+                                                    <RefreshCw className="w-4 h-4 animate-spin" />
+                                                    <span>Unificando...</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Sparkles className="w-4 h-4 text-amber-300" />
+                                                    <span>⚡ Unificar Todos los Grupos ({duplicateBeneficiaryGroups.length})</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+
+                                    {duplicateBeneficiaryGroups.map((group, gIdx) => {
+                                        const currentMasterId = selectedMasterMap[group.key] || group.recommendedMasterId
+
+                                        return (
+                                            <div
+                                                key={group.key}
+                                                className="bg-white p-5 rounded-3xl border-2 border-zinc-200 shadow-xs space-y-4"
+                                            >
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-100 pb-3">
+                                                    <div>
+                                                        <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600">
+                                                            Grupo #{gIdx + 1} • {group.items.length} Registros Encontrados
+                                                        </span>
+                                                        <h3 className="text-sm font-black text-zinc-900 mt-0.5">
+                                                            {group.normalizedName}
+                                                        </h3>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        disabled={isMerging}
+                                                        onClick={() => mergeBeneficiaryGroup(group)}
+                                                        className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-xs flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+                                                    >
+                                                        {isMerging ? (
+                                                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                                        ) : (
+                                                            <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400" />
+                                                        )}
+                                                        <span>Unificar este Grupo</span>
+                                                    </button>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    {group.items.map((item: any) => {
+                                                        const isSelected = item.id_paciente === currentMasterId
+                                                        const cCount = consultasCountMap[item.id_paciente] || 0
+                                                        const pCount = pasesCountMap[item.id_paciente] || 0
+                                                        const empFullName = item.empleados ? getEmpFullName(item.empleados) : 'Sin titular vinculado'
+
+                                                        return (
+                                                            <div
+                                                                key={item.id_paciente}
+                                                                onClick={() => {
+                                                                    setSelectedMasterMap(prev => ({
+                                                                        ...prev,
+                                                                        [group.key]: item.id_paciente
+                                                                    }))
+                                                                }}
+                                                                className={`p-4 rounded-2xl border-2 transition-all cursor-pointer relative ${
+                                                                    isSelected
+                                                                        ? 'bg-indigo-50/50 border-indigo-600 shadow-xs'
+                                                                        : 'bg-zinc-50 border-zinc-200 hover:border-zinc-300 opacity-80'
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-start justify-between gap-2">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <input
+                                                                            type="radio"
+                                                                            name={`master_${group.key}`}
+                                                                            checked={isSelected}
+                                                                            onChange={() => {
+                                                                                setSelectedMasterMap(prev => ({
+                                                                                    ...prev,
+                                                                                    [group.key]: item.id_paciente
+                                                                                }))
+                                                                            }}
+                                                                            className="text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                                                                        />
+                                                                        <span className="text-xs font-black text-zinc-900">
+                                                                            {item.nombre_completo}
+                                                                        </span>
+                                                                    </div>
+                                                                    {isSelected && (
+                                                                        <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-black shrink-0">
+                                                                            ★ Registro Maestro
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+
+                                                                <div className="mt-2 space-y-1 text-[11px] text-zinc-600 pl-6">
+                                                                    <div>
+                                                                        <span className="font-bold text-zinc-700">Parentesco:</span> {item.parentesco || 'No especificado'}
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="font-bold text-zinc-700">Titular:</span> {empFullName} ({item.empleados?.departamento || 'Sin Depto'})
+                                                                    </div>
+                                                                    {item.acompanante && (
+                                                                        <div>
+                                                                            <span className="font-bold text-zinc-700">Acompañante:</span> {item.acompanante}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+
+                                                                <div className="mt-3 flex items-center gap-2 pl-6">
+                                                                    <span className="px-2.5 py-1 rounded-lg bg-white border border-zinc-200 text-[10px] font-black text-zinc-800">
+                                                                        🩺 {cCount} Consultas
+                                                                    </span>
+                                                                    <span className="px-2.5 py-1 rounded-lg bg-white border border-zinc-200 text-[10px] font-black text-zinc-800">
+                                                                        🎫 {pCount} Pases
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </>
+                            )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-4 bg-zinc-100 border-t border-zinc-200 flex justify-end shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => setShowUnificarModal(false)}
+                                className="px-5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white font-black text-xs rounded-xl shadow-xs cursor-pointer"
+                            >
+                                Cerrar Ventana
                             </button>
                         </div>
                     </div>

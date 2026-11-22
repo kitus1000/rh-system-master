@@ -10,6 +10,7 @@ import {
     normalizeNameTokens,
     invertEmployeeNameFields,
     getEmployeeFullName,
+    getEmployeeRegimenClassification,
 } from '@/utils/dataNormalization'
 
 export default function NuevoEmpleadoPage() {
@@ -55,8 +56,16 @@ export default function NuevoEmpleadoPage() {
         clabe: '',
         id_turno: '',
         id_tipo_rol: '',
-        tipo_esquema: 'turno'
+        tipo_esquema: 'turno',
+        tipo_nomina: 'SEMANAL',
+        es_sindicalizado: true,
+        sindicato: 'S.N.T.M.M.S.S.R.M. Secc. 45'
     })
+
+    // Clasificación de nómina y sindicato en tiempo real
+    const previewRegimen = useMemo(() => {
+        return getEmployeeRegimenClassification(formData)
+    }, [formData.tipo_nomina, formData.es_sindicalizado, formData.puesto, formData.departamento])
 
     // Auto-calcular SDI cuando cambia salario_diario
     useEffect(() => {
@@ -171,29 +180,54 @@ export default function NuevoEmpleadoPage() {
                 ? canonicalizeDepartment(formData.departamento).officialName
                 : null
 
-            // 1. Insertar Empleado (normalizando mayúsculas y departamento canónico)
-            const { data: empData, error: empError } = await supabase
+            const basePayload: any = {
+                numero_empleado: parseInt(formData.numero_empleado),
+                nombre: formData.nombre.trim().toUpperCase(),
+                apellido_paterno: formData.apellido_paterno.trim().toUpperCase(),
+                apellido_materno: formData.apellido_materno.trim().toUpperCase() || null,
+                departamento: canonicalDept,
+                puesto: formData.puesto.trim().toUpperCase() || null,
+                sexo: formData.sexo,
+                fecha_nacimiento: formData.fecha_nacimiento || null,
+                curp: formData.curp ? formData.curp.trim().toUpperCase() : null,
+                rfc: formData.rfc ? formData.rfc.trim().toUpperCase() : null,
+                nss: formData.nss ? formData.nss.trim() : null,
+                telefono: formData.telefono,
+                correo_electronico: formData.correo_electronico,
+                estado_civil: formData.estado_civil,
+                foto_url: fotoUrl,
+                id_turno: formData.tipo_esquema === 'turno' ? (formData.id_turno || null) : null
+            }
+
+            const fullPayload: any = {
+                ...basePayload,
+                tipo_nomina: formData.tipo_nomina,
+                es_sindicalizado: formData.es_sindicalizado,
+                sindicato: formData.es_sindicalizado ? 'S.N.T.M.M.S.S.R.M. Secc. 45' : 'Confianza'
+            }
+
+            // 1. Insertar Empleado (intentando con campos de sindicato/nómina y fallback seguro)
+            let empData: any = null
+            let empError: any = null
+
+            const insertRes = await supabase
                 .from('empleados')
-                .insert([{
-                    numero_empleado: parseInt(formData.numero_empleado),
-                    nombre: formData.nombre.trim().toUpperCase(),
-                    apellido_paterno: formData.apellido_paterno.trim().toUpperCase(),
-                    apellido_materno: formData.apellido_materno.trim().toUpperCase() || null,
-                    departamento: canonicalDept,
-                    puesto: formData.puesto.trim().toUpperCase() || null,
-                    sexo: formData.sexo,
-                    fecha_nacimiento: formData.fecha_nacimiento || null,
-                    curp: formData.curp ? formData.curp.trim().toUpperCase() : null,
-                    rfc: formData.rfc ? formData.rfc.trim().toUpperCase() : null,
-                    nss: formData.nss ? formData.nss.trim() : null,
-                    telefono: formData.telefono,
-                    correo_electronico: formData.correo_electronico,
-                    estado_civil: formData.estado_civil,
-                    foto_url: fotoUrl,
-                    id_turno: formData.tipo_esquema === 'turno' ? (formData.id_turno || null) : null
-                }])
+                .insert([fullPayload])
                 .select()
                 .single()
+
+            if (insertRes.error) {
+                // Fallback seguro si la base de datos no tiene aún las columnas añadidas
+                const fallbackRes = await supabase
+                    .from('empleados')
+                    .insert([basePayload])
+                    .select()
+                    .single()
+                empData = fallbackRes.data
+                empError = fallbackRes.error
+            } else {
+                empData = insertRes.data
+            }
 
             if (empError) throw empError
             const empId = empData.id_empleado
@@ -448,6 +482,62 @@ export default function NuevoEmpleadoPage() {
                         <div>
                             <label className="block text-sm font-bold text-zinc-800">Puesto / Categoría</label>
                             <input type="text" name="puesto" value={formData.puesto} onChange={handleChange} placeholder="Ej. AYUDANTE DE PERFORISTA" className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 sm:text-sm border p-2 text-zinc-900 uppercase" />
+                        </div>
+
+                        {/* SECCIÓN NUEVA EMPRESA: NÓMINA (SEMANAL/QUINCENAL) Y SINDICATO SECCIÓN 45 */}
+                        <div className="col-span-1 md:col-span-3 p-4 rounded-2xl bg-zinc-50 border-2 border-zinc-200 space-y-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-200 pb-2">
+                                <div>
+                                    <h4 className="text-xs font-black uppercase text-zinc-900 tracking-wider flex items-center gap-1.5">
+                                        <span>📋 Régimen de Nómina y Clasificación Sindical</span>
+                                    </h4>
+                                    <p className="text-[11px] text-zinc-500 font-medium">
+                                        Define si el trabajador es Semanal Sindicalizado (Sección 45), Semanal de Confianza o Quincenal.
+                                    </p>
+                                </div>
+                                <div className={`px-3 py-1.5 rounded-xl border text-xs font-black shadow-xs shrink-0 ${previewRegimen.badgeClass}`}>
+                                    {previewRegimen.label}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-black text-zinc-700 mb-1 uppercase tracking-wider">
+                                        Periodicidad de Pago / Nómina *
+                                    </label>
+                                    <select
+                                        name="tipo_nomina"
+                                        value={formData.tipo_nomina}
+                                        onChange={handleChange}
+                                        className="w-full rounded-xl border-zinc-300 bg-white p-2.5 text-xs font-bold text-zinc-900 focus:border-amber-500 focus:ring-amber-500"
+                                    >
+                                        <option value="SEMANAL">🗓️ Semanal (Pago semanal - Operativos / Confianza semanal)</option>
+                                        <option value="QUINCENAL">📆 Quincenal (Pago quincenal - Directivos / Administrativos)</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-black text-zinc-700 mb-1 uppercase tracking-wider">
+                                        Pertenencia Sindical / Tipo de Contratación *
+                                    </label>
+                                    <select
+                                        name="es_sindicalizado"
+                                        value={formData.es_sindicalizado ? 'true' : 'false'}
+                                        onChange={(e) => {
+                                            const isSind = e.target.value === 'true'
+                                            setFormData((prev) => ({
+                                                ...prev,
+                                                es_sindicalizado: isSind,
+                                                sindicato: isSind ? 'S.N.T.M.M.S.S.R.M. Secc. 45' : 'Confianza',
+                                            }))
+                                        }}
+                                        className="w-full rounded-xl border-zinc-300 bg-white p-2.5 text-xs font-bold text-zinc-900 focus:border-amber-500 focus:ring-amber-500"
+                                    >
+                                        <option value="true">⚙️ Sindicalizado (S.N.T.M.M.S.S.R.M. Sección 45)</option>
+                                        <option value="false">👔 Personal de Confianza (No sindicalizado / Semanal o Quincenal)</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
 
                         <div>

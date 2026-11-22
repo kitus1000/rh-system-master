@@ -41,6 +41,7 @@ import {
 } from 'lucide-react'
 import { formatShortDate, diffDaysInclusive, isSchemaMissingError } from '@/utils/contratistasConfig'
 import { generateConvocatoriaSindicatoPDF } from '@/utils/convocatoriaSindicatoPdf'
+import { getEmployeeRegimenClassification } from '@/utils/dataNormalization'
 import {
   generateSimulacionReglasPDF,
   type SimulacionReglasReportData,
@@ -136,7 +137,7 @@ export default function MovimientosSindicatoPage() {
     isDirectFromRoster: boolean
   } | null>(null)
   const [rosterFilterMode, setRosterFilterMode] = useState<
-    'POSTULANTES' | 'SEMANAL_SINDICATO' | 'QUINCENAL_CONFIANZA' | 'CON_BENEFICIARIOS'
+    'POSTULANTES' | 'SEMANAL_SINDICATO' | 'SEMANAL_CONFIANZA' | 'QUINCENAL_CONFIANZA' | 'CON_BENEFICIARIOS'
   >('POSTULANTES')
   const [rosterSearch, setRosterSearch] = useState('')
   const [executingDropMove, setExecutingDropMove] = useState(false)
@@ -1176,35 +1177,15 @@ export default function MovimientosSindicatoPage() {
   }
 
   // ==========================================================================
-  // CLASIFICADOR DE NÓMINA SEMANAL (SINDICATO SECC. 45) VS QUINCENAL (CONFIANZA)
+  // CLASIFICADOR OFICIAL DE NÓMINA (SEMANAL / QUINCENAL) Y SINDICATO (SECC. 45 / CONFIANZA)
   // Y CONEXIÓN CON BENEFICIARIOS (CLÍNICA MÉDICA)
   // ==========================================================================
-  const classifyWorkerRegimen = (puestoRaw?: string | null, deptoRaw?: string | null) => {
-    const p = `${puestoRaw || ''} ${deptoRaw || ''}`.toUpperCase()
-    const isQuincenal =
-      p.includes('SUPERINTENDENTE') ||
-      p.includes('JEFE') ||
-      p.includes('SUPERVISOR') ||
-      p.includes('GERENTE') ||
-      p.includes('INGENIERO') ||
-      p.includes('CONTADOR') ||
-      p.includes('RECURSOS HUMANOS') ||
-      p.includes('ADMINISTRATIV') ||
-      p.includes('MEDICO') ||
-      p.includes('MÉDICO') ||
-      p.includes('SISTEMAS') ||
-      p.includes('COORDINADOR')
-    return isQuincenal
-      ? {
-          code: 'QUINCENAL_CONFIANZA' as const,
-          label: '📆 Quincenal · Confianza',
-          badgeClass: 'bg-indigo-100 text-indigo-900 border-indigo-300',
-        }
-      : {
-          code: 'SEMANAL_SINDICATO' as const,
-          label: '🗓️ Semanal · Sindicato Secc. 45',
-          badgeClass: 'bg-amber-100 text-amber-950 border-amber-300',
-        }
+  const classifyWorkerRegimen = (puestoRaw?: string | null, deptoRaw?: string | null, empObj?: any) => {
+    return getEmployeeRegimenClassification({
+      ...empObj,
+      puesto: puestoRaw || empObj?.puesto,
+      departamento: deptoRaw || empObj?.departamento,
+    })
   }
 
   const beneficiariosByEmpId = useMemo(() => {
@@ -2547,6 +2528,17 @@ export default function MovimientosSindicatoPage() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => setRosterFilterMode('SEMANAL_CONFIANZA')}
+                    className={`px-2.5 py-2 rounded-xl text-[11px] font-black text-left transition-all cursor-pointer border ${
+                      rosterFilterMode === 'SEMANAL_CONFIANZA'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-emerald-50/60 text-emerald-950 border-emerald-200 hover:bg-emerald-100/70'
+                    }`}
+                  >
+                    🗓️ Semanales · Confianza
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setRosterFilterMode('QUINCENAL_CONFIANZA')}
                     className={`px-2.5 py-2 rounded-xl text-[11px] font-black text-left transition-all cursor-pointer border ${
                       rosterFilterMode === 'QUINCENAL_CONFIANZA'
@@ -2775,10 +2767,13 @@ export default function MovimientosSindicatoPage() {
                         'General'
                       const puesto =
                         emp.empleado_adscripciones?.[0]?.cat_puestos?.puesto || emp.puesto || 'Operativo'
-                      const regimen = classifyWorkerRegimen(puesto, depto)
+                      const regimen = classifyWorkerRegimen(puesto, depto, emp)
                       const bens = getWorkerBeneficiarios(emp.id_empleado)
 
                       if (rosterFilterMode === 'SEMANAL_SINDICATO' && regimen.code !== 'SEMANAL_SINDICATO') {
+                        return false
+                      }
+                      if (rosterFilterMode === 'SEMANAL_CONFIANZA' && regimen.code !== 'SEMANAL_CONFIANZA') {
                         return false
                       }
                       if (rosterFilterMode === 'QUINCENAL_CONFIANZA' && regimen.code !== 'QUINCENAL_CONFIANZA') {
