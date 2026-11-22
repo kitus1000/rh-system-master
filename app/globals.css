@@ -78,9 +78,9 @@ main :not(.hoja-carta):not(.hoja-carta *):not(.hoja-impresion):not(.hoja-impresi
   box-shadow: 0 4px 18px -4px rgba(180, 83, 9, 0.06), 0 2px 6px -1px rgba(24, 24, 27, 0.04);
 }
 
-[data-theme="bacis"] input:not([type="checkbox"]):not([type="radio"]),
-[data-theme="bacis"] textarea,
-[data-theme="bacis"] select {
+[data-theme="bacis"] input:not([type="checkbox"]):not([type="radio"]):not(.bacis-portal-input),
+[data-theme="bacis"] textarea:not(.bacis-portal-input),
+[data-theme="bacis"] select:not(.bacis-portal-input) {
   color: #18181b !important;
   background-color: #ffffff !important;
   -webkit-text-fill-color: #18181b !important;
@@ -196,6 +196,204 @@ main :not(.hoja-carta):not(.hoja-carta *):not(.hoja-impresion):not(.hoja-impresi
 .custom-scrollbar:hover::-webkit-scrollbar-thumb {
   background: #f59e0b;
 }
+
+/* ============================================================================
+   PORTAL BACIS OS — EFECTOS DE ARRANQUE TIPO WINDOWS Y ACOMODO CINÉTICO RÁPIDO
+   Paleta Oficial Bacís: Azul Rey (#1d4ed8 / #2563eb / #38bdf8), Blanco y Negro
+   ============================================================================ */
+@keyframes bacisWinOrbit {
+  0% {
+    transform: rotate(0deg);
+    opacity: 1;
+  }
+  70% {
+    transform: rotate(300deg);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(360deg);
+    opacity: 0.9;
+  }
+}
+
+@keyframes bacisLogoBoot {
+  0% {
+    opacity: 0;
+    transform: scale(0.62) translateY(22px);
+    filter: blur(10px) brightness(1.8);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.06) translateY(-3px);
+    filter: blur(0px) brightness(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    filter: blur(0px) brightness(1);
+  }
+}
+
+@keyframes bacisScanlineY {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.45;
+  }
+  80% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: translateY(110vh);
+    opacity: 0;
+  }
+}
+
+@keyframes bacisHaloPulse {
+  0%, 100% {
+    transform: scale(0.95);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.85;
+  }
+}
+
+@keyframes bacisSheenSweep {
+  0% {
+    transform: translateX(-140%) skewX(-24deg);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateX(260%) skewX(-24deg);
+    opacity: 0;
+  }
+}
+
+@keyframes bacisZoneReveal {
+  0% {
+    opacity: 0;
+    transform: translateX(-28px);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes bacisHeaderDrop {
+  0% {
+    opacity: 0;
+    transform: translateY(-32px) scale(0.96);
+    filter: blur(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+/* 9 trayectorias cinéticas 3D rápidas — los portales vuelan y encajan en su lugar */
+@keyframes bacisTileFly0 {
+  0% { opacity: 0; transform: perspective(1000px) translate3d(-190px, -130px, 90px) rotateY(22deg) rotateZ(-6deg) scale(0.72); filter: blur(6px); }
+  72% { opacity: 1; transform: perspective(1000px) translate3d(8px, 4px, 0) rotateY(-2deg) rotateZ(0.6deg) scale(1.02); filter: blur(0); }
+  100% { opacity: 1; transform: perspective(1000px) translate3d(0, 0, 0) rotateY(0) rotateZ(0) scale(1); filter: blur(0); }
+}
+
+@keyframes bacisTileFly1 {
+  0% { opacity: 0; transform: perspective(1000px) translate3d(0, -170px, 120px) rotateX(24deg) scale(0.68); filter: blur(6px); }
+  72% { opacity: 1; transform: perspective(1000px) translate3d(0, 8px, 0) rotateX(-3deg) scale(1.025); filter: blur(0); }
+  100% { opacity: 1; transform: perspective(1000px) translate3d(0, 0, 0) rotateX(0) scale(1); filter: blur(0); }
+}
+
+@keyframes bacisTileFly2 {
+  0% { opacity: 0; transform: perspective(1000px) translate3d(190px, -130px, 90px) rotateY(-22deg) rotateZ(6deg) scale(0.72); filter: blur(6px); }
+  72% { opacity: 1; transform: perspective(1000px) translate3d(-8px, 4px, 0) rotateY(2deg) rotateZ(-0.6deg) scale(1.02); filter: blur(0); }
+  100% { opacity: 1; transform: perspective(1000px) translate3d(0, 0, 0) rotateY(0) rotateZ(0) scale(1); filter: blur(0); }
+}
+
+@keyframes bacisTileFly3 {
+  0% { opacity: 0; transform: perspective(1000px) translate3d(-240px, 15px, 60px) rotateY(26deg) scale(0.74); filter: blur(6px); }
+  72% { opacity: 1; transform: perspective(1000px) translate3d(10px, 0, 0) rotateY(-2deg) scale(1.02); filter: blur(0); }
+  100% { opacity: 1; transform: perspective(1000px) translate3d(0, 0, 0) rotateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes bacisTileFly4 {
+  0% { opacity: 0; transform: perspective(1000px) translate3d(0, 0, -240px) scale(0.5); filter: blur(8px) brightness(1.5); }
+  72% { opacity: 1; transform: perspective(1000px) translate3d(0, 0, 14px) scale(1.04); filter: blur(0) brightness(1.08); }
+  100% { opacity: 1; transform: perspective(1000px) translate3d(0, 0, 0) scale(1); filter: blur(0) brightness(1); }
+}
+
+@keyframes bacisTileFly5 {
+  0% { opacity: 0; transform: perspective(1000px) translate3d(240px, 15px, 60px) rotateY(-26deg) scale(0.74); filter: blur(6px); }
+  72% { opacity: 1; transform: perspective(1000px) translate3d(-10px, 0, 0) rotateY(2deg) scale(1.02); filter: blur(0); }
+  100% { opacity: 1; transform: perspective(1000px) translate3d(0, 0, 0) rotateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes bacisTileFly6 {
+  0% { opacity: 0; transform: perspective(1000px) translate3d(-190px, 150px, 90px) rotateY(20deg) rotateZ(5deg) scale(0.72); filter: blur(6px); }
+  72% { opacity: 1; transform: perspective(1000px) translate3d(8px, -6px, 0) rotateY(-2deg) rotateZ(-0.5deg) scale(1.02); filter: blur(0); }
+  100% { opacity: 1; transform: perspective(1000px) translate3d(0, 0, 0) rotateY(0) rotateZ(0) scale(1); filter: blur(0); }
+}
+
+@keyframes bacisTileFly7 {
+  0% { opacity: 0; transform: perspective(1000px) translate3d(0, 190px, 110px) rotateX(-24deg) scale(0.7); filter: blur(6px); }
+  72% { opacity: 1; transform: perspective(1000px) translate3d(0, -9px, 0) rotateX(3deg) scale(1.025); filter: blur(0); }
+  100% { opacity: 1; transform: perspective(1000px) translate3d(0, 0, 0) rotateX(0) scale(1); filter: blur(0); }
+}
+
+@keyframes bacisTileFly8 {
+  0% { opacity: 0; transform: perspective(1000px) translate3d(190px, 150px, 90px) rotateY(-20deg) rotateZ(-5deg) scale(0.72); filter: blur(6px); }
+  72% { opacity: 1; transform: perspective(1000px) translate3d(-8px, -6px, 0) rotateY(2deg) rotateZ(0.5deg) scale(1.02); filter: blur(0); }
+  100% { opacity: 1; transform: perspective(1000px) translate3d(0, 0, 0) rotateY(0) rotateZ(0) scale(1); filter: blur(0); }
+}
+
+.bacis-logo-boot {
+  animation: bacisLogoBoot 0.72s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.bacis-halo-pulse {
+  animation: bacisHaloPulse 2.4s ease-in-out infinite;
+}
+
+.bacis-scanline {
+  animation: bacisScanlineY 3.6s linear infinite;
+}
+
+.bacis-header-drop {
+  animation: bacisHeaderDrop 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.bacis-zone-reveal {
+  animation: bacisZoneReveal 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.bacis-tile-sheen {
+  animation: bacisSheenSweep 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.bacis-win-dot {
+  animation: bacisWinOrbit 1.45s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+.bacis-tile-in-0 { animation: bacisTileFly0 0.56s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.bacis-tile-in-1 { animation: bacisTileFly1 0.56s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.bacis-tile-in-2 { animation: bacisTileFly2 0.56s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.bacis-tile-in-3 { animation: bacisTileFly3 0.56s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.bacis-tile-in-4 { animation: bacisTileFly4 0.58s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.bacis-tile-in-5 { animation: bacisTileFly5 0.56s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.bacis-tile-in-6 { animation: bacisTileFly6 0.56s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.bacis-tile-in-7 { animation: bacisTileFly7 0.56s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.bacis-tile-in-8 { animation: bacisTileFly8 0.56s cubic-bezier(0.16, 1, 0.3, 1) both; }
 
 @media print {
   @page {

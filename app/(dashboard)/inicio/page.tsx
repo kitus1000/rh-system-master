@@ -41,8 +41,10 @@ import {
   LayoutGrid,
   HardHat,
   Layers,
-  QrCode
+  QrCode,
+  RotateCcw
 } from 'lucide-react'
+import { BacisLogoEmblem } from '@/components/BacisLogoEmblem'
 
 interface AppItem {
   id: string
@@ -64,6 +66,7 @@ export default function InicioPage() {
   const [activeTab, setActiveTab] = useState<'all' | 'medico' | 'logistica' | 'rh' | 'documentos' | 'sistema'>('all')
   const [time, setTime] = useState<string>('')
   const [dateStr, setDateStr] = useState<string>('')
+  const [animCycle, setAnimCycle] = useState(1)
 
   // Live Digital Clock & Date
   useEffect(() => {
@@ -470,10 +473,34 @@ export default function InicioPage() {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-zinc-950 text-emerald-400 font-mono">
-        <div className="flex flex-col items-center gap-3">
-          <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-emerald-500"></div>
-          <span className="text-xs tracking-widest uppercase animate-pulse">CARGANDO ANDROID HUB OS...</span>
+      <div className="flex h-screen items-center justify-center bg-[#02050b] text-white font-mono -m-6">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-20 h-16 rounded-2xl bg-gradient-to-b from-blue-950 to-black border border-blue-400/50 shadow-[0_0_45px_rgba(37,99,235,0.55)] flex items-center justify-center p-2 bacis-logo-boot">
+            <BacisLogoEmblem className="w-16 h-14" showGlow={false} />
+          </div>
+          <div className="text-lg font-black tracking-[0.18em] uppercase">
+            PORTAL <span className="text-blue-400">BACIS</span>
+          </div>
+          <div className="relative w-10 h-10">
+            {[0, 1, 2, 3, 4].map((idx) => (
+              <div
+                key={idx}
+                className="absolute inset-0 bacis-win-dot"
+                style={{ animationDelay: `${idx * 135}ms` }}
+              >
+                <span
+                  className="block w-1.5 h-1.5 rounded-full mx-auto"
+                  style={{
+                    background: idx % 2 === 0 ? '#ffffff' : '#38bdf8',
+                    boxShadow: '0 0 10px rgba(56,189,248,0.95)',
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+          <span className="text-[11px] tracking-[0.22em] uppercase text-blue-300 animate-pulse">
+            CARGANDO ESCRITORIO OPERATIVO...
+          </span>
         </div>
       </div>
     )
@@ -499,121 +526,148 @@ export default function InicioPage() {
   })
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white font-sans selection:bg-emerald-500 selection:text-black pb-24 -m-6 p-6 sm:p-8 relative overflow-hidden">
+    <div className="min-h-screen bg-[#02050b] text-white font-sans selection:bg-blue-600 selection:text-white pb-24 -m-6 p-6 sm:p-8 relative overflow-hidden">
       
-      {/* Background Cyber Grid Effects */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#18181b_1px,transparent_1px),linear-gradient(to_bottom,#18181b_1px,transparent_1px)] bg-[size:40px_40px] opacity-30 pointer-events-none" />
-      <div className="absolute top-0 right-1/4 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[140px] pointer-events-none animate-pulse" style={{ animationDuration: '8s' }} />
-      <div className="absolute bottom-10 left-10 w-[400px] h-[400px] bg-cyan-500/10 rounded-full blur-[120px] pointer-events-none" />
+      {/* Fondo Corporativo Bacís: Azul Rey, Blanco y Negro Obsidiana */}
+      <div
+        className="absolute inset-0 opacity-[0.2] pointer-events-none"
+        style={{
+          backgroundImage:
+            'linear-gradient(to right, rgba(37,99,235,0.22) 1px, transparent 1px), linear-gradient(to bottom, rgba(37,99,235,0.22) 1px, transparent 1px)',
+          backgroundSize: '44px 44px',
+        }}
+      />
+      <div
+        className="absolute top-0 right-1/4 w-[560px] h-[420px] rounded-full blur-[140px] pointer-events-none bacis-halo-pulse"
+        style={{ background: 'rgba(37,99,235,0.26)' }}
+      />
+      <div
+        className="absolute bottom-10 left-10 w-[400px] h-[400px] rounded-full blur-[130px] pointer-events-none"
+        style={{ background: 'rgba(29,78,216,0.18)' }}
+      />
+      <div
+        className="absolute left-0 right-0 h-[2px] bacis-scanline pointer-events-none"
+        style={{
+          background:
+            'linear-gradient(90deg, transparent 0%, rgba(56,189,248,0.45) 35%, rgba(255,255,255,0.8) 50%, rgba(37,99,235,0.45) 65%, transparent 100%)',
+        }}
+      />
 
-      {/* 📱 1. Android Futuristic OS Top Status Bar */}
-      <div className="relative z-10 bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/80 rounded-3xl p-4 sm:p-6 shadow-2xl mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+      {/* 1. PORTAL BACIS OS Top Command Bar */}
+      <div className="relative z-10 bg-gradient-to-r from-[#071127]/95 via-[#050b18]/95 to-black/95 backdrop-blur-xl border border-blue-500/30 rounded-3xl p-4 sm:p-6 shadow-[0_18px_50px_-14px_rgba(37,99,235,0.45)] mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bacis-header-drop">
         
-        {/* Left: Live OS System Status & Clock */}
+        {/* Left: Emblema GB + PORTAL BACIS + Saludo */}
         <div className="flex items-center gap-4">
           <div className="relative">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-500 to-cyan-500 p-0.5 shadow-lg shadow-emerald-500/20">
-              <div className="w-full h-full bg-zinc-950 rounded-[14px] flex items-center justify-center text-emerald-400">
-                <Sparkles className="w-7 h-7 animate-pulse" />
-              </div>
+            <div className="w-16 h-14 rounded-2xl bg-gradient-to-b from-blue-950 to-black p-1.5 border border-blue-400/50 shadow-[0_0_24px_rgba(37,99,235,0.45)] flex items-center justify-center">
+              <BacisLogoEmblem className="w-14 h-12" showGlow={false} />
             </div>
-            <span className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-zinc-950 shadow-sm animate-ping" />
+            <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-blue-500 rounded-full border-2 border-[#02050b] shadow-[0_0_10px_#3b82f6] animate-pulse" />
           </div>
 
           <div>
-            <div className="flex items-center gap-2">
-              <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-black tracking-widest px-2.5 py-0.5 rounded-full border border-emerald-500/20 uppercase font-mono">
-                ANDROID SMART HUB V4.2
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="bg-blue-600/20 text-blue-200 text-[10px] font-black tracking-[0.2em] px-2.5 py-0.5 rounded-full border border-blue-400/40 uppercase font-mono">
+                PORTAL BACIS OS
               </span>
-              <span className="flex items-center gap-1 text-[10px] font-mono text-zinc-400">
-                <Wifi className="w-3.5 h-3.5 text-emerald-400" /> 5G MINA
+              <span className="flex items-center gap-1 text-[10px] font-mono text-slate-300">
+                <Wifi className="w-3.5 h-3.5 text-blue-400" /> EN LÍNEA
               </span>
-              <span className="flex items-center gap-1 text-[10px] font-mono text-zinc-400">
-                <BatteryCharging className="w-3.5 h-3.5 text-cyan-400" /> 100%
+              <span className="flex items-center gap-1 text-[10px] font-mono text-slate-300">
+                <BatteryCharging className="w-3.5 h-3.5 text-white" /> 100%
               </span>
             </div>
 
             <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white mt-1 flex items-center gap-2">
-              <span>Hola, <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">{userName}</span></span>
+              <span>Bienvenido, <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-sky-200 to-white">{userName}</span></span>
             </h1>
 
-            <p className="text-xs text-zinc-400 capitalize mt-0.5">
-              📅 {dateStr}
+            <p className="text-xs text-slate-400 capitalize mt-0.5">
+              {dateStr} · Grupo Minero Bacís S.A. de C.V.
             </p>
           </div>
         </div>
 
-        {/* Right: Live Digital Clock & Role Badge */}
-        <div className="flex flex-wrap items-center gap-4 border-t lg:border-t-0 lg:border-l border-zinc-800 pt-4 lg:pt-0 lg:pl-6 w-full lg:w-auto justify-between lg:justify-end">
+        {/* Right: Reloj + Botón Reacomodar + Perfil */}
+        <div className="flex flex-wrap items-center gap-4 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-6 w-full lg:w-auto justify-between lg:justify-end">
           <div className="text-left lg:text-right font-mono">
-            <div className="text-2xl sm:text-3xl font-black tracking-wider text-emerald-400 drop-shadow-[0_0_12px_rgba(16,185,129,0.3)]">
+            <div className="text-2xl sm:text-3xl font-black tracking-wider text-white drop-shadow-[0_0_14px_rgba(37,99,235,0.65)]">
               {time || '00:00:00 AM'}
             </div>
-            <div className="text-[10px] text-zinc-400 uppercase tracking-widest mt-0.5 flex items-center lg:justify-end gap-1">
-              <Radio className="w-3 h-3 text-emerald-400 animate-pulse" /> Sincronización Minera Activa
+            <div className="text-[10px] text-blue-300 uppercase tracking-widest mt-0.5 flex items-center lg:justify-end gap-1">
+              <Radio className="w-3 h-3 text-blue-400 animate-pulse" /> Sincronización Minera Activa
             </div>
           </div>
 
-          <div className="bg-zinc-950/80 px-4 py-2 rounded-2xl border border-zinc-800 text-left">
-            <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider block">Perfil Asignado</span>
-            <span className="text-xs font-black text-cyan-400 uppercase tracking-wider flex items-center gap-1 mt-0.5">
-              <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400" /> {userRole}
+          <button
+            type="button"
+            onClick={() => setAnimCycle((c) => c + 1)}
+            className="px-3 py-2 rounded-xl bg-white/[0.06] hover:bg-blue-600/30 border border-white/15 hover:border-blue-400/60 text-xs font-bold text-white flex items-center gap-1.5 transition-all cursor-pointer"
+            title="Reproducir efecto rápido de acomodo de portales"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-blue-400" />
+            <span className="hidden sm:inline">Reacomodar</span>
+          </button>
+
+          <div className="bg-black/80 px-4 py-2 rounded-2xl border border-blue-500/30 text-left">
+            <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">Perfil Asignado</span>
+            <span className="text-xs font-black text-blue-300 uppercase tracking-wider flex items-center gap-1 mt-0.5">
+              <Zap className="w-3.5 h-3.5 text-white fill-blue-400" /> {userRole}
             </span>
           </div>
         </div>
       </div>
 
-      {/* 🔍 2. Interactive Search & Android Dock Filter Bar */}
+      {/* 2. Buscador & Dock de Categorías en Azul / Blanco / Negro */}
       <div className="relative z-10 space-y-4 mb-8">
-        
         <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
-          
-          {/* Search Input Bar */}
           <div className="relative w-full sm:max-w-md">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-400" />
             <input 
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Buscar aplicación o herramienta de tu perfil..."
-              className="w-full bg-zinc-900/90 border border-zinc-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 shadow-xl transition-all"
+              placeholder="Buscar portal o módulo operativo..."
+              className="bacis-portal-input w-full bg-black/85 border border-blue-500/30 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 shadow-xl transition-all"
             />
             {searchTerm && (
-              <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 hover:text-white bg-zinc-800 px-2 py-0.5 rounded-lg">
+              <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-300 hover:text-white bg-blue-950 px-2 py-0.5 rounded-lg border border-blue-500/30">
                 Limpiar
               </button>
             )}
           </div>
 
-          {/* Quick Counter */}
-          <div className="flex items-center gap-2 text-xs font-mono text-zinc-400 bg-zinc-900/60 px-4 py-2.5 rounded-2xl border border-zinc-800/80">
-            <LayoutGrid className="w-4 h-4 text-emerald-400" />
-            <span>Herramientas Disponibles: <strong className="text-white font-bold">{finalFilteredApps.length}</strong></span>
+          <div className="flex items-center gap-2 text-xs font-mono text-slate-300 bg-black/70 px-4 py-2.5 rounded-2xl border border-white/10">
+            <LayoutGrid className="w-4 h-4 text-blue-400" />
+            <span>Portales Disponibles: <strong className="text-white font-black">{finalFilteredApps.length}</strong></span>
           </div>
         </div>
 
-        {/* Category Tabs Switcher (Android Style Pill Bar) */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none pt-2">
+        {/* Category Tabs Switcher */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none pt-1">
           {[
-            { id: 'all', label: '📱 Todas las Apps', icon: LayoutGrid },
-            { id: 'medico', label: '🚑 Módulo Médico', icon: Stethoscope },
-            { id: 'logistica', label: '🚚 Logística & Choferes', icon: Truck },
-            { id: 'rh', label: '👥 Capital Humano', icon: Users },
-            { id: 'documentos', label: '📜 Documentos', icon: Files },
-            { id: 'sistema', label: '⚙️ Configuración', icon: Settings },
+            { id: 'all', label: 'Todos los Portales', icon: LayoutGrid },
+            { id: 'rh', label: 'Capital Humano & RH', icon: Users },
+            { id: 'medico', label: 'Clínica Médica', icon: Stethoscope },
+            { id: 'logistica', label: 'Logística & Choferes', icon: Truck },
+            { id: 'documentos', label: 'Documentos', icon: Files },
+            { id: 'sistema', label: 'Sistema', icon: Settings },
           ].map(tab => {
             const isActive = activeTab === tab.id
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all shrink-0 border ${
+                onClick={() => {
+                  setActiveTab(tab.id as any)
+                  setAnimCycle((c) => c + 1)
+                }}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shrink-0 border cursor-pointer ${
                   isActive 
-                    ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-black border-emerald-400 shadow-lg shadow-emerald-500/20 font-black' 
-                    : 'bg-zinc-900/80 text-zinc-400 border-zinc-800 hover:bg-zinc-800 hover:text-white'
+                    ? 'bg-blue-600 text-white border-blue-400 shadow-[0_0_22px_rgba(37,99,235,0.55)]' 
+                    : 'bg-black/75 text-slate-400 border-white/10 hover:bg-blue-950/60 hover:text-white hover:border-blue-500/40'
                 }`}
               >
-                <tab.icon className={`w-4 h-4 ${isActive ? 'text-black' : 'text-zinc-400'}`} />
+                <tab.icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-blue-400'}`} />
                 <span>{tab.label}</span>
               </button>
             )
@@ -621,46 +675,58 @@ export default function InicioPage() {
         </div>
       </div>
 
-      {/* 🚀 3. Android App Cards Grid */}
+      {/* 3. Grid Cinético Rápido de Portales Internos (Azul · Blanco · Negro) */}
       <div className="relative z-10">
         {finalFilteredApps.length === 0 ? (
-          <div className="bg-zinc-900/40 border-2 border-dashed border-zinc-800 rounded-3xl p-12 text-center max-w-md mx-auto my-8">
-            <SlidersHorizontal className="w-12 h-12 text-zinc-600 mx-auto mb-3 animate-bounce" />
-            <h3 className="text-base font-bold text-white">No se encontraron aplicaciones</h3>
-            <p className="text-xs text-zinc-400 mt-1">No hay herramientas coincidentes con tu búsqueda o tu rol actual ({userRole}).</p>
+          <div className="bg-black/60 border-2 border-dashed border-blue-500/30 rounded-3xl p-12 text-center max-w-md mx-auto my-8">
+            <SlidersHorizontal className="w-12 h-12 text-blue-400 mx-auto mb-3 animate-bounce" />
+            <h3 className="text-base font-black text-white">No se encontraron portales</h3>
+            <p className="text-xs text-slate-400 mt-1">No hay herramientas coincidentes con tu búsqueda o tu rol actual ({userRole}).</p>
             <button 
-              onClick={() => { setSearchTerm(''); setActiveTab('all') }}
-              className="mt-4 px-4 py-2 bg-emerald-500 text-black text-xs font-bold rounded-xl hover:bg-emerald-400 transition-all"
+              onClick={() => { setSearchTerm(''); setActiveTab('all'); setAnimCycle((c) => c + 1) }}
+              className="mt-4 px-4 py-2 bg-blue-600 text-white text-xs font-black rounded-xl hover:bg-blue-500 transition-all cursor-pointer"
             >
-              Mostrar todas mis herramientas
+              Mostrar todos mis portales
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-            {finalFilteredApps.map(app => {
+          <div key={animCycle} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            {finalFilteredApps.map((app, idx) => {
               const IconComp = app.icon
+              const flyClass = `bacis-tile-in-${idx % 9}`
+              const staggerMs = Math.min(idx * 38, 420)
+
               return (
                 <Link
                   key={app.id}
                   href={app.href}
-                  className={`group relative bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/90 rounded-3xl p-5 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl flex flex-col justify-between overflow-hidden ${app.glowColor}`}
+                  style={{ animationDelay: `${staggerMs}ms` }}
+                  className={`group relative bg-gradient-to-br from-[#081229]/95 via-[#050a16]/95 to-black/95 backdrop-blur-xl border border-white/15 hover:border-blue-400 rounded-3xl p-5 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_14px_40px_-10px_rgba(37,99,235,0.5)] flex flex-col justify-between overflow-hidden ${flyClass}`}
                 >
-                  {/* Neon Glow Gradient Accent */}
-                  <div className={`absolute inset-0 bg-gradient-to-br ${app.bgGradient} opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none`} />
+                  {/* Barrido metálico azul-blanco al aterrizar */}
+                  <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl">
+                    <div
+                      className="w-1/2 h-full bacis-tile-sheen"
+                      style={{
+                        animationDelay: `${staggerMs + 340}ms`,
+                        background:
+                          'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.16) 50%, rgba(56,189,248,0.22) 70%, transparent 100%)',
+                      }}
+                    />
+                  </div>
 
-                  {/* Corner Accent indicator */}
-                  <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-bl from-white/5 to-transparent rounded-tr-3xl pointer-events-none" />
+                  {/* Línea superior azul Bacís */}
+                  <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-blue-500 to-white opacity-40 group-hover:opacity-100 transition-opacity" />
 
                   <div className="relative z-10 space-y-4">
-                    
                     {/* Top Row: App Icon & Badge */}
-                    <div className="flex justify-between items-start">
-                      <div className={`w-12 h-12 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-center shadow-lg group-hover:scale-110 group-hover:border-zinc-700 transition-all ${app.color}`}>
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="w-12 h-12 rounded-2xl bg-blue-950/75 border border-blue-500/35 flex items-center justify-center shadow-lg text-blue-300 group-hover:scale-110 group-hover:bg-blue-600 group-hover:text-white group-hover:border-white/60 transition-all">
                         <IconComp className="w-6 h-6" />
                       </div>
 
                       {app.badge && (
-                        <span className="text-[9px] font-mono font-black tracking-widest bg-zinc-950 text-zinc-400 px-2.5 py-1 rounded-full border border-zinc-800 uppercase group-hover:border-zinc-700 transition-colors">
+                        <span className="text-[9px] font-mono font-black tracking-widest bg-black/80 text-blue-200 px-2.5 py-1 rounded-full border border-blue-500/30 uppercase group-hover:bg-white group-hover:text-black group-hover:border-white transition-colors">
                           {app.badge}
                         </span>
                       )}
@@ -668,19 +734,21 @@ export default function InicioPage() {
 
                     {/* App Title & Subtitle */}
                     <div>
-                      <h3 className="text-sm font-black text-white group-hover:text-emerald-400 transition-colors tracking-tight">
+                      <h3 className="text-sm font-black text-white group-hover:text-blue-200 transition-colors tracking-tight">
                         {app.name}
                       </h3>
-                      <p className="text-xs text-zinc-400 mt-1 leading-relaxed line-clamp-2">
+                      <p className="text-xs text-slate-400 group-hover:text-slate-300 mt-1 leading-relaxed line-clamp-2">
                         {app.subtitle}
                       </p>
                     </div>
                   </div>
 
                   {/* Bottom Action Footer */}
-                  <div className="relative z-10 mt-6 pt-3 border-t border-zinc-800/60 flex items-center justify-between text-xs text-zinc-500 group-hover:text-white transition-colors">
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-400/80 group-hover:text-emerald-400">ABRIR APLICACIÓN</span>
-                    <div className="w-6 h-6 rounded-full bg-zinc-950 border border-zinc-800 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-black group-hover:border-emerald-400 transition-all">
+                  <div className="relative z-10 mt-6 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-slate-400 group-hover:text-white transition-colors">
+                    <span className="text-[10px] font-mono font-black uppercase tracking-wider text-blue-400 group-hover:text-white">
+                      ABRIR MÓDULO
+                    </span>
+                    <div className="w-6 h-6 rounded-full bg-black border border-blue-500/40 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white group-hover:border-white transition-all">
                       <ChevronRight className="w-3.5 h-3.5" />
                     </div>
                   </div>
@@ -691,18 +759,18 @@ export default function InicioPage() {
         )}
       </div>
 
-      {/* 📱 4. Android Bottom Bar Quick Nav */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 backdrop-blur-2xl border border-zinc-800 rounded-full px-6 py-3 shadow-2xl flex items-center gap-6 text-xs text-zinc-400">
-        <Link href="/inicio" className="flex items-center gap-1.5 text-emerald-400 font-bold hover:text-emerald-300 transition-colors">
-          <Sparkles className="w-4 h-4" /> <span>Inicio</span>
+      {/* 4. Dock Flotante Inferior PORTAL BACIS */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-black/90 backdrop-blur-2xl border border-blue-500/35 rounded-full px-6 py-3 shadow-[0_12px_40px_rgba(37,99,235,0.45)] flex items-center gap-6 text-xs text-slate-300">
+        <Link href="/inicio" className="flex items-center gap-1.5 text-white font-black hover:text-blue-300 transition-colors">
+          <Sparkles className="w-4 h-4 text-blue-400" /> <span>Portal Bacís</span>
         </Link>
-        <div className="w-px h-4 bg-zinc-800" />
+        <div className="w-px h-4 bg-white/15" />
         <Link href="/mi-perfil" className="flex items-center gap-1.5 hover:text-white transition-colors">
-          <User className="w-4 h-4 text-cyan-400" /> <span>Mi Perfil</span>
+          <User className="w-4 h-4 text-blue-400" /> <span>Mi Perfil</span>
         </Link>
-        <div className="w-px h-4 bg-zinc-800" />
-        <a href="/" onClick={() => localStorage.clear()} className="flex items-center gap-1.5 text-rose-400 hover:text-rose-300 transition-colors">
-          <LogOut className="w-4 h-4" /> <span>Salir</span>
+        <div className="w-px h-4 bg-white/15" />
+        <a href="/" onClick={() => localStorage.clear()} className="flex items-center gap-1.5 text-slate-300 hover:text-white transition-colors">
+          <LogOut className="w-4 h-4 text-blue-400" /> <span>Salir</span>
         </a>
       </div>
 
