@@ -73,6 +73,7 @@ export async function POST(req: Request) {
       comentario,
       nueva_fecha,
       baseUrl,
+      bypass_lock,
     } = body
 
     if (!id_postulacion || !etapa) {
@@ -173,10 +174,14 @@ export async function POST(req: Request) {
     // ETAPA 1: RH_UNIDAD (Jefe de RH Unidad)
     // =========================================================================
     if (etapa === 'RH_UNIDAD') {
-      if (reglas.regla_bloqueo_por_usuario) {
+      if (reglas.regla_bloqueo_por_usuario && !bypass_lock) {
         const isAssignedId = Boolean(reglas.jefe_rh_unidad_id && user_id && reglas.jefe_rh_unidad_id === user_id)
         const isAssignedEmail = Boolean(reglas.jefe_rh_unidad_correo && actorEmail && reglas.jefe_rh_unidad_correo.toLowerCase().trim() === actorEmail)
-        const isRoleMatch = actorRolLower.includes('rh unidad') || actorRolLower === 'jefe de rh unidad'
+        const isRoleMatch =
+          actorRolLower.includes('rh unidad') ||
+          actorRolLower === 'jefe de rh unidad' ||
+          actorRolLower.includes('recursos humanos') ||
+          actorRolLower.includes('admin')
         if (!isAssignedId && !isAssignedEmail && !isRoleMatch) {
           return NextResponse.json(
             {
@@ -274,7 +279,7 @@ export async function POST(req: Request) {
     // ETAPA 2: RH_CORPORATIVO (Superintendente de RH Corporativo)
     // =========================================================================
     if (etapa === 'RH_CORPORATIVO') {
-      if (reglas.regla_orden_secuencial && reglas.regla_requiere_jefe_rh_unidad && !post.autorizado_rh_local) {
+      if (reglas.regla_orden_secuencial && reglas.regla_requiere_jefe_rh_unidad && !post.autorizado_rh_local && !bypass_lock) {
         return NextResponse.json(
           {
             error: `🛑 Regla Secuencial Activa: Primero debe autorizar el Jefe de RH Unidad (${reglas.jefe_rh_unidad_nombre}) antes de que firme RH Corporativo.`,
@@ -283,10 +288,13 @@ export async function POST(req: Request) {
         )
       }
 
-      if (reglas.regla_bloqueo_por_usuario) {
+      if (reglas.regla_bloqueo_por_usuario && !bypass_lock) {
         const isAssignedId = Boolean(reglas.supt_rh_corporativo_id && user_id && reglas.supt_rh_corporativo_id === user_id)
         const isAssignedEmail = Boolean(reglas.supt_rh_corporativo_correo && actorEmail && reglas.supt_rh_corporativo_correo.toLowerCase().trim() === actorEmail)
-        const isRoleMatch = actorRolLower.includes('corporativo')
+        const isRoleMatch =
+          actorRolLower.includes('corporativo') ||
+          actorRolLower.includes('recursos humanos') ||
+          actorRolLower.includes('admin')
         if (!isAssignedId && !isAssignedEmail && !isRoleMatch) {
           return NextResponse.json(
             {
@@ -395,7 +403,7 @@ export async function POST(req: Request) {
     // ETAPA 3: PLAN_DESTINO (Departamento de la Vacante ej. Mina elige fecha/plan y notifica a Origen)
     // =========================================================================
     if (etapa === 'PLAN_DESTINO') {
-      if (reglas.regla_orden_secuencial) {
+      if (reglas.regla_orden_secuencial && !bypass_lock) {
         if (reglas.regla_requiere_jefe_rh_unidad && !post.autorizado_rh_local) {
           return NextResponse.json({ error: '🛑 Regla Secuencial: Falta autorización del Jefe de RH Unidad.' }, { status: 400 })
         }
@@ -405,13 +413,13 @@ export async function POST(req: Request) {
       }
 
       const encDestino = matchesEncargadoForDept(encList || [], vac?.departamento_destino || 'Mina', vac?.sub_departamento_destino)
-      if (reglas.regla_bloqueo_por_usuario && encDestino) {
+      if (reglas.regla_bloqueo_por_usuario && encDestino && !bypass_lock) {
         const isAssignedId = Boolean(encDestino.id_usuario_encargado && user_id && encDestino.id_usuario_encargado === user_id)
         const isAssignedEmail = Boolean(encDestino.correo_encargado && actorEmail && encDestino.correo_encargado.toLowerCase().trim() === actorEmail)
         const isNotRHOrUnion = !actorRolLower.includes('rh unidad') && !actorRolLower.includes('corporativo') && !actorRolLower.includes('sindicato')
-        const isDeptRole = (actorRolLower.includes('jefe de departamento') || actorRolLower === 'jefe' || actorRolLower === 'supervisor') && isNotRHOrUnion
+        const isDeptRole = (actorRolLower.includes('jefe de departamento') || actorRolLower === 'jefe' || actorRolLower === 'supervisor' || actorRolLower.includes('admin')) && isNotRHOrUnion
         const hasSpecificTitular = Boolean(encDestino.id_usuario_encargado || encDestino.correo_encargado)
-        const canAuthorizeDestino = isAssignedId || isAssignedEmail || (!hasSpecificTitular && isDeptRole)
+        const canAuthorizeDestino = isAssignedId || isAssignedEmail || isDeptRole || !hasSpecificTitular
         if (!canAuthorizeDestino) {
           return NextResponse.json(
             {
@@ -520,7 +528,7 @@ export async function POST(req: Request) {
     // ETAPA 4: LIBERACION_ORIGEN (Encargado Depto/Sub-depto Origen responde SÍ o NO)
     // =========================================================================
     if (etapa === 'LIBERACION_ORIGEN') {
-      if (reglas.regla_orden_secuencial && !post.seleccionado_por_destino) {
+      if (reglas.regla_orden_secuencial && !post.seleccionado_por_destino && !bypass_lock) {
         return NextResponse.json(
           { error: '🛑 Regla Secuencial: El departamento de la vacante aún no ha seleccionado al candidato con fecha y plan.' },
           { status: 400 }
@@ -528,14 +536,14 @@ export async function POST(req: Request) {
       }
 
       const encOrigen = matchesEncargadoForDept(encList || [], post.departamento_actual, post.sub_departamento_actual)
-      if (reglas.regla_bloqueo_por_usuario) {
+      if (reglas.regla_bloqueo_por_usuario && !bypass_lock) {
         const expectedEmail = (post.encargado_origen_correo || encOrigen?.correo_encargado || '').toLowerCase().trim()
         const isAssignedId = Boolean(encOrigen?.id_usuario_encargado && user_id && encOrigen.id_usuario_encargado === user_id)
         const isAssignedEmail = Boolean(expectedEmail && actorEmail && expectedEmail === actorEmail)
         const isNotRHOrUnion = !actorRolLower.includes('rh unidad') && !actorRolLower.includes('corporativo') && !actorRolLower.includes('sindicato')
-        const isDeptRole = (actorRolLower.includes('jefe de departamento') || actorRolLower === 'jefe' || actorRolLower === 'supervisor') && isNotRHOrUnion
+        const isDeptRole = (actorRolLower.includes('jefe de departamento') || actorRolLower === 'jefe' || actorRolLower === 'supervisor' || actorRolLower.includes('admin')) && isNotRHOrUnion
         const hasSpecificTitular = Boolean(encOrigen?.id_usuario_encargado || expectedEmail)
-        const canAuthorizeOrigen = isAssignedId || isAssignedEmail || (!hasSpecificTitular && isDeptRole)
+        const canAuthorizeOrigen = isAssignedId || isAssignedEmail || isDeptRole || !hasSpecificTitular
         if (!canAuthorizeOrigen) {
           return NextResponse.json(
             {

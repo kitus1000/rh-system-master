@@ -35,6 +35,7 @@ import {
   formatShortDate,
   diffDaysInclusive,
 } from '@/utils/contratistasConfig'
+import { areDepartmentsEquivalent } from '@/utils/dataNormalization'
 import {
   generateContractorCredentialPDF,
   BADGE_SIZE_OPTIONS,
@@ -42,11 +43,12 @@ import {
 } from '@/utils/contratistaBadgePdf'
 
 export default function ContratistasAdminPage() {
-  const { user, profile } = useAuth()
+  const { user, profile, testLevelId } = useAuth()
   const [loading, setLoading] = useState(true)
   const [schemaMissing, setSchemaMissing] = useState(false)
   const [activeTab, setActiveTab] = useState<'solicitudes' | 'empresas' | 'documentos' | 'prorrogas' | 'bitacora'>('solicitudes')
   const [badgeSizeFormat, setBadgeSizeFormat] = useState<BadgeSizeFormat>('gafete_medio')
+  const [rhCorpMap, setRhCorpMap] = useState<Record<string, { approved: boolean; por: string; fecha: string }>>({})
 
   const [empresas, setEmpresas] = useState<any[]>([])
   const [personalAll, setPersonalAll] = useState<any[]>([])
@@ -108,10 +110,25 @@ export default function ContratistasAdminPage() {
   } | null>(null)
 
   const rolLower = (profile?.rol || '').toLowerCase()
-  const isRHOrAdmin = rolLower.includes('admin') || rolLower.includes('recursos') || rolLower.includes('sistemas') || rolLower.includes('superintendente')
-  const isJefeDepto = rolLower.includes('jefe')
+  const isTestMode = testLevelId !== 'REAL_SESSION'
+  const isRHOrAdmin =
+    isTestMode ||
+    rolLower.includes('admin') ||
+    rolLower.includes('recursos') ||
+    rolLower.includes('rh unidad') ||
+    rolLower.includes('corporativo') ||
+    rolLower.includes('sistemas') ||
+    rolLower.includes('superintendente')
+  const isRHCorporativo = isTestMode || isRHOrAdmin || rolLower.includes('corporativo')
+  const isSeguridad = isTestMode || isRHOrAdmin || rolLower.includes('seguridad')
+  const isCampamento = isTestMode || isRHOrAdmin || rolLower.includes('campamento') || rolLower.includes('comedor')
+  const isJefeDepto = isTestMode || isRHOrAdmin || rolLower.includes('jefe')
 
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem('bacis_contratistas_rh_corp_approvals')
+      if (saved) setRhCorpMap(JSON.parse(saved))
+    } catch {}
     fetchAll()
   }, [])
 
@@ -129,7 +146,7 @@ export default function ContratistasAdminPage() {
         return
       }
 
-      const [solRes, docRes, credRes, prorRes, movRes, persRes, deptRes] = await Promise.all([
+      const [solRes, docRes, credRes, prorRes, movRes, persRes, deptRes, corpMsgsRes] = await Promise.all([
         supabase
           .from('contratistas_solicitudes')
           .select('*, contratistas_empresas(*), contratistas_solicitud_personal(*, contratistas_personal(*))')
@@ -160,7 +177,28 @@ export default function ContratistasAdminPage() {
           .select('*')
           .eq('activo', true)
           .order('departamento'),
+        supabase
+          .from('contratistas_mensajes')
+          .select('id_solicitud, remitente_nombre, creado_el')
+          .ilike('mensaje', '%[VOBO_RH_CORPORATIVO]%')
+          .order('creado_el', { ascending: false })
+          .limit(100),
       ])
+
+      const nextCorpMap: Record<string, { approved: boolean; por: string; fecha: string }> = {
+        ...JSON.parse(localStorage.getItem('bacis_contratistas_rh_corp_approvals') || '{}'),
+      }
+      for (const m of corpMsgsRes.data || []) {
+        if (m.id_solicitud && !nextCorpMap[m.id_solicitud]) {
+          nextCorpMap[m.id_solicitud] = {
+            approved: true,
+            por: m.remitente_nombre || 'Supt. RH Corporativo',
+            fecha: m.creado_el || new Date().toISOString(),
+          }
+        }
+      }
+      setRhCorpMap(nextCorpMap)
+      localStorage.setItem('bacis_contratistas_rh_corp_approvals', JSON.stringify(nextCorpMap))
 
       setEmpresas(empData || [])
       setSolicitudes(solRes.data || [])
@@ -212,7 +250,15 @@ export default function ContratistasAdminPage() {
     }
     setSavingDirectPass(true)
     try {
-      const deptObj = departamentos.find((d) => d.id_departamento === directPassForm.id_departamento_objetivo)
+      const isExtraDept = (directPassForm.id_departamento_objetivo || '').startsWith('EXTRA:')
+      const extraDeptName = isExtraDept ? directPassForm.id_departamento_objetivo.replace('EXTRA:', '') : ''
+      const deptObj = isExtraDept
+        ? null
+        : departamentos.find((d) => d.id_departamento === directPassForm.id_departamento_objetivo)
+      const resolvedDeptNombre =
+        extraDeptName ||
+        deptObj?.departamento ||
+        (directPassForm.requiere_campamento ? 'CAMPAMENTO Y COMEDOR' : 'Mantenimiento / Servicios')
       const folio = `CONT-${new Date().getFullYear().toString().slice(-2)}-${Math.floor(1000 + Math.random() * 9000)}`
       const autoApprove = directPassForm.emitir_inmediato
 
@@ -222,8 +268,8 @@ export default function ContratistasAdminPage() {
           {
             folio,
             id_empresa: directPassForm.id_empresa,
-            id_departamento_objetivo: directPassForm.id_departamento_objetivo || null,
-            departamento_nombre: deptObj?.departamento || 'Mantenimiento / Servicios',
+            id_departamento_objetivo: isExtraDept ? null : (directPassForm.id_departamento_objetivo || null),
+            departamento_nombre: resolvedDeptNombre,
             contacto_departamento: profile?.nombre_completo || 'RH / Administración',
             descripcion_servicio: directPassForm.descripcion_servicio,
             area_trabajo: directPassForm.area_trabajo,
@@ -381,36 +427,63 @@ export default function ContratistasAdminPage() {
 
   const handleUpdateFactor = async (
     sol: any,
-    factor: 'departamento' | 'seguridad' | 'campamento' | 'rh' | 'documentos',
+    factor: 'departamento' | 'seguridad' | 'campamento' | 'rh' | 'rh_corporativo' | 'documentos',
     newStatus: string
   ) => {
-    const note = prompt(`Notas / observaciones para ${factor.toUpperCase()} (${newStatus}):`, '')
-    if (note === null) return
-
-    const updatePayload: any = { actualizado_el: new Date().toISOString() }
     const actor = profile?.nombre_completo || 'Usuario Interno'
+    const nowIso = new Date().toISOString()
+
+    if (factor === 'rh_corporativo') {
+      const isApprove = newStatus === 'Aprobado'
+      const nextMap = {
+        ...rhCorpMap,
+        [sol.id_solicitud]: { approved: isApprove, por: actor, fecha: nowIso },
+      }
+      setRhCorpMap(nextMap)
+      localStorage.setItem('bacis_contratistas_rh_corp_approvals', JSON.stringify(nextMap))
+
+      await supabase.from('contratistas_mensajes').insert([
+        {
+          id_solicitud: sol.id_solicitud,
+          id_empresa: sol.id_empresa,
+          remitente_id: user?.id || null,
+          remitente_nombre: actor,
+          remitente_rol: 'RH Corporativo',
+          mensaje: `[VOBO_RH_CORPORATIVO] Vo.Bo. Corporativo ${isApprove ? 'AUTORIZADO' : 'RECHAZADO'} por ${actor}.`,
+        },
+      ])
+
+      if (!isApprove) {
+        await supabase
+          .from('contratistas_solicitudes')
+          .update({ estatus_general: 'Rechazada', actualizado_el: nowIso })
+          .eq('id_solicitud', sol.id_solicitud)
+      }
+      await fetchAll()
+      return
+    }
+
+    const updatePayload: any = { actualizado_el: nowIso }
 
     if (factor === 'documentos') {
       updatePayload.estatus_documentos = newStatus
     } else if (factor === 'departamento') {
       updatePayload.estatus_departamento = newStatus
       updatePayload.aprobado_depto_por = actor
-      updatePayload.fecha_aprobacion_depto = new Date().toISOString()
-      if (note) updatePayload.notas_departamento = note
+      updatePayload.fecha_aprobacion_depto = nowIso
     } else if (factor === 'seguridad') {
       updatePayload.estatus_seguridad = newStatus
       updatePayload.aprobado_seguridad_por = actor
-      updatePayload.fecha_aprobacion_seguridad = new Date().toISOString()
-      if (note) updatePayload.notas_seguridad = note
+      updatePayload.fecha_aprobacion_seguridad = nowIso
     } else if (factor === 'campamento') {
       updatePayload.estatus_campamento = newStatus
       updatePayload.aprobado_campamento_por = actor
-      updatePayload.fecha_aprobacion_campamento = new Date().toISOString()
-      if (note) updatePayload.notas_campamento = note
+      updatePayload.fecha_aprobacion_campamento = nowIso
     } else if (factor === 'rh') {
       updatePayload.estatus_rh = newStatus
+      updatePayload.estatus_documentos = newStatus === 'Aprobado' ? 'Completo' : 'Observaciones'
       updatePayload.aprobado_rh_por = actor
-      updatePayload.fecha_aprobacion_rh = new Date().toISOString()
+      updatePayload.fecha_aprobacion_rh = nowIso
       if (newStatus === 'Aprobado') updatePayload.estatus_general = 'Aprobada'
       if (newStatus === 'Rechazado') updatePayload.estatus_general = 'Rechazada'
     }
@@ -436,7 +509,7 @@ export default function ContratistasAdminPage() {
         remitente_id: user?.id || null,
         remitente_nombre: actor,
         remitente_rol: factor === 'departamento' ? 'Departamento' : factor === 'seguridad' ? 'Seguridad' : factor === 'campamento' ? 'Campamentos' : 'RH',
-        mensaje: `Factor ${factor.toUpperCase()} actualizado a "${newStatus}".${note ? ` Nota: ${note}` : ''}`,
+        mensaje: `Factor ${factor.toUpperCase()} actualizado a "${newStatus}" por ${actor}.`,
       },
     ])
 
@@ -922,61 +995,79 @@ export default function ContratistasAdminPage() {
                   </div>
                 </div>
 
-                {/* Multi-Factor Action Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {/* Factor Documentos */}
+                {/* Multi-Factor Action Grid (5 Niveles Claros) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                  {/* Factor 1: RH Unidad & Docs */}
                   <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase text-zinc-500">1. Docs (SAT/IMSS/NSS)</span>
-                      <span className={`text-[9px] font-black px-2 py-0.5 rounded border ${badgeClass(sol.estatus_documentos)}`}>{sol.estatus_documentos}</span>
+                    <div className="flex justify-between items-center gap-1">
+                      <span className="text-[10px] font-black uppercase text-amber-700">1. RH Unidad &amp; Docs</span>
+                      <span className={`text-[9px] font-black px-2 py-0.5 rounded border ${badgeClass(sol.estatus_rh === 'Aprobado' ? 'Aprobado' : sol.estatus_documentos)}`}>{sol.estatus_rh || sol.estatus_documentos}</span>
                     </div>
                     {isRHOrAdmin && (
                       <div className="flex gap-1.5">
-                        <button onClick={() => handleUpdateFactor(sol, 'documentos', 'Completo')} className="flex-1 py-1 bg-emerald-600 text-white text-[10px] font-black rounded-lg">Validar</button>
-                        <button onClick={() => handleUpdateFactor(sol, 'documentos', 'Observaciones')} className="flex-1 py-1 bg-amber-500 text-black text-[10px] font-black rounded-lg">Observar</button>
+                        <button onClick={() => handleUpdateFactor(sol, 'rh', 'Aprobado')} className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black rounded-lg cursor-pointer">Aprobar RH</button>
+                        <button onClick={() => handleUpdateFactor(sol, 'documentos', 'Observaciones')} className="py-1.5 px-2 bg-amber-500 text-black text-[10px] font-black rounded-lg cursor-pointer">Obs.</button>
                       </div>
                     )}
                   </div>
 
-                  {/* Factor Departamento */}
+                  {/* Factor 2: RH Corporativo */}
+                  <div className="p-3.5 rounded-xl bg-indigo-50/60 border border-indigo-200 space-y-2">
+                    <div className="flex justify-between items-center gap-1">
+                      <span className="text-[10px] font-black uppercase text-indigo-700">2. RH Corporativo</span>
+                      <span className={`text-[9px] font-black px-2 py-0.5 rounded border ${badgeClass(rhCorpMap[sol.id_solicitud]?.approved ? 'Aprobado' : 'Pendiente')}`}>
+                        {rhCorpMap[sol.id_solicitud]?.approved ? 'Aprobado' : 'Pendiente'}
+                      </span>
+                    </div>
+                    {isRHCorporativo && (
+                      <div className="flex gap-1.5">
+                        <button onClick={() => handleUpdateFactor(sol, 'rh_corporativo', 'Aprobado')} className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black rounded-lg cursor-pointer">Vo.Bo. Corp.</button>
+                        <button onClick={() => handleUpdateFactor(sol, 'rh_corporativo', 'Rechazado')} className="py-1.5 px-2 bg-rose-600 text-white text-[10px] font-black rounded-lg cursor-pointer">✕</button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Factor 3: Departamento Operativo (Si es Campamento lo autoriza Campamentos, NO Mina) */}
                   <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase text-zinc-500">2. Depto Interesado</span>
+                    <div className="flex justify-between items-center gap-1">
+                      <span className="text-[10px] font-black uppercase text-zinc-700">
+                        3. {areDepartmentsEquivalent(sol.departamento_nombre, 'CAMPAMENTO Y COMEDOR') ? 'Jefe Campamentos' : `Depto (${sol.departamento_nombre})`}
+                      </span>
                       <span className={`text-[9px] font-black px-2 py-0.5 rounded border ${badgeClass(sol.estatus_departamento)}`}>{sol.estatus_departamento}</span>
                     </div>
-                    {(isJefeDepto || isRHOrAdmin) && (
+                    {(isJefeDepto || isCampamento || isRHOrAdmin) && (
                       <div className="flex gap-1.5">
-                        <button onClick={() => handleUpdateFactor(sol, 'departamento', 'Aprobado')} className="flex-1 py-1 bg-emerald-600 text-white text-[10px] font-black rounded-lg">Vo.Bo.</button>
-                        <button onClick={() => handleUpdateFactor(sol, 'departamento', 'En Diálogo')} className="flex-1 py-1 bg-blue-600 text-white text-[10px] font-black rounded-lg">Diálogo</button>
-                        <button onClick={() => handleUpdateFactor(sol, 'departamento', 'Rechazado')} className="py-1 px-2 bg-rose-600 text-white text-[10px] font-black rounded-lg">✕</button>
+                        <button onClick={() => handleUpdateFactor(sol, 'departamento', 'Aprobado')} className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black rounded-lg cursor-pointer">Vo.Bo.</button>
+                        <button onClick={() => handleUpdateFactor(sol, 'departamento', 'En Diálogo')} className="py-1.5 px-2 bg-blue-600 text-white text-[10px] font-black rounded-lg cursor-pointer">Diál.</button>
+                        <button onClick={() => handleUpdateFactor(sol, 'departamento', 'Rechazado')} className="py-1.5 px-2 bg-rose-600 text-white text-[10px] font-black rounded-lg cursor-pointer">✕</button>
                       </div>
                     )}
                   </div>
 
-                  {/* Factor Seguridad */}
-                  <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase text-zinc-500">3. Seguridad / Inducción</span>
+                  {/* Factor 4: Seguridad Industrial */}
+                  <div className="p-3.5 rounded-xl bg-orange-50/60 border border-orange-200 space-y-2">
+                    <div className="flex justify-between items-center gap-1">
+                      <span className="text-[10px] font-black uppercase text-orange-800">4. Seguridad HSE</span>
                       <span className={`text-[9px] font-black px-2 py-0.5 rounded border ${badgeClass(sol.estatus_seguridad)}`}>{sol.estatus_seguridad}</span>
                     </div>
-                    {isRHOrAdmin && (
+                    {(isSeguridad || isRHOrAdmin) && (
                       <div className="flex gap-1.5">
-                        <button onClick={() => handleUpdateFactor(sol, 'seguridad', 'Aprobado')} className="flex-1 py-1 bg-emerald-600 text-white text-[10px] font-black rounded-lg">Aprobar Ind.</button>
-                        <button onClick={() => handleUpdateFactor(sol, 'seguridad', 'Rechazado')} className="py-1 px-2 bg-rose-600 text-white text-[10px] font-black rounded-lg">✕</button>
+                        <button onClick={() => handleUpdateFactor(sol, 'seguridad', 'Aprobado')} className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black rounded-lg cursor-pointer">Aprobar Ind.</button>
+                        <button onClick={() => handleUpdateFactor(sol, 'seguridad', 'Rechazado')} className="py-1.5 px-2 bg-rose-600 text-white text-[10px] font-black rounded-lg cursor-pointer">✕</button>
                       </div>
                     )}
                   </div>
 
-                  {/* Factor Campamentos */}
-                  <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase text-zinc-500">4. Campamentos</span>
+                  {/* Factor 5: Jefe de Campamentos (Independiente de Mina) */}
+                  <div className="p-3.5 rounded-xl bg-teal-50/60 border border-teal-200 space-y-2">
+                    <div className="flex justify-between items-center gap-1">
+                      <span className="text-[10px] font-black uppercase text-teal-800">5. Jefe Campamentos</span>
                       <span className={`text-[9px] font-black px-2 py-0.5 rounded border ${badgeClass(sol.estatus_campamento)}`}>{sol.estatus_campamento}</span>
                     </div>
-                    {sol.requiere_campamento && isRHOrAdmin && (
+                    {(sol.requiere_campamento || isCampamento) && (isCampamento || isRHOrAdmin) && (
                       <div className="flex gap-1.5">
-                        <button onClick={() => handleUpdateFactor(sol, 'campamento', 'Disponible / Asignado')} className="flex-1 py-1 bg-teal-600 text-white text-[10px] font-black rounded-lg">Hay Cupo</button>
-                        <button onClick={() => handleUpdateFactor(sol, 'campamento', 'Sin Cupo')} className="py-1 px-2 bg-rose-600 text-white text-[10px] font-black rounded-lg">Sin Cupo</button>
+                        <button onClick={() => handleUpdateFactor(sol, 'campamento', 'Disponible / Asignado')} className="flex-1 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-[10px] font-black rounded-lg cursor-pointer">Hay Cupo</button>
+                        <button onClick={() => handleUpdateFactor(sol, 'campamento', 'Sin Cupo')} className="py-1.5 px-2 bg-rose-600 text-white text-[10px] font-black rounded-lg cursor-pointer">✕</button>
                       </div>
                     )}
                   </div>
@@ -1624,6 +1715,9 @@ export default function ContratistasAdminPage() {
                         {d.departamento}
                       </option>
                     ))}
+                    <option value="EXTRA:CAMPAMENTO Y COMEDOR">CAMPAMENTO Y COMEDOR (Jefe de Campamentos)</option>
+                    <option value="EXTRA:SEGURIDAD INDUSTRIAL">SEGURIDAD INDUSTRIAL</option>
+                    <option value="EXTRA:RECURSOS HUMANOS">RECURSOS HUMANOS</option>
                   </select>
                 </div>
                 <div>

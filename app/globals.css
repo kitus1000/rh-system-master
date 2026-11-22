@@ -24,6 +24,49 @@ body {
 }
 
 /* ============================================================================
+   ADAPTACIÓN FLUIDA A TODOS LOS MONITORES Y ESCALADO INTELIGENTE DE TIPOGRAFÍA
+   ============================================================================ */
+html[data-font-scale="auto"],
+html:not([data-font-scale]) {
+  font-size: clamp(15.5px, 0.42vw + 11.8px, 20.5px);
+}
+
+html[data-font-scale="normal"] {
+  font-size: 16px;
+}
+
+html[data-font-scale="large"] {
+  font-size: 17.5px;
+}
+
+html[data-font-scale="xlarge"] {
+  font-size: 19px;
+}
+
+/* Expandir contenedores dentro del área de trabajo para aprovechar monitores grandes y panorámicos */
+main > .max-w-4xl:not(.hoja-carta):not(.hoja-impresion):not(.ficha-media-carta),
+main > .max-w-5xl:not(.hoja-carta):not(.hoja-impresion):not(.ficha-media-carta),
+main > .max-w-6xl:not(.hoja-carta):not(.hoja-impresion):not(.ficha-media-carta),
+main > .max-w-7xl:not(.hoja-carta):not(.hoja-impresion):not(.ficha-media-carta) {
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+/* Evitar que textos diminutos se achiquen demasiado en pantalla (excluye hojas de impresión física) */
+main :not(.hoja-carta):not(.hoja-carta *):not(.hoja-impresion):not(.hoja-impresion *):not(.ficha-media-carta):not(.ficha-media-carta *).text-\[8px\],
+main :not(.hoja-carta):not(.hoja-carta *):not(.hoja-impresion):not(.hoja-impresion *):not(.ficha-media-carta):not(.ficha-media-carta *).text-\[9px\],
+main :not(.hoja-carta):not(.hoja-carta *):not(.hoja-impresion):not(.hoja-impresion *):not(.ficha-media-carta):not(.ficha-media-carta *).text-\[10px\] {
+  font-size: max(0.74rem, 11.8px) !important;
+  line-height: 1.38 !important;
+}
+
+main :not(.hoja-carta):not(.hoja-carta *):not(.hoja-impresion):not(.hoja-impresion *):not(.ficha-media-carta):not(.ficha-media-carta *).text-\[11px\],
+main :not(.hoja-carta):not(.hoja-carta *):not(.hoja-impresion):not(.hoja-impresion *):not(.ficha-media-carta):not(.ficha-media-carta *).text-xs {
+  font-size: max(0.82rem, 13.2px) !important;
+  line-height: 1.46 !important;
+}
+
+/* ============================================================================
    VISTA 1: MODO INSTITUCIONAL BACÍS (ORO, COBRE, MARFIL Y GRAFITO MINERO)
    ============================================================================ */
 [data-theme="bacis"] .app-shell-bg {

@@ -19,12 +19,16 @@ import {
   CheckSquare,
   FlaskConical,
   RotateCcw,
+  Monitor,
 } from 'lucide-react'
+
+type FontScaleMode = 'auto' | 'normal' | 'large' | 'xlarge'
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [themeMode, setThemeMode] = useState<'bacis' | 'dark'>('bacis')
+  const [fontScale, setFontScale] = useState<FontScaleMode>('auto')
   const pathname = usePathname()
   const { testLevelId, activeTestLevel, setTestLevel } = useAuth()
 
@@ -33,6 +37,14 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     const initial = savedTheme === 'dark' ? 'dark' : 'bacis'
     setThemeMode(initial)
     document.documentElement.setAttribute('data-theme', initial)
+
+    const savedScale = localStorage.getItem('bacis_font_scale') as FontScaleMode | null
+    const initialScale: FontScaleMode =
+      savedScale === 'normal' || savedScale === 'large' || savedScale === 'xlarge' || savedScale === 'auto'
+        ? savedScale
+        : 'auto'
+    setFontScale(initialScale)
+    document.documentElement.setAttribute('data-font-scale', initialScale)
   }, [])
 
   const handleSetTheme = (nextTheme: 'bacis' | 'dark') => {
@@ -40,6 +52,12 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     localStorage.setItem('bacis_ui_theme', nextTheme)
     document.documentElement.setAttribute('data-theme', nextTheme)
     window.dispatchEvent(new CustomEvent('bacis-theme-change', { detail: nextTheme }))
+  }
+
+  const handleSetFontScale = (nextScale: FontScaleMode) => {
+    setFontScale(nextScale)
+    localStorage.setItem('bacis_font_scale', nextScale)
+    document.documentElement.setAttribute('data-font-scale', nextScale)
   }
 
   const isTestModeActive = testLevelId !== 'REAL_SESSION'
@@ -173,8 +191,37 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* Derecha: CONMUTADOR MODO PRUEBA DE NIVEL + SELECTOR DE 2 VISTAS */}
+          {/* Derecha: CONMUTADOR MODO PRUEBA DE NIVEL + ESCALA MONITOR/LETRA + SELECTOR DE 2 VISTAS */}
           <div className="flex items-center gap-2 shrink-0">
+            {/* Control de Tamaño de Letra / Adaptación a Monitor */}
+            <div
+              className="hidden sm:flex items-center gap-0.5 bg-zinc-900 p-1 rounded-xl border border-zinc-800 shrink-0"
+              title="Ajusta el tamaño de letra y escala visual según tu monitor"
+            >
+              <Monitor className="w-3.5 h-3.5 text-amber-400 mx-1 hidden xl:inline" />
+              {(
+                [
+                  { id: 'normal', label: 'A' },
+                  { id: 'large', label: 'A+' },
+                  { id: 'xlarge', label: 'A++' },
+                  { id: 'auto', label: 'Auto' },
+                ] as { id: FontScaleMode; label: string }[]
+              ).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleSetFontScale(item.id)}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                    fontScale === item.id
+                      ? 'bg-amber-500 text-zinc-950 shadow-sm'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
             {/* Selector Global de Vista por Nivel de Autorización (Modo Prueba) */}
             <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-xl px-2 py-1">
               <FlaskConical
