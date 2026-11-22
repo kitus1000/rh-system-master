@@ -41,7 +41,11 @@ import {
 } from 'lucide-react'
 import { formatShortDate, diffDaysInclusive, isSchemaMissingError } from '@/utils/contratistasConfig'
 import { generateConvocatoriaSindicatoPDF } from '@/utils/convocatoriaSindicatoPdf'
-import { getEmployeeRegimenClassification } from '@/utils/dataNormalization'
+import {
+  getEmployeeRegimenClassification,
+  isTitularPatient,
+  isMergedGhostEmployee,
+} from '@/utils/dataNormalization'
 import {
   generateSimulacionReglasPDF,
   type SimulacionReglasReportData,
@@ -268,7 +272,7 @@ export default function MovimientosSindicatoPage() {
           .order('nombre'),
         supabase.from('pacientes').select('id_paciente, id_empleado, nombre_completo, parentesco').order('nombre_completo'),
       ])
-      if (empRes.data) setEmpleadosCatalog(empRes.data)
+      if (empRes.data) setEmpleadosCatalog(empRes.data.filter((e: any) => !isMergedGhostEmployee(e)))
       if (pacRes.data) setPacientesCatalog(pacRes.data)
 
       const { data: vacData, error: vacErr } = await supabase
@@ -1191,7 +1195,7 @@ export default function MovimientosSindicatoPage() {
   const beneficiariosByEmpId = useMemo(() => {
     const map = new Map<string, any[]>()
     pacientesCatalog.forEach((pac) => {
-      if (!pac.id_empleado) return
+      if (!pac.id_empleado || isTitularPatient(pac)) return
       const key = String(pac.id_empleado)
       const list = map.get(key) || []
       list.push(pac)

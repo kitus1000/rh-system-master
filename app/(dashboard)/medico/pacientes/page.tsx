@@ -24,7 +24,14 @@ import {
     RefreshCw
 } from 'lucide-react'
 import Link from 'next/link'
-import { normalizeNameTokens, getEmployeeFullName } from '@/utils/dataNormalization'
+import {
+    normalizeNameTokens,
+    normalizeNameTokensForDedup,
+    getEmployeeFullName,
+    isTitularPatient,
+    isMergedGhostEmployee,
+    detectPatientDuplicateGroups,
+} from '@/utils/dataNormalization'
 
 export default function PacientesPage() {
     const [activeTab, setActiveTab] = useState<'trabajadores' | 'beneficiarios'>('trabajadores')
@@ -116,7 +123,7 @@ export default function PacientesPage() {
             .from('empleados')
             .select('id_empleado, numero_empleado, nombre, apellido_paterno, apellido_materno, departamento, puesto, curp, rfc, nss, estado_empleado')
             .order('nombre')
-        if (data) setEmpleados(data)
+        if (data) setEmpleados(data.filter((e: any) => !isMergedGhostEmployee(e)))
     }
 
     const fetchDepartamentos = async () => {
@@ -285,13 +292,8 @@ export default function PacientesPage() {
         return full.includes(query) || dept.includes(query) || puesto.includes(query)
     })
 
-    // Filter beneficiaries for Tab 2
-    const beneficiariosList = pacientes.filter(p => 
-        p.parentesco && 
-        p.parentesco.toUpperCase() !== 'TITULAR (TRABAJADOR)' && 
-        p.parentesco.toUpperCase() !== 'TITULAR' &&
-        p.parentesco.toUpperCase() !== 'ELLA MISMA'
-    )
+    // Filter beneficiaries for Tab 2 (usando identificador canónico compartido)
+    const beneficiariosList = pacientes.filter(p => !isTitularPatient(p))
 
     const filteredBeneficiarios = beneficiariosList.filter(p => {
         const nameMatch = (p.nombre_completo || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -300,56 +302,11 @@ export default function PacientesPage() {
         return nameMatch || parentMatch || empName.includes(searchQuery.toLowerCase())
     })
 
-    // Detección de beneficiarios duplicados o con nombres invertidos
+    // Detección unificada y compartida (exacta, invertida, fonética, abreviaturas y por mismo titular)
     const duplicateBeneficiaryGroups = useMemo(() => {
-        const nonTitulars = pacientes.filter(p => {
-            const pUpper = String(p.parentesco || '').toUpperCase()
-            return pUpper !== 'TITULAR (TRABAJADOR)' && pUpper !== 'TITULAR' && pUpper !== 'ELLA MISMA'
+        return detectPatientDuplicateGroups(pacientes, consultasCountMap, pasesCountMap, {
+            includeTitularDuplicates: true,
         })
-
-        const map: Record<string, any[]> = {}
-        nonTitulars.forEach(p => {
-            const tokens = normalizeNameTokens(p.nombre_completo || '')
-            if (tokens.length < 2) return
-            const key = tokens.join('|')
-            if (!map[key]) map[key] = []
-            map[key].push(p)
-        })
-
-        const groups: {
-            key: string
-            normalizedName: string
-            items: any[]
-            recommendedMasterId: string
-        }[] = []
-
-        Object.entries(map).forEach(([key, items]) => {
-            if (items.length > 1) {
-                let bestItem = items[0]
-                let bestScore = -1
-                items.forEach(it => {
-                    const cCount = consultasCountMap[it.id_paciente] || 0
-                    const pCount = pasesCountMap[it.id_paciente] || 0
-                    let score = (cCount * 10) + (pCount * 5)
-                    if (it.id_empleado) score += 20
-                    if (it.parentesco && it.parentesco !== 'Población General') score += 5
-                    if (it.acompanante) score += 2
-                    if (score > bestScore) {
-                        bestScore = score
-                        bestItem = it
-                    }
-                })
-
-                groups.push({
-                    key,
-                    normalizedName: items[0].nombre_completo,
-                    items,
-                    recommendedMasterId: bestItem.id_paciente
-                })
-            }
-        })
-
-        return groups
     }, [pacientes, consultasCountMap, pasesCountMap])
 
     useEffect(() => {
@@ -367,57 +324,45 @@ export default function PacientesPage() {
     // Alerta en vivo si en el formulario se captura un beneficiario que ya existe
     const formDuplicateWarning = useMemo(() => {
         if (!formData.nombre_completo.trim()) return null
-        const tokens = normalizeNameTokens(formData.nombre_completo)
+        const tokens = normalizeNameTokensForDedup(formData.nombre_completo)
         if (tokens.length < 2) return null
         const key = tokens.join('|')
         return pacientes.find(p => {
-            const pTokens = normalizeNameTokens(p.nombre_completo || '').join('|')
+            if (isTitularPatient(p)) return false
+            const pTokens = normalizeNameTokensForDedup(p.nombre_completo || '').join('|')
             return pTokens && pTokens === key
         })
     }, [formData.nombre_completo, pacientes])
 
-    // Función segura para unificar un grupo de beneficiarios sin perder consultas ni duplicar
+    // Función atómica vía servidor para unificar un grupo sin dejar duplicados ni perder consultas/pases
     const mergeBeneficiaryGroup = async (group: any) => {
         const masterId = selectedMasterMap[group.key] || group.recommendedMasterId
-        const masterItem = group.items.find((i: any) => i.id_paciente === masterId) || group.items[0]
-        const duplicates = group.items.filter((i: any) => i.id_paciente !== masterId)
+        const duplicates = group.items.filter((i: any) => String(i.id_paciente) !== String(masterId))
 
         if (duplicates.length === 0) return
 
         setIsMerging(true)
         try {
-            for (const dup of duplicates) {
-                // 1. Re-vincular consultas médicas al Maestro
-                await supabase
-                    .from('consultas_medicas')
-                    .update({ id_paciente: masterId })
-                    .eq('id_paciente', dup.id_paciente)
-
-                // 2. Re-vincular pases médicos al Maestro
-                await supabase
-                    .from('pases_medicos')
-                    .update({ id_paciente: masterId })
-                    .eq('id_paciente', dup.id_paciente)
-
-                // 3. Consolidar campos vacíos en el Maestro
-                const patch: any = {}
-                if (!masterItem.id_empleado && dup.id_empleado) patch.id_empleado = dup.id_empleado
-                if ((!masterItem.parentesco || masterItem.parentesco === 'Población General') && dup.parentesco && dup.parentesco !== 'Población General') {
-                    patch.parentesco = dup.parentesco
-                    patch.es_poblacion_general = false
-                }
-                if (!masterItem.fecha_nacimiento && dup.fecha_nacimiento) patch.fecha_nacimiento = dup.fecha_nacimiento
-                if (!masterItem.acompanante && dup.acompanante) patch.acompanante = dup.acompanante
-                if (Object.keys(patch).length > 0) {
-                    await supabase.from('pacientes').update(patch).eq('id_paciente', masterId)
-                }
-
-                // 4. Eliminar el registro duplicado secundario
-                await supabase.from('pacientes').delete().eq('id_paciente', dup.id_paciente)
+            const res = await fetch('/api/duplicados/unificar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'merge_patients',
+                    groups: [
+                        {
+                            masterId,
+                            duplicateIds: duplicates.map((d: any) => d.id_paciente),
+                        }
+                    ]
+                })
+            })
+            const json = await res.json().catch(() => ({}))
+            if (!res.ok || !json.success) {
+                throw new Error(json.error || `Error del servidor unificando (${res.status})`)
             }
 
             await fetchPacientes()
-            alert(`¡Beneficiario "${group.normalizedName}" consolidado exitosamente en un solo registro maestro sin duplicar!`)
+            alert(`¡"${group.normalizedName}" unificado definitivamente (${json.mergedCount} duplicado(s) eliminado(s), todas las consultas y pases conservados)!`)
         } catch (err: any) {
             console.error('Error al unificar beneficiario:', err)
             alert('Error al unificar: ' + err.message)
@@ -426,45 +371,44 @@ export default function PacientesPage() {
         }
     }
 
-    // Unificación masiva de todos los beneficiarios duplicados
+    // Unificación masiva atómica vía servidor de todos los beneficiarios duplicados
     const mergeAllBeneficiaryGroups = async () => {
-        if (!confirm(`¿Deseas unificar los ${duplicateBeneficiaryGroups.length} grupos de beneficiarios duplicados?\n\nSe conservarán íntegras todas las consultas y pases médicos en el registro más completo de cada persona y se eliminarán los duplicados redundantes.`)) {
+        if (!confirm(`¿Deseas unificar definitivamente los ${duplicateBeneficiaryGroups.length} grupos duplicados?\n\nSe conservarán íntegras todas las consultas y pases médicos en el registro Maestro más completo de cada persona y se eliminarán los duplicados de la base de datos.`)) {
             return
         }
 
         setIsMerging(true)
         try {
-            for (const group of duplicateBeneficiaryGroups) {
-                const masterId = selectedMasterMap[group.key] || group.recommendedMasterId
-                const masterItem = group.items.find((i: any) => i.id_paciente === masterId) || group.items[0]
-                const duplicates = group.items.filter((i: any) => i.id_paciente !== masterId)
-
-                for (const dup of duplicates) {
-                    await supabase.from('consultas_medicas').update({ id_paciente: masterId }).eq('id_paciente', dup.id_paciente)
-                    await supabase.from('pases_medicos').update({ id_paciente: masterId }).eq('id_paciente', dup.id_paciente)
-
-                    const patch: any = {}
-                    if (!masterItem.id_empleado && dup.id_empleado) patch.id_empleado = dup.id_empleado
-                    if ((!masterItem.parentesco || masterItem.parentesco === 'Población General') && dup.parentesco && dup.parentesco !== 'Población General') {
-                        patch.parentesco = dup.parentesco
-                        patch.es_poblacion_general = false
-                    }
-                    if (!masterItem.fecha_nacimiento && dup.fecha_nacimiento) patch.fecha_nacimiento = dup.fecha_nacimiento
-                    if (!masterItem.acompanante && dup.acompanante) patch.acompanante = dup.acompanante
-                    if (Object.keys(patch).length > 0) {
-                        await supabase.from('pacientes').update(patch).eq('id_paciente', masterId)
-                    }
-
-                    await supabase.from('pacientes').delete().eq('id_paciente', dup.id_paciente)
+            const payloadGroups = duplicateBeneficiaryGroups.map(g => {
+                const masterId = selectedMasterMap[g.key] || g.recommendedMasterId
+                return {
+                    masterId,
+                    duplicateIds: g.items
+                        .filter((i: any) => String(i.id_paciente) !== String(masterId))
+                        .map((i: any) => i.id_paciente)
                 }
+            })
+
+            const res = await fetch('/api/duplicados/unificar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'merge_patients',
+                    groups: payloadGroups,
+                })
+            })
+            const json = await res.json().catch(() => ({}))
+            if (!res.ok || !json.success) {
+                throw new Error(json.error || `Error del servidor en unificación masiva (${res.status})`)
             }
 
             await fetchPacientes()
             setShowUnificarModal(false)
-            alert(`¡Se unificaron exitosamente todos los beneficiarios duplicados! Se conservó todo el historial médico y se eliminaron las duplicidades.`)
+            alert(`¡Padrón limpiado! Se unificaron ${json.mergedCount} registro(s) duplicados conservando el 100% de consultas y pases médicos.`)
         } catch (err: any) {
             console.error('Error en unificación masiva:', err)
             alert('Error al unificar en lote: ' + err.message)
+            await fetchPacientes()
         } finally {
             setIsMerging(false)
         }
@@ -482,6 +426,10 @@ export default function PacientesPage() {
                     <p className="text-zinc-500 text-xs font-semibold mt-1">
                         Catálogo oficial de personal titular y familiares con cobertura de servicios médicos y pases.
                     </p>
+                    <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-200 text-[10px] font-black text-blue-900">
+                        <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Base de Datos Única Sincronizada (pacientes ↔ empleados) con Consultas, Pases, RH y Sindicato</span>
+                    </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2.5">
@@ -845,7 +793,7 @@ export default function PacientesPage() {
                                     filteredEmpleados.map(emp => {
                                         const fullName = getEmpFullName(emp)
                                         const isBaja = emp.estado_empleado === 'BAJA' || emp.estado_empleado === 'INACTIVO'
-                                        const countBeneficiarios = pacientes.filter(p => p.id_empleado === emp.id_empleado && p.parentesco && p.parentesco.toUpperCase() !== 'TITULAR (TRABAJADOR)').length
+                                        const countBeneficiarios = pacientes.filter(p => p.id_empleado === emp.id_empleado && !isTitularPatient(p)).length
 
                                         return (
                                             <tr 
@@ -1137,10 +1085,10 @@ export default function PacientesPage() {
                             </div>
 
                             <div className="bg-zinc-50 rounded-2xl border border-zinc-200/80 divide-y divide-zinc-200 max-h-40 overflow-y-auto">
-                                {pacientes.filter(p => p.id_empleado === selectedWorkerModal.id_empleado && p.parentesco && p.parentesco.toUpperCase() !== 'TITULAR (TRABAJADOR)').length === 0 ? (
+                                {pacientes.filter(p => p.id_empleado === selectedWorkerModal.id_empleado && !isTitularPatient(p)).length === 0 ? (
                                     <div className="p-4 text-center text-xs text-zinc-400 font-semibold">Sin beneficiarios dados de alta para este trabajador.</div>
                                 ) : (
-                                    pacientes.filter(p => p.id_empleado === selectedWorkerModal.id_empleado && p.parentesco && p.parentesco.toUpperCase() !== 'TITULAR (TRABAJADOR)').map(fam => (
+                                    pacientes.filter(p => p.id_empleado === selectedWorkerModal.id_empleado && !isTitularPatient(p)).map(fam => (
                                         <div key={fam.id_paciente} className="p-3 flex justify-between items-center text-xs">
                                             <div>
                                                 <div className="font-black text-zinc-900">{fam.nombre_completo}</div>

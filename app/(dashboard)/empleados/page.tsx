@@ -33,6 +33,8 @@ import {
   normalizeNameTokens,
   getEmployeeFullName,
   getEmployeeRegimenClassification,
+  isTitularPatient,
+  isMergedGhostEmployee,
 } from '@/utils/dataNormalization'
 
 export default function EmpleadosPage() {
@@ -162,7 +164,7 @@ export default function EmpleadosPage() {
         if (retry.data) empList = retry.data
       }
 
-      setEmpleados(empList)
+      setEmpleados(empList.filter((e) => !isMergedGhostEmployee(e)))
     } catch (error) {
       console.error('Error fetching empleados:', error)
     } finally {
@@ -210,7 +212,7 @@ export default function EmpleadosPage() {
   const beneficiariosByEmpleado = useMemo(() => {
     const map = new Map<string, any[]>()
     pacientes.forEach((p) => {
-      if (!p.id_empleado) return
+      if (!p.id_empleado || isTitularPatient(p)) return
       const key = String(p.id_empleado)
       const list = map.get(key) || []
       list.push(p)

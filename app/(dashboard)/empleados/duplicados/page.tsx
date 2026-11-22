@@ -31,6 +31,10 @@ import {
   analyzeSingleEmployeeNameStructure,
   invertEmployeeNameFields,
   getEmployeeFullName,
+  detectEmployeeDuplicateGroups,
+  detectPatientDuplicateGroups,
+  isMergedGhostEmployee,
+  type UnifiedPatientDuplicateGroup,
 } from '@/utils/dataNormalization'
 
 interface DuplicatePersonGroup {
@@ -107,9 +111,14 @@ export default function CentroDepuracionDuplicadosPage() {
     Record<string, { nombre: string; apellido_paterno: string; apellido_materno: string; departamento: string }>
   >({})
 
+  // Estado Registros Fantasma [FUSIONADO]
+  const [ghostEmployees, setGhostEmployees] = useState<any[]>([])
+
   // Estado Pestaña Pacientes Duplicados
-  const [patientDuplicates, setPatientDuplicates] = useState<DuplicatePersonGroup[]>([])
+  const [patientDuplicates, setPatientDuplicates] = useState<UnifiedPatientDuplicateGroup[]>([])
   const [selectedPatientMaster, setSelectedPatientMaster] = useState<Record<string, string>>({})
+  const [consultasCountMap, setConsultasCountMap] = useState<Record<string, number>>({})
+  const [pasesCountMap, setPasesCountMap] = useState<Record<string, number>>({})
 
   useEffect(() => {
     fetchAllSystemData()
@@ -119,13 +128,15 @@ export default function CentroDepuracionDuplicadosPage() {
     setLoading(true)
     setErrorMsg('')
     try {
-      const [empRes, catDepRes, adsRes, perfRes, lockRes, pacRes] = await Promise.all([
+      const [empRes, catDepRes, adsRes, perfRes, lockRes, pacRes, conRes, pasRes] = await Promise.all([
         supabase.from('empleados').select('*').order('apellido_paterno', { ascending: true }),
         supabase.from('cat_departamentos').select('*').order('departamento', { ascending: true }),
         supabase.from('empleado_adscripciones').select('*, cat_departamentos(id_departamento, departamento)'),
         supabase.from('perfiles').select('id, nombre_completo, rol, id_departamento'),
         supabase.from('lockers_modulos').select('id_modulo, codigo_modulo, area, bateria'),
         supabase.from('pacientes').select('*, empleados(nombre, apellido_paterno, apellido_materno)').order('nombre_completo'),
+        supabase.from('consultas_medicas').select('id_paciente'),
+        supabase.from('pases_medicos').select('id_paciente'),
       ])
 
       const empData = empRes.data || []
@@ -135,15 +146,27 @@ export default function CentroDepuracionDuplicadosPage() {
       const lockData = lockRes.data || []
       const pacData = pacRes.data || []
 
+      const cMap: Record<string, number> = {}
+      ;(conRes.data || []).forEach((c: any) => {
+        if (c.id_paciente) cMap[c.id_paciente] = (cMap[c.id_paciente] || 0) + 1
+      })
+
+      const pMap: Record<string, number> = {}
+      ;(pasRes.data || []).forEach((p: any) => {
+        if (p.id_paciente) pMap[p.id_paciente] = (pMap[p.id_paciente] || 0) + 1
+      })
+
       setEmpleados(empData)
       setCatDepartamentos(catData)
       setAdscripciones(adsData)
       setPerfiles(perfData)
       setLockersModulos(lockData)
       setPacientes(pacData)
+      setConsultasCountMap(cMap)
+      setPasesCountMap(pMap)
 
       runEmployeeDuplicateDetection(empData)
-      runPatientDuplicateDetection(pacData)
+      runPatientDuplicateDetection(pacData, cMap, pMap)
     } catch (err: any) {
       console.error('Error cargando datos para depuración:', err)
       setErrorMsg('Error al cargar datos: ' + (err.message || 'Verifica tu conexión'))
@@ -448,121 +471,9 @@ export default function CentroDepuracionDuplicadosPage() {
   // 2. DETECCIÓN DE PERSONAS DUPLICADAS Y NOMBRES INVERTIDOS (Jose Arana Chavez <-> Arana Chavez Jose)
   // ============================================================================
   const runEmployeeDuplicateDetection = (empList: any[]) => {
-    const tokenGroups: Record<string, any[]> = {}
-    const phoneticGroups: Record<string, any[]> = {}
-    const numEmpGroups: Record<string, any[]> = {}
-    const curpGroups: Record<string, any[]> = {}
+    const { groups: finalGroups, ghosts } = detectEmployeeDuplicateGroups(empList)
 
-    empList.forEach((emp) => {
-      const fullName = getEmployeeFullName(emp)
-      const tokens = normalizeNameTokens(fullName)
-      const phonetic = normalizePhoneticTokens(fullName)
-
-      const enriched = { ...emp, _computedName: fullName, _tokens: tokens }
-
-      if (tokens.length >= 2) {
-        const tKey = tokens.join('|')
-        if (!tokenGroups[tKey]) tokenGroups[tKey] = []
-        tokenGroups[tKey].push(enriched)
-      }
-
-      if (phonetic.length >= 2) {
-        const pKey = phonetic.join('|')
-        if (!phoneticGroups[pKey]) phoneticGroups[pKey] = []
-        phoneticGroups[pKey].push(enriched)
-      }
-
-      if (emp.numero_empleado) {
-        const nKey = String(emp.numero_empleado).trim()
-        if (!numEmpGroups[nKey]) numEmpGroups[nKey] = []
-        numEmpGroups[nKey].push(enriched)
-      }
-
-      if (emp.curp && String(emp.curp).trim().length >= 10) {
-        const cKey = cleanAsciiUpper(emp.curp)
-        if (!curpGroups[cKey]) curpGroups[cKey] = []
-        curpGroups[cKey].push(enriched)
-      }
-    })
-
-    const finalGroups: DuplicatePersonGroup[] = []
-    const pairedIds = new Set<string>()
-
-    const registerGroup = (items: any[], reason: string, keyPrefix: string) => {
-      // Filtrar items únicos por id_empleado
-      const uniqueMap = new Map<string, any>()
-      items.forEach((it) => uniqueMap.set(String(it.id_empleado), it))
-      const uniqueItems = Array.from(uniqueMap.values())
-      if (uniqueItems.length < 2) return
-
-      const signature = uniqueItems
-        .map((i) => i.id_empleado)
-        .sort()
-        .join('_')
-      if (pairedIds.has(signature)) return
-      pairedIds.add(signature)
-
-      finalGroups.push({
-        key: `${keyPrefix}_${signature}`,
-        matchReason: reason,
-        items: uniqueItems,
-      })
-    }
-
-    // 1. Exact Token Set Match (detecta 100% "Jose Arana Chavez" vs "Arana Chavez Jose")
-    Object.entries(tokenGroups).forEach(([tKey, group]) => {
-      if (group.length > 1) {
-        const distinctRawOrders = new Set(group.map((g) => cleanAsciiUpper(g._computedName)))
-        const reason =
-          distinctRawOrders.size > 1
-            ? '🔄 NOMBRE INVERTIDO O PERMUTADO (Mismas palabras en distinto orden)'
-            : '👥 NOMBRE EXACTAMENTE DUPLICADO'
-        registerGroup(group, reason, `TOKEN_${tKey}`)
-      }
-    })
-
-    // 2. Phonetic Match (detecta "Jose Arana Chavez" vs "Arana Chaves Jose")
-    Object.entries(phoneticGroups).forEach(([pKey, group]) => {
-      if (group.length > 1) {
-        registerGroup(group, '≈ COINCIDENCIA FONÉTICA / ORTOGRÁFICA (Ej. S/Z, B/V, H)', `PHON_${pKey}`)
-      }
-    })
-
-    // 3. Mismo Número de Empleado / Ficha
-    Object.entries(numEmpGroups).forEach(([nKey, group]) => {
-      if (group.length > 1) {
-        registerGroup(group, `🔢 MISMO NÚMERO DE EMPLEADO / FICHA (#${nKey})`, `NUM_${nKey}`)
-      }
-    })
-
-    // 4. Mismo CURP
-    Object.entries(curpGroups).forEach(([cKey, group]) => {
-      if (group.length > 1) {
-        registerGroup(group, `🧬 MISMA CURP (${cKey})`, `CURP_${cKey}`)
-      }
-    })
-
-    // 5. Similitud Parcial Jaccard (ej. "Jose Guadalupe Arana Chavez" vs "Arana Chavez Jose")
-    const tokenKeys = Object.keys(tokenGroups)
-    for (let i = 0; i < tokenKeys.length; i++) {
-      const k1 = tokenKeys[i]
-      const t1 = k1.split('|')
-      for (let j = i + 1; j < tokenKeys.length; j++) {
-        const k2 = tokenKeys[j]
-        const t2 = k2.split('|')
-        const set2 = new Set(t2)
-        const intersection = t1.filter((t) => set2.has(t))
-        const unionSize = new Set([...t1, ...t2]).size
-        if (intersection.length >= 2 && intersection.length / unionSize >= 0.72) {
-          registerGroup(
-            [...tokenGroups[k1], ...tokenGroups[k2]],
-            `🔍 ALTA SIMILITUD DE NOMBRE (${intersection.join(' ')})`,
-            `FUZZY_${k1}`
-          )
-        }
-      }
-    }
-
+    setGhostEmployees(ghosts)
     setPersonDuplicates(finalGroups)
 
     // Inicializar selección de Maestro y valores editables sugeridos
@@ -570,7 +481,6 @@ export default function CentroDepuracionDuplicadosPage() {
     const initEdits: typeof masterEdits = {}
 
     finalGroups.forEach((g) => {
-      // Elegir como maestro por defecto el que tenga estructura de nombre correcta (no invertida)
       const bestCandidate =
         g.items.find((it) => !analyzeSingleEmployeeNameStructure(it).isMalformed) || g.items[0]
       initMasters[g.key] = bestCandidate.id_empleado
@@ -627,10 +537,9 @@ export default function CentroDepuracionDuplicadosPage() {
   }
 
   /**
-   * Fusión profunda y segura de expedientes duplicados:
-   * 1. Actualiza el registro Maestro con el nombre/apellidos/departamento corregidos y rescata datos faltantes del duplicado.
-   * 2. Re-vincula TODAS las tablas del sistema que apuntan al duplicado hacia el Maestro.
-   * 3. Limpia tablas 1-a-1 del duplicado y elimina el registro duplicado.
+   * Fusión profunda y atómica en el servidor (/api/duplicados/unificar):
+   * Consolida todas las dependencias (incluyendo beneficiarios médicos sin duplicarlos),
+   * libera restricciones UNIQUE y elimina físicamente el duplicado sin dejar residuos.
    */
   const executeSafeEmployeeMerge = async (
     masterId: string,
@@ -644,145 +553,26 @@ export default function CentroDepuracionDuplicadosPage() {
       puesto: string
     }
   ) => {
-    const masterRecord = empleados.find((e) => String(e.id_empleado) === String(masterId))
-    if (!masterRecord) throw new Error('No se encontró el registro Maestro.')
+    const duplicateIds = duplicateItems
+      .map((d) => String(d.id_empleado))
+      .filter((id) => id && id !== String(masterId))
 
-    // 1. Consolidar datos del Maestro (rescatando CURP, NSS, RFC, teléfono, foto si el maestro los tenía vacíos)
-    const firstWithVal = (field: string) =>
-      masterRecord[field] || duplicateItems.find((d) => d[field])?.[field] || null
+    if (duplicateIds.length === 0) return
 
-    const updatePayload: any = {
-      nombre: (editedFields?.nombre ?? masterRecord.nombre ?? '').trim().toUpperCase(),
-      apellido_paterno: (editedFields?.apellido_paterno ?? masterRecord.apellido_paterno ?? '').trim().toUpperCase(),
-      apellido_materno: (editedFields?.apellido_materno ?? masterRecord.apellido_materno ?? '').trim().toUpperCase() || null,
-      departamento: editedFields?.departamento
-        ? canonicalizeDepartment(editedFields.departamento).officialName
-        : masterRecord.departamento || firstWithVal('departamento'),
-      puesto: editedFields?.puesto || masterRecord.puesto || firstWithVal('puesto'),
-      curp: firstWithVal('curp'),
-      rfc: firstWithVal('rfc'),
-      nss: firstWithVal('nss'),
-      telefono: firstWithVal('telefono'),
-      correo_electronico: firstWithVal('correo_electronico'),
-      foto_url: firstWithVal('foto_url'),
-    }
+    const res = await fetch('/api/duplicados/unificar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'merge_employees',
+        masterId,
+        duplicateIds,
+        editedFields,
+      }),
+    })
 
-    if (editedFields?.numero_empleado && !isNaN(parseInt(editedFields.numero_empleado))) {
-      updatePayload.numero_empleado = parseInt(editedFields.numero_empleado)
-    }
-
-    await supabase.from('empleados').update(updatePayload).eq('id_empleado', masterId)
-
-    // 2. Re-vincular todas las tablas satélites de cada duplicado hacia el Maestro
-    const tablesWithIdEmpleado = [
-      'pases_medicos',
-      'consultas_medicas',
-      'logistica_viajes_programados',
-      'logistica_reportes_diarios',
-      'campamento_camas',
-      'lockers_casilleros',
-      'comedor_registros',
-      'empleado_incidencias',
-      'empleado_roles',
-      'empleado_turnos',
-      'empleado_adscripciones',
-      'seguridad_inducciones',
-      'movimientos_postulaciones',
-      'evaluaciones',
-    ]
-
-    for (const dup of duplicateItems) {
-      const dupId = dup.id_empleado
-      if (String(dupId) === String(masterId)) continue
-
-      // 2.a Consolidar de forma inteligente pacientes y beneficiarios médicos para evitar duplicados
-      try {
-        const { data: masterPacientes } = await supabase.from('pacientes').select('*').eq('id_empleado', masterId)
-        const { data: dupPacientes } = await supabase.from('pacientes').select('*').eq('id_empleado', dupId)
-
-        const mList = masterPacientes || []
-        const dList = dupPacientes || []
-
-        const masterTitular = mList.find(p => String(p.parentesco || '').toUpperCase().includes('TITULAR'))
-
-        for (const dp of dList) {
-          const isTitular = String(dp.parentesco || '').toUpperCase().includes('TITULAR')
-          if (isTitular && masterTitular) {
-            // Re-vincular consultas y pases al titular maestro y eliminar el titular duplicado
-            await supabase.from('consultas_medicas').update({ id_paciente: masterTitular.id_paciente }).eq('id_paciente', dp.id_paciente)
-            await supabase.from('pases_medicos').update({ id_paciente: masterTitular.id_paciente }).eq('id_paciente', dp.id_paciente)
-            await supabase.from('pacientes').delete().eq('id_paciente', dp.id_paciente)
-          } else {
-            // Es un beneficiario / familiar: verificar si ya existe en el maestro
-            const dpTokens = normalizeNameTokens(dp.nombre_completo || '').join('|')
-            const existingMasterBeneficiary = mList.find(mp => {
-              if (String(mp.parentesco || '').toUpperCase().includes('TITULAR')) return false
-              const mpTokens = normalizeNameTokens(mp.nombre_completo || '').join('|')
-              return mpTokens && mpTokens === dpTokens
-            })
-
-            if (existingMasterBeneficiary) {
-              // Ya existe este beneficiario en el maestro: consolidar consultas/pases y eliminar el repetido
-              await supabase.from('consultas_medicas').update({ id_paciente: existingMasterBeneficiary.id_paciente }).eq('id_paciente', dp.id_paciente)
-              await supabase.from('pases_medicos').update({ id_paciente: existingMasterBeneficiary.id_paciente }).eq('id_paciente', dp.id_paciente)
-              const patch: any = {}
-              if (!existingMasterBeneficiary.parentesco && dp.parentesco) patch.parentesco = dp.parentesco
-              if (!existingMasterBeneficiary.fecha_nacimiento && dp.fecha_nacimiento) patch.fecha_nacimiento = dp.fecha_nacimiento
-              if (!existingMasterBeneficiary.acompanante && dp.acompanante) patch.acompanante = dp.acompanante
-              if (Object.keys(patch).length > 0) {
-                await supabase.from('pacientes').update(patch).eq('id_paciente', existingMasterBeneficiary.id_paciente)
-              }
-              await supabase.from('pacientes').delete().eq('id_paciente', dp.id_paciente)
-            } else {
-              // No existe aún en el maestro: conservarlo y reasignar id_empleado al maestro
-              await supabase.from('pacientes').update({ id_empleado: masterId }).eq('id_paciente', dp.id_paciente)
-            }
-          }
-        }
-      } catch (pacErr) {
-        console.warn('Aviso en consolidación médica al unificar empleado:', pacErr)
-      }
-
-      for (const table of tablesWithIdEmpleado) {
-        try {
-          await (supabase as any).from(table).update({ id_empleado: masterId }).eq('id_empleado', dupId)
-        } catch (_) {}
-      }
-
-      // Solicitudes pueden usar id_empleado o id_empleado_objetivo
-      try {
-        await supabase.from('solicitudes').update({ id_empleado: masterId }).eq('id_empleado', dupId)
-      } catch (_) {}
-      try {
-        await supabase
-          .from('solicitudes')
-          .update({ id_empleado_objetivo: masterId })
-          .eq('id_empleado_objetivo', dupId)
-      } catch (_) {}
-
-      // Limpiar tablas 1-a-1 secundarias del duplicado para liberar FK antes de eliminar
-      const oneToOneTables = ['empleado_domicilio', 'empleado_ingreso', 'empleado_banco', 'empleado_salarios']
-      for (const t1 of oneToOneTables) {
-        try {
-          await (supabase as any).from(t1).delete().eq('id_empleado', dupId)
-        } catch (_) {}
-      }
-
-      // Eliminar registro duplicado
-      const { error: delErr } = await supabase.from('empleados').delete().eq('id_empleado', dupId)
-      if (delErr) {
-        // Si alguna restricción impide el borrado físico, lo marcamos como Baja Inactiva y limpiamos su nombre para que no duplique
-        console.warn('Fallback soft-delete for duplicate employee:', delErr.message)
-        await supabase
-          .from('empleados')
-          .update({
-            estado_empleado: 'Baja',
-            nombre: `[FUSIONADO->#${updatePayload.numero_empleado || masterId}]`,
-            apellido_paterno: '',
-            apellido_materno: '',
-          })
-          .eq('id_empleado', dupId)
-      }
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok || !json.success) {
+      throw new Error(json.error || `Error del servidor al unificar (${res.status})`)
     }
   }
 
@@ -799,7 +589,7 @@ export default function CentroDepuracionDuplicadosPage() {
 
     if (
       !confirm(
-        `¿Confirmas unificar ${duplicateItems.length} expediente(s) duplicado(s) dentro del Registro Maestro "${finalDisplayName}"?\n\nTodo el historial (Vacaciones, Pases Médicos, Lockers, Campamento, Sindicato y Transporte) se conservará en el Maestro y el duplicado se eliminará.`
+        `¿Confirmas unificar ${duplicateItems.length} expediente(s) duplicado(s) dentro del Registro Maestro "${finalDisplayName}"?\n\nTodo el historial (Vacaciones, Pases Médicos, Beneficiarios sin duplicar, Lockers, Campamento, Sindicato y Transporte) se conservará en el Maestro y el duplicado se eliminará definitivamente.`
       )
     ) {
       return
@@ -810,10 +600,67 @@ export default function CentroDepuracionDuplicadosPage() {
     setSuccessMsg('')
     try {
       await executeSafeEmployeeMerge(masterId, duplicateItems, edit)
-      setSuccessMsg(`¡Expedientes unificados con éxito en "${finalDisplayName}"!`)
+      setSuccessMsg(`¡Expedientes unificados y depurados definitivamente en "${finalDisplayName}"!`)
       await fetchAllSystemData()
     } catch (err: any) {
       setErrorMsg('Error al fusionar expedientes: ' + err.message)
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const handleMergeAllPersonGroups = async () => {
+    if (personDuplicates.length === 0) return
+    if (
+      !confirm(
+        `¿Deseas unificar automáticamente los ${personDuplicates.length} grupos de trabajadores duplicados?\n\nPara cada grupo se conservará el Registro Maestro seleccionado, se migrará todo su historial (RH, Sindicato, Campamento, Lockers y Clínica Médica sin duplicar beneficiarios) y se eliminarán los registros repetidos.`
+      )
+    ) {
+      return
+    }
+
+    setProcessing(true)
+    setErrorMsg('')
+    setSuccessMsg('')
+    try {
+      let mergedGroups = 0
+      for (const group of personDuplicates) {
+        const masterId = selectedMasterId[group.key] || group.items[0].id_empleado
+        const duplicateItems = group.items.filter((i) => String(i.id_empleado) !== String(masterId))
+        if (duplicateItems.length === 0) continue
+        await executeSafeEmployeeMerge(masterId, duplicateItems, masterEdits[group.key])
+        mergedGroups++
+      }
+      setSuccessMsg(`¡Se unificaron ${mergedGroups} grupos de empleados duplicados de forma permanente!`)
+      await fetchAllSystemData()
+    } catch (err: any) {
+      setErrorMsg('Error en unificación masiva de empleados: ' + err.message)
+      await fetchAllSystemData()
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const handleCleanupGhostEmployees = async () => {
+    if (ghostEmployees.length === 0) return
+    setProcessing(true)
+    setErrorMsg('')
+    try {
+      const res = await fetch('/api/duplicados/unificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cleanup_ghosts' }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Error purgando residuos')
+      if (json.errors && json.errors.length > 0) {
+        setErrorMsg(`Se limpiaron ${json.purged} residuos, pero hubo avisos: ${json.errors.join(' | ')}`)
+      } else {
+        setSuccessMsg(`¡Se purgaron ${json.purged} registro(s) residuales [FUSIONADO] de la base de datos!`)
+      }
+      await fetchAllSystemData()
+    } catch (err: any) {
+      setErrorMsg('Error limpiando registros residuales: ' + err.message)
     } finally {
       setProcessing(false)
     }
@@ -856,15 +703,17 @@ export default function CentroDepuracionDuplicadosPage() {
   // 3. PESTAÑA DE NOMBRES INVERTIDOS EN REGISTRO ÚNICO (Arana Chavez Jose -> Jose Arana Chavez)
   // ============================================================================
   const analyzedSingleEmployees = useMemo(() => {
-    return empleados.map((emp) => {
-      const analysis = analyzeSingleEmployeeNameStructure(emp)
-      const deptInfo = canonicalizeDepartment(emp.departamento)
-      return {
-        emp,
-        analysis,
-        deptInfo,
-      }
-    })
+    return empleados
+      .filter((emp) => !isMergedGhostEmployee(emp))
+      .map((emp) => {
+        const analysis = analyzeSingleEmployeeNameStructure(emp)
+        const deptInfo = canonicalizeDepartment(emp.departamento)
+        return {
+          emp,
+          analysis,
+          deptInfo,
+        }
+      })
   }, [empleados])
 
   const malformedEmployeesCount = useMemo(
@@ -969,54 +818,112 @@ export default function CentroDepuracionDuplicadosPage() {
   }
 
   // ============================================================================
-  // 4. DETECCIÓN EN BENEFICIARIOS / PACIENTES
+  // 4. DETECCIÓN Y UNIFICACIÓN UNIFICADA EN BENEFICIARIOS / PACIENTES (MISMA BD `pacientes`)
   // ============================================================================
-  const runPatientDuplicateDetection = (pacList: any[]) => {
-    const groupsMap: Record<string, any[]> = {}
-    pacList.forEach((p) => {
-      const fullName = (p.nombre_completo || '').trim()
-      const tokens = normalizeNameTokens(fullName)
-      if (tokens.length < 2) return
-      const key = tokens.join('|')
-      if (!groupsMap[key]) groupsMap[key] = []
-      groupsMap[key].push({ ...p, _computedName: fullName })
-    })
-
-    const dupGroups: DuplicatePersonGroup[] = []
-    Object.entries(groupsMap).forEach(([k, items]) => {
-      if (items.length > 1) {
-        dupGroups.push({
-          key: k,
-          matchReason: '🔄 NOMBRE DUPLICADO O INVERTIDO EN BENEFICIARIOS',
-          items,
-        })
-      }
+  const runPatientDuplicateDetection = (
+    pacList: any[],
+    cMap: Record<string, number> = consultasCountMap,
+    pMap: Record<string, number> = pasesCountMap
+  ) => {
+    const dupGroups = detectPatientDuplicateGroups(pacList, cMap, pMap, {
+      includeTitularDuplicates: true,
     })
     setPatientDuplicates(dupGroups)
     const initM: Record<string, string> = {}
     dupGroups.forEach((g) => {
-      initM[g.key] = g.items[0].id_paciente
+      initM[g.key] = g.recommendedMasterId
     })
     setSelectedPatientMaster(initM)
   }
 
-  const handleMergePatientGroup = async (group: DuplicatePersonGroup) => {
-    const masterId = selectedPatientMaster[group.key]
+  const handleMergePatientGroup = async (group: UnifiedPatientDuplicateGroup) => {
+    const masterId = selectedPatientMaster[group.key] || group.recommendedMasterId
     if (!masterId) return
     const dups = group.items.filter((i) => String(i.id_paciente) !== String(masterId))
-    if (!confirm(`¿Unificar ${dups.length} beneficiario(s) duplicado(s) en el registro Maestro seleccionado?`)) return
+    if (dups.length === 0) return
+    if (
+      !confirm(
+        `¿Unificar ${dups.length} registro(s) duplicado(s) dentro del Maestro seleccionado?\n\nTodas las consultas médicas y pases se conservarán íntegros en el registro principal y el duplicado será eliminado definitivamente.`
+      )
+    ) {
+      return
+    }
 
     setProcessing(true)
+    setErrorMsg('')
+    setSuccessMsg('')
     try {
-      for (const dup of dups) {
-        await supabase.from('pases_medicos').update({ id_paciente: masterId }).eq('id_paciente', dup.id_paciente)
-        await supabase.from('consultas_medicas').update({ id_paciente: masterId }).eq('id_paciente', dup.id_paciente)
-        await supabase.from('pacientes').delete().eq('id_paciente', dup.id_paciente)
+      const res = await fetch('/api/duplicados/unificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'merge_patients',
+          groups: [
+            {
+              masterId,
+              duplicateIds: dups.map((d) => d.id_paciente),
+            },
+          ],
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || `Error del servidor unificando (${res.status})`)
       }
-      setSuccessMsg('¡Beneficiarios unificados correctamente!')
+      setSuccessMsg(
+        `¡"${group.normalizedName}" unificado definitivamente (${json.mergedCount} duplicado(s) eliminado(s), consultas y pases conservados)!`
+      )
       await fetchAllSystemData()
     } catch (e: any) {
       setErrorMsg('Error unificando beneficiarios: ' + e.message)
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const handleMergeAllPatientGroups = async () => {
+    if (patientDuplicates.length === 0) return
+    if (
+      !confirm(
+        `¿Unificar automáticamente los ${patientDuplicates.length} grupos de pacientes y beneficiarios duplicados?\n\nTodo el historial médico (consultas y pases) se conservará completo en un solo expediente por persona.`
+      )
+    ) {
+      return
+    }
+
+    setProcessing(true)
+    setErrorMsg('')
+    setSuccessMsg('')
+    try {
+      const payloadGroups = patientDuplicates.map((g) => {
+        const masterId = selectedPatientMaster[g.key] || g.recommendedMasterId
+        return {
+          masterId,
+          duplicateIds: g.items
+            .filter((i) => String(i.id_paciente) !== String(masterId))
+            .map((i) => i.id_paciente),
+        }
+      })
+
+      const res = await fetch('/api/duplicados/unificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'merge_patients',
+          groups: payloadGroups,
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || `Error en unificación masiva (${res.status})`)
+      }
+      setSuccessMsg(
+        `¡Padrón médico limpiado! Se unificaron ${json.mergedCount} registro(s) duplicados conservando todas sus consultas y pases.`
+      )
+      await fetchAllSystemData()
+    } catch (e: any) {
+      setErrorMsg('Error en unificación masiva de beneficiarios: ' + e.message)
+      await fetchAllSystemData()
     } finally {
       setProcessing(false)
     }
@@ -1445,7 +1352,7 @@ export default function CentroDepuracionDuplicadosPage() {
                   className="w-full px-3 py-2 rounded-xl border-2 border-emerald-400 text-xs font-bold bg-white text-zinc-900"
                 >
                   <option value="">Seleccionar Trabajador Maestro...</option>
-                  {empleados.map((e) => (
+                  {empleados.filter((e) => !isMergedGhostEmployee(e)).map((e) => (
                     <option key={`ma-${e.id_empleado}`} value={e.id_empleado}>
                       #{e.numero_empleado || 'S/N'} — {e.nombre} {e.apellido_paterno} {e.apellido_materno || ''} ({e.departamento || 'Sin Depto'})
                     </option>
@@ -1463,7 +1370,7 @@ export default function CentroDepuracionDuplicadosPage() {
                   className="w-full px-3 py-2 rounded-xl border-2 border-rose-300 text-xs font-bold bg-white text-zinc-900"
                 >
                   <option value="">Seleccionar Trabajador Duplicado...</option>
-                  {empleados.map((e) => (
+                  {empleados.filter((e) => !isMergedGhostEmployee(e)).map((e) => (
                     <option key={`mb-${e.id_empleado}`} value={e.id_empleado}>
                       #{e.numero_empleado || 'S/N'} — {e.nombre} {e.apellido_paterno} {e.apellido_materno || ''} ({e.departamento || 'Sin Depto'})
                     </option>
@@ -1483,6 +1390,31 @@ export default function CentroDepuracionDuplicadosPage() {
             </div>
           </div>
 
+          {/* Alerta de Registros Residuales [FUSIONADO] de unificaciones anteriores */}
+          {ghostEmployees.length > 0 && (
+            <div className="p-4 rounded-3xl bg-amber-50 border-2 border-amber-400 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start gap-2.5 text-xs">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-black uppercase">
+                    Detectado(s) {ghostEmployees.length} registro(s) fantasma [FUSIONADO] sin eliminar físicamente
+                  </p>
+                  <p className="text-zinc-700 mt-0.5">
+                    Quedaron de fusiones previas bloqueadas por llaves foráneas. Purgalos en 1 clic para limpiar completamente la base de datos.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={processing}
+                onClick={handleCleanupGhostEmployees}
+                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-amber-400 font-black text-xs rounded-xl shrink-0 cursor-pointer"
+              >
+                🧹 Purgar {ghostEmployees.length} Fantasma(s) Ahora
+              </button>
+            </div>
+          )}
+
           {/* Lista de Grupos Duplicados Detectados Automáticamente */}
           {personDuplicates.length === 0 ? (
             <div className="bg-white border border-zinc-200 rounded-3xl p-12 text-center space-y-3">
@@ -1498,6 +1430,20 @@ export default function CentroDepuracionDuplicadosPage() {
             </div>
           ) : (
             <div className="space-y-5">
+              <div className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="text-xs text-emerald-950">
+                  <strong className="uppercase block">Unificación Masiva de Trabajadores ({personDuplicates.length} grupos)</strong>
+                  <span>Consolida todos los grupos conservando el registro Maestro y eliminando físicamente los duplicados sin duplicar beneficiarios.</span>
+                </div>
+                <button
+                  type="button"
+                  disabled={processing}
+                  onClick={handleMergeAllPersonGroups}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md shrink-0 cursor-pointer"
+                >
+                  ⚡ Unificar Todos los Grupos ({personDuplicates.length})
+                </button>
+              </div>
               {personDuplicates.map((group, idx) => {
                 const currentMaster = selectedMasterId[group.key]
                 const edit = masterEdits[group.key] || {
@@ -1901,71 +1847,125 @@ export default function CentroDepuracionDuplicadosPage() {
          ===================================================================== */}
       {activeTab === 'pacientes' && (
         <div className="space-y-4">
+          {/* Confirmación de Base de Datos Única compartida con Clínica Médica */}
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-blue-950">
+            <div>
+              <strong className="uppercase block">
+                🔗 Base de Datos Única Sincronizada (pacientes ↔ empleados)
+              </strong>
+              <span className="text-blue-800">
+                Este módulo y el padrón de Beneficiarios en Clínica Médica leen y depuran exactamente la misma tabla oficial de Supabase sin duplicar información.
+              </span>
+            </div>
+            <Link
+              href="/medico/pacientes"
+              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shrink-0"
+            >
+              Abrir Padrón Médico &rarr;
+            </Link>
+          </div>
+
           {patientDuplicates.length === 0 ? (
             <div className="bg-white border border-zinc-200 rounded-3xl p-12 text-center space-y-3">
               <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-2xl mx-auto flex items-center justify-center">
                 <ShieldCheck className="w-6 h-6" />
               </div>
               <h3 className="text-base font-black text-zinc-800 uppercase">
-                ¡No se encontraron beneficiarios duplicados!
+                ¡No se encontraron beneficiarios ni pacientes duplicados!
               </h3>
               <p className="text-xs text-zinc-500 max-w-md mx-auto">
-                El padrón de pacientes y familiares de clínica médica está limpio.
+                El padrón compartido de familiares, beneficiarios y titulares en clínica médica está 100% limpio.
               </p>
             </div>
           ) : (
-            patientDuplicates.map((group, idx) => {
-              const currentMaster = selectedPatientMaster[group.key]
-              return (
-                <div
-                  key={group.key}
-                  className="bg-white border-2 border-rose-200 rounded-3xl p-5 shadow-xs space-y-4"
-                >
-                  <div className="flex justify-between items-center border-b border-zinc-100 pb-2">
-                    <h3 className="text-sm font-black text-zinc-900 uppercase">
-                      Grupo Beneficiario #{idx + 1} ({group.items.length} Registros)
-                    </h3>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {group.items.map((item) => {
-                      const isMaster = String(item.id_paciente) === String(currentMaster)
-                      return (
-                        <div
-                          key={item.id_paciente}
-                          onClick={() =>
-                            setSelectedPatientMaster((prev) => ({ ...prev, [group.key]: item.id_paciente }))
-                          }
-                          className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
-                            isMaster ? 'bg-emerald-50 border-emerald-500' : 'bg-zinc-50 border-zinc-200'
-                          }`}
-                        >
-                          <div className="font-black text-sm uppercase text-zinc-900">{item._computedName}</div>
-                          <div className="text-xs text-zinc-600 mt-1">
-                            Parentesco: <strong>{item.parentesco || 'Beneficiario'}</strong> · Titular:{' '}
-                            <strong>
-                              {item.empleados
-                                ? `${item.empleados.nombre || ''} ${item.empleados.apellido_paterno || ''}`
-                                : 'General'}
-                            </strong>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  <div className="flex justify-end">
-                    <button
-                      onClick={() => handleMergePatientGroup(group)}
-                      disabled={processing}
-                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl cursor-pointer"
-                    >
-                      🔗 Unificar Beneficiarios
-                    </button>
-                  </div>
+            <>
+              <div className="bg-indigo-50 border-2 border-indigo-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="text-xs text-indigo-950">
+                  <strong className="uppercase block">Unificación Masiva de Clínica Médica ({patientDuplicates.length} grupos)</strong>
+                  <span>Conserva todas las consultas y pases médicos en el registro Maestro más completo y elimina los repetidos.</span>
                 </div>
-              )
-            })
+                <button
+                  type="button"
+                  disabled={processing}
+                  onClick={handleMergeAllPatientGroups}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md shrink-0 cursor-pointer"
+                >
+                  ⚡ Unificar Todos los Beneficiarios ({patientDuplicates.length})
+                </button>
+              </div>
+
+              {patientDuplicates.map((group, idx) => {
+                const currentMaster = selectedPatientMaster[group.key] || group.recommendedMasterId
+                return (
+                  <div
+                    key={group.key}
+                    className="bg-white border-2 border-rose-200 rounded-3xl p-5 shadow-xs space-y-4"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-100 pb-2">
+                      <div>
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-800">
+                          {group.groupType === 'TITULARES_CLINICA' ? '👔 Titular Duplicado en Clínica' : '👨‍👩‍👧‍👦 Beneficiario / Familiar'} · {group.matchReason}
+                        </span>
+                        <h3 className="text-sm font-black text-zinc-900 uppercase mt-1">
+                          Grupo #{idx + 1}: {group.normalizedName} ({group.items.length} Registros)
+                        </h3>
+                      </div>
+                      <button
+                        onClick={() => handleMergePatientGroup(group)}
+                        disabled={processing}
+                        className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl cursor-pointer shrink-0 self-start sm:self-auto"
+                      >
+                        🔗 Unificar Beneficiarios
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {group.items.map((item) => {
+                        const isMaster = String(item.id_paciente) === String(currentMaster)
+                        const cCount = consultasCountMap[item.id_paciente] || 0
+                        const pCount = pasesCountMap[item.id_paciente] || 0
+                        return (
+                          <div
+                            key={item.id_paciente}
+                            onClick={() =>
+                              setSelectedPatientMaster((prev) => ({ ...prev, [group.key]: item.id_paciente }))
+                            }
+                            className={`p-4 rounded-2xl border-2 cursor-pointer transition-all space-y-2 ${
+                              isMaster ? 'bg-emerald-50 border-emerald-500 shadow-xs' : 'bg-zinc-50 border-zinc-200'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="font-black text-sm uppercase text-zinc-900">{item._computedName}</div>
+                              {isMaster && (
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-black shrink-0">
+                                  ★ Registro Maestro
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-zinc-600">
+                              Parentesco: <strong>{item.parentesco || 'Beneficiario'}</strong> · Titular:{' '}
+                              <strong>
+                                {item.empleados
+                                  ? `${item.empleados.nombre || ''} ${item.empleados.apellido_paterno || ''}`
+                                  : 'Población General'}
+                              </strong>
+                            </div>
+                            <div className="flex items-center gap-2 pt-1">
+                              <span className="px-2 py-0.5 rounded bg-white border border-zinc-200 text-[10px] font-black text-zinc-800">
+                                🩺 {cCount} Consultas
+                              </span>
+                              <span className="px-2 py-0.5 rounded bg-white border border-zinc-200 text-[10px] font-black text-zinc-800">
+                                🎫 {pCount} Pases
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </>
           )}
         </div>
       )}

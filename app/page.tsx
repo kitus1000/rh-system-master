@@ -7,20 +7,9 @@ import {
   ArrowRight,
   Lock,
   Mail,
-  Bus,
-  Truck,
-  Stethoscope,
-  Users,
-  ClipboardList,
   ChevronLeft,
   Eye,
   EyeOff,
-  Home,
-  HardHat,
-  ShieldCheck,
-  QrCode,
-  RotateCcw,
-  Sparkles,
   Cpu,
   Wifi,
   Shield,
@@ -29,6 +18,7 @@ import {
   LogIn,
 } from 'lucide-react'
 import { BacisLogoEmblem } from '@/components/BacisLogoEmblem'
+import { PortalAppIcon, type PortalIconId } from '@/components/PortalAppIcons'
 
 type LoginTarget =
   | 'rh'
@@ -44,13 +34,13 @@ type ZoneKey = 'all' | 'corporativo' | 'operacion' | 'servicios'
 
 interface PortalCardConfig {
   id: string
+  iconId: PortalIconId
   code: string
   title: string
+  shortTitle: string
   subtitle: string
-  cta: string
   tag: string
   zone: Exclude<ZoneKey, 'all'>
-  icon: any
   target?: LoginTarget
   href?: string
   featured?: boolean
@@ -58,120 +48,135 @@ interface PortalCardConfig {
 }
 
 const BOOT_STEPS = [
-  'Inicializando núcleo PORTAL BACIS v4.5...',
-  'Verificando conexión segura Unidad El Herrero...',
-  'Sincronizando RH, Seguridad, Clínica y Logística...',
-  'Sistema listo · Desplegando portales operativos',
+  'Inicializando sistema PORTAL BACIS...',
+  'Verificando enlace Unidad El Herrero...',
+  'Cargando módulos y accesos operativos...',
+  'Sistema listo',
 ]
 
 const PORTAL_CARDS: PortalCardConfig[] = [
   // ZONA 01: DIRECCIÓN, RH & CONTRATISTAS
   {
     id: 'rh',
+    iconId: 'rh',
     code: '01',
     title: 'Acceso RH & Control',
-    subtitle: 'Centro unificado de personal, nómina semanal/quincenal, sindicato Secc. 45 y expedientes.',
-    cta: 'Ingresar al Núcleo',
-    tag: 'NÚCLEO CENTRAL',
+    shortTitle: 'RH & Control',
+    subtitle: 'Centro de personal, nómina, sindicato Secc. 45 y expedientes.',
+    tag: 'CENTRAL',
     zone: 'corporativo',
-    icon: Users,
     target: 'rh',
     featured: true,
   },
   {
     id: 'jefes',
+    iconId: 'jefes',
     code: '02',
-    title: 'Jefes de Departamento',
-    subtitle: 'Autorizaciones digitales, ausencias, escalafón sindical y visto bueno a contratistas.',
-    cta: 'Acceso Jefaturas',
-    tag: 'AUTORIZACIONES',
+    title: 'Jefes de Área',
+    shortTitle: 'Jefes',
+    subtitle: 'Autorizaciones, ausencias, escalafón y visto bueno.',
+    tag: 'MANDO',
     zone: 'corporativo',
-    icon: ClipboardList,
     target: 'jefes',
   },
   {
     id: 'contratista',
+    iconId: 'contratista',
     code: '03',
     title: 'Portal Contratistas',
-    subtitle: 'Alta de personal externo, carga de NSS/IMSS/SAT, permisos de ingreso y credencial QR.',
-    cta: 'Acceso Empresas',
+    shortTitle: 'Contratistas',
+    subtitle: 'Empresas externas, NSS/IMSS/SAT, permisos y pase QR.',
     tag: 'EXTERNO',
     zone: 'corporativo',
-    icon: HardHat,
     target: 'contratista',
   },
 
   // ZONA 02: SEGURIDAD, ACCESOS & CAMPAMENTOS
   {
     id: 'seguridad',
+    iconId: 'seguridad',
     code: '04',
     title: 'Seguridad Industrial',
-    subtitle: 'Validación de inducciones de seguridad, requisitos normativos y programación de fechas.',
-    cta: 'Inducciones',
-    tag: 'NORMATIVA MINA',
+    shortTitle: 'Seguridad',
+    subtitle: 'Inducciones de seguridad, requisitos y fechas.',
+    tag: 'SEGURIDAD',
     zone: 'operacion',
-    icon: ShieldCheck,
     target: 'seguridad',
   },
   {
     id: 'caseta-qr',
+    iconId: 'caseta-qr',
     code: '05',
     title: 'Checador QR Caseta',
-    subtitle: 'Sin contraseña: escanea credencial QR en caseta, valida autorización y registra entrada/salida.',
-    cta: 'Abrir Checador',
-    tag: 'ACCESO DIRECTO QR',
+    shortTitle: 'Checador QR',
+    subtitle: 'Escaneo QR directo sin usuario para entradas y salidas.',
+    tag: 'DIRECTO QR',
     zone: 'operacion',
-    icon: QrCode,
     href: '/caseta-qr',
     directAccess: true,
   },
   {
     id: 'campamento',
+    iconId: 'campamento',
     code: '06',
     title: 'Campamentos y Comedor',
-    subtitle: 'Visualización 3D de camas, hospedaje de personal y contratistas, lavandería y comedor.',
-    cta: 'Operación',
-    tag: 'HOSPEDAJE 3D',
+    shortTitle: 'Campamentos',
+    subtitle: 'Mapa 3D de camas, lavandería y control de comedor.',
+    tag: '3D / CAMAS',
     zone: 'operacion',
-    icon: Home,
     target: 'campamento',
   },
 
   // ZONA 03: SALUD, LOGÍSTICA & TRASLADOS
   {
     id: 'medico',
+    iconId: 'medico',
     code: '07',
     title: 'Servicios Médicos',
-    subtitle: 'Consultas, recetas COFEPRIS, farmacia, padrón de beneficiarios y pases médicos.',
-    cta: 'Clínica Médica',
-    tag: 'SALUD & COFEPRIS',
+    shortTitle: 'Médico',
+    subtitle: 'Consultas, recetas COFEPRIS, beneficiarios y pases.',
+    tag: 'CLÍNICA',
     zone: 'servicios',
-    icon: Stethoscope,
     target: 'medico',
   },
   {
     id: 'chofer',
+    iconId: 'chofer',
     code: '08',
     title: 'Portal Choferes',
-    subtitle: 'Checklist vehicular pre-viaje, bitácora de rutas mineras y abordaje QR de pasajeros.',
-    cta: 'Acceso Chofer',
-    tag: 'FLOTA MINA',
+    shortTitle: 'Choferes',
+    subtitle: 'Checklist de unidades, rutas y abordaje QR.',
+    tag: 'FLOTA',
     zone: 'servicios',
-    icon: Truck,
     target: 'chofer',
   },
   {
     id: 'viajes',
+    iconId: 'viajes',
     code: '09',
     title: 'Portal de Viajes',
-    subtitle: 'Auto-reservación rápida de asientos y traslados de personal hacia y desde la unidad.',
-    cta: 'Reservar Traslado',
-    tag: 'ACCESO DIRECTO',
+    shortTitle: 'Viajes',
+    subtitle: 'Auto-reservación directa de traslados de personal.',
+    tag: 'DIRECTO',
     zone: 'servicios',
-    icon: Bus,
     href: '/reservar-viaje',
     directAccess: true,
   },
+]
+
+const LOGIN_PORTAL_TARGETS: {
+  target: LoginTarget
+  iconId: PortalIconId
+  label: string
+}[] = [
+  { target: 'rh', iconId: 'rh', label: 'RH Control' },
+  { target: 'jefes', iconId: 'jefes', label: 'Jefaturas' },
+  { target: 'contratista', iconId: 'contratista', label: 'Contratistas' },
+  { target: 'seguridad', iconId: 'seguridad', label: 'Seguridad' },
+  { target: 'caseta', iconId: 'caseta-qr', label: 'Caseta QR' },
+  { target: 'campamento', iconId: 'campamento', label: 'Campamento' },
+  { target: 'medico', iconId: 'medico', label: 'Médicos' },
+  { target: 'chofer', iconId: 'chofer', label: 'Choferes' },
 ]
 
 const ZONE_META: Record<
@@ -181,27 +186,27 @@ const ZONE_META: Record<
   corporativo: {
     num: '01',
     title: 'Dirección, RH & Contratistas',
-    subtitle: 'Gestión central de personal, aprobaciones y empresas externas',
+    subtitle: 'Control de personal, aprobaciones y proveedores',
     icon: Layers,
   },
   operacion: {
     num: '02',
-    title: 'Seguridad, Accesos & Campamentos',
-    subtitle: 'Control de ingreso a mina, inducción normativa y hospedaje',
+    title: 'Seguridad, Caseta & Campamentos',
+    subtitle: 'Accesos a mina, inducción y alojamiento 3D',
     icon: Shield,
   },
   servicios: {
     num: '03',
-    title: 'Salud, Logística & Traslados',
-    subtitle: 'Atención clínica COFEPRIS, transporte de personal y rutas',
+    title: 'Salud, Choferes & Traslados',
+    subtitle: 'Clínica médica COFEPRIS, flota y transporte',
     icon: Activity,
   },
 }
 
 /**
- * Spinner orbital de 5 puntos luminosos estilo arranque de Windows 11 / Software Industrial
+ * Spinner orbital de 5 puntos luminosos estilo arranque de Windows / Software
  */
-function WindowsOrbitLoader({ size = 44 }: { size?: number }) {
+function WindowsOrbitLoader({ size = 42 }: { size?: number }) {
   return (
     <div
       className="relative inline-flex items-center justify-center"
@@ -217,8 +222,8 @@ function WindowsOrbitLoader({ size = 44 }: { size?: number }) {
           <span
             className="block rounded-full mx-auto"
             style={{
-              width: idx === 0 ? 7 : 5.5,
-              height: idx === 0 ? 7 : 5.5,
+              width: idx === 0 ? 6.5 : 5,
+              height: idx === 0 ? 6.5 : 5,
               background: idx % 2 === 0 ? '#ffffff' : '#38bdf8',
               boxShadow: '0 0 10px rgba(56,189,248,0.95), 0 0 18px rgba(37,99,235,0.8)',
             }}
@@ -230,9 +235,8 @@ function WindowsOrbitLoader({ size = 44 }: { size?: number }) {
 }
 
 export default function LandingHub() {
-  // Fase de arranque tipo software/Windows -> luego despliegue cinético rápido de portales
   const [phase, setPhase] = useState<'boot' | 'ready'>('boot')
-  const [bootProgress, setBootProgress] = useState(8)
+  const [bootProgress, setBootProgress] = useState(12)
   const [bootStepIdx, setBootStepIdx] = useState(0)
   const [animCycle, setAnimCycle] = useState(1)
 
@@ -241,7 +245,6 @@ export default function LandingHub() {
   const [clockTime, setClockTime] = useState('')
   const [clockDate, setClockDate] = useState('')
 
-  // Estado del Login PORTAL BACIS
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -261,7 +264,7 @@ export default function LandingHub() {
     notas: '',
   })
 
-  // Reloj en vivo estilo barra de tareas de software
+  // Reloj del sistema en vivo
   useEffect(() => {
     const tick = () => {
       const now = new Date()
@@ -287,28 +290,24 @@ export default function LandingHub() {
     return () => clearInterval(id)
   }, [])
 
-  // Secuencia de arranque tipo Windows / Software corporativo
-  const runBootSequence = useCallback(() => {
-    setPhase('boot')
-    setBootProgress(10)
-    setBootStepIdx(0)
-
+  // Carga inicial rápida tipo arranque real de software / Windows (sin botones de replay)
+  const runInitialBoot = useCallback(() => {
     const t1 = setTimeout(() => {
-      setBootProgress(42)
+      setBootProgress(46)
       setBootStepIdx(1)
-    }, 340)
+    }, 260)
     const t2 = setTimeout(() => {
-      setBootProgress(76)
+      setBootProgress(82)
       setBootStepIdx(2)
-    }, 760)
+    }, 620)
     const t3 = setTimeout(() => {
       setBootProgress(100)
       setBootStepIdx(3)
-    }, 1180)
+    }, 960)
     const t4 = setTimeout(() => {
       setPhase('ready')
       setAnimCycle((c) => c + 1)
-    }, 1520)
+    }, 1220)
 
     return () => {
       clearTimeout(t1)
@@ -327,15 +326,9 @@ export default function LandingHub() {
         return
       }
     }
-    const cleanup = runBootSequence()
+    const cleanup = runInitialBoot()
     return cleanup
-  }, [runBootSequence])
-
-  const handleReplayIntro = () => {
-    setView('hub')
-    setActiveZone('all')
-    runBootSequence()
-  }
+  }, [runInitialBoot])
 
   const handleChangeZone = (zone: ZoneKey) => {
     setActiveZone(zone)
@@ -369,11 +362,11 @@ export default function LandingHub() {
     return '/inicio'
   }
 
-  const launchWithWindowsTransition = (destination: string, welcomeLabel?: string) => {
-    setEnteringSystem(welcomeLabel || 'Preparando tu espacio de trabajo...')
+  const launchWithSystemWelcome = (destination: string, welcomeLabel?: string) => {
+    setEnteringSystem(welcomeLabel || 'Cargando espacio de trabajo...')
     setTimeout(() => {
       window.location.href = destination
-    }, 820)
+    }, 760)
   }
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -428,11 +421,10 @@ export default function LandingHub() {
 
       if (authError) {
         if (email === 'admin@example.com' && password === 'admin') {
-          launchWithWindowsTransition(nextPath, 'Bienvenido Administrador · Cargando PORTAL BACIS...')
+          launchWithSystemWelcome(nextPath, 'Bienvenido Administrador · Iniciando PORTAL BACIS...')
           return
         }
 
-        // Check if user exists in perfiles table as fallback
         const { data: fallbackProf } = await supabase
           .from('perfiles')
           .select('*')
@@ -440,7 +432,7 @@ export default function LandingHub() {
           .limit(1)
         if (fallbackProf && fallbackProf.length > 0) {
           const prof = fallbackProf[0]
-          launchWithWindowsTransition(
+          launchWithSystemWelcome(
             resolveRedirectByRole(prof.rol || '', prof.nombre_completo || '', loginTarget),
             `Bienvenido ${prof.nombre_completo || ''} · Iniciando sesión...`
           )
@@ -452,10 +444,10 @@ export default function LandingHub() {
         return
       }
 
-      launchWithWindowsTransition(
+      launchWithSystemWelcome(
         nextPath,
         welcomeName
-          ? `Bienvenido, ${welcomeName} · Iniciando escritorio...`
+          ? `Bienvenido, ${welcomeName} · Abriendo PORTAL BACIS...`
           : `Iniciando ${meta.title}...`
       )
     } catch (err: any) {
@@ -497,51 +489,51 @@ export default function LandingHub() {
     switch (loginTarget) {
       case 'rh':
         return {
+          iconId: 'rh' as PortalIconId,
           title: 'Acceso RH & Control Central',
           sub: 'Personal, nómina semanal/quincenal, sindicato Secc. 45 y control integral',
-          tag: 'MÓDULO 01 · RH',
         }
       case 'medico':
         return {
+          iconId: 'medico' as PortalIconId,
           title: 'Servicios Médicos & Clínica',
           sub: 'Consultas, recetas COFEPRIS, farmacia, beneficiarios y pases médicos',
-          tag: 'MÓDULO 07 · CLÍNICA',
         }
       case 'jefes':
         return {
+          iconId: 'jefes' as PortalIconId,
           title: 'Jefes de Área & Superintendentes',
-          sub: 'Autorizaciones, ausencias de personal, escalafón y visto bueno a contratistas',
-          tag: 'MÓDULO 02 · JEFATURAS',
+          sub: 'Autorizaciones, ausencias, escalafón y visto bueno a contratistas',
         }
       case 'chofer':
         return {
+          iconId: 'chofer' as PortalIconId,
           title: 'Portal de Choferes',
           sub: 'Checklist vehicular, rutas mineras y escaneo QR de pasajeros',
-          tag: 'MÓDULO 08 · FLOTA',
         }
       case 'campamento':
         return {
+          iconId: 'campamento' as PortalIconId,
           title: 'Campamentos y Comedor',
-          sub: 'Control 3D de camas, lavandería, disponibilidad y registro de comidas',
-          tag: 'MÓDULO 06 · HOSPEDAJE',
+          sub: 'Control 3D de camas, lavandería, disponibilidad y comedor',
         }
       case 'contratista':
         return {
-          title: 'Portal Individual de Contratistas',
-          sub: 'Alta de personal, carga de NSS/IMSS/SAT, permisos, solicitud de ingreso y QR',
-          tag: 'MÓDULO 03 · CONTRATISTAS',
+          iconId: 'contratista' as PortalIconId,
+          title: 'Portal de Contratistas',
+          sub: 'Alta de personal externo, documentos NSS/IMSS/SAT, permisos y QR',
         }
       case 'seguridad':
         return {
-          title: 'Seguridad Industrial (Inducciones)',
-          sub: 'Revisión de requisitos, fechas de inducción y validación de personal contratista',
-          tag: 'MÓDULO 04 · SEGURIDAD',
+          iconId: 'seguridad' as PortalIconId,
+          title: 'Seguridad Industrial',
+          sub: 'Revisión de requisitos, inducciones y validación de contratistas',
         }
       case 'caseta':
         return {
+          iconId: 'caseta-qr' as PortalIconId,
           title: 'Caseta (Credenciales QR)',
-          sub: 'Control de credenciales autorizadas, entradas, salidas y devolución en mina',
-          tag: 'MÓDULO 05 · CASETA',
+          sub: 'Control de credenciales autorizadas, entradas, salidas y devolución',
         }
     }
   }
@@ -561,20 +553,16 @@ export default function LandingHub() {
 
   return (
     <div className="min-h-screen bg-[#02050b] text-white relative overflow-x-hidden selection:bg-blue-600 selection:text-white font-sans flex flex-col">
-      {/* ===================================================================
-          FONDO CORPORATIVO BACÍS: NEGRO OBSIDIANA + AZUL REY + DESTELLO BLANCO
-         =================================================================== */}
+      {/* FONDO CORPORATIVO BACÍS: NEGRO OBSIDIANA + AZUL REY + DESTELLO BLANCO */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        {/* Malla tecnológica sutil */}
         <div
-          className="absolute inset-0 opacity-[0.22]"
+          className="absolute inset-0 opacity-[0.2]"
           style={{
             backgroundImage:
-              'linear-gradient(to right, rgba(37,99,235,0.22) 1px, transparent 1px), linear-gradient(to bottom, rgba(37,99,235,0.22) 1px, transparent 1px)',
+              'linear-gradient(to right, rgba(37,99,235,0.2) 1px, transparent 1px), linear-gradient(to bottom, rgba(37,99,235,0.2) 1px, transparent 1px)',
             backgroundSize: '46px 46px',
           }}
         />
-        {/* Gradiente principal Bacís (Azul Profundo -> Negro Puro) */}
         <div
           className="absolute inset-0"
           style={{
@@ -582,52 +570,40 @@ export default function LandingHub() {
               'radial-gradient(ellipse 75% 55% at 50% -10%, rgba(29,78,216,0.42) 0%, rgba(15,23,42,0.55) 45%, rgba(2,5,11,0.98) 100%)',
           }}
         />
-        {/* Orbes de energía Azul Bacís y Blanco */}
         <div
-          className="absolute -top-32 left-1/2 -translate-x-1/2 w-[780px] h-[380px] rounded-full blur-[130px] bacis-halo-pulse"
-          style={{ background: 'rgba(37, 99, 235, 0.32)' }}
+          className="absolute -top-32 left-1/2 -translate-x-1/2 w-[760px] h-[360px] rounded-full blur-[130px] bacis-halo-pulse"
+          style={{ background: 'rgba(37, 99, 235, 0.3)' }}
         />
         <div
-          className="absolute bottom-[-120px] left-[-100px] w-[420px] h-[420px] rounded-full blur-[130px]"
-          style={{ background: 'rgba(29, 78, 216, 0.22)' }}
+          className="absolute bottom-[-120px] left-[-100px] w-[400px] h-[400px] rounded-full blur-[130px]"
+          style={{ background: 'rgba(29, 78, 216, 0.2)' }}
         />
-        <div
-          className="absolute bottom-[-100px] right-[-80px] w-[420px] h-[420px] rounded-full blur-[140px]"
-          style={{ background: 'rgba(255, 255, 255, 0.08)' }}
-        />
-        {/* Línea de escaneo sutil estilo software */}
         <div
           className="absolute left-0 right-0 h-[2px] bacis-scanline"
           style={{
             background:
-              'linear-gradient(90deg, transparent 0%, rgba(56,189,248,0.55) 30%, rgba(255,255,255,0.85) 50%, rgba(37,99,235,0.55) 70%, transparent 100%)',
+              'linear-gradient(90deg, transparent 0%, rgba(56,189,248,0.5) 30%, rgba(255,255,255,0.8) 50%, rgba(37,99,235,0.5) 70%, transparent 100%)',
           }}
         />
       </div>
 
-      {/* ===================================================================
-          PANTALLA 1: ARRANQUE DE SOFTWARE TIPO WINDOWS — "PORTAL BACIS"
-         =================================================================== */}
+      {/* PANTALLA DE ARRANQUE DE SOFTWARE PORTAL BACIS (sin botón de replay) */}
       {phase === 'boot' && (
         <div className="fixed inset-0 z-50 bg-[#02050b] flex flex-col items-center justify-center p-6 overflow-hidden">
-          {/* Halo de encendido */}
           <div
-            className="absolute w-[520px] h-[520px] rounded-full blur-[120px] bacis-halo-pulse pointer-events-none"
-            style={{ background: 'radial-gradient(circle, rgba(37,99,235,0.48) 0%, rgba(2,5,11,0) 70%)' }}
+            className="absolute w-[500px] h-[500px] rounded-full blur-[120px] bacis-halo-pulse pointer-events-none"
+            style={{ background: 'radial-gradient(circle, rgba(37,99,235,0.45) 0%, rgba(2,5,11,0) 70%)' }}
           />
 
           <div className="relative z-10 flex flex-col items-center text-center max-w-md w-full space-y-6">
-            {/* Emblema GB con anillo orbital */}
             <div className="relative flex items-center justify-center bacis-logo-boot">
               <div className="absolute -inset-4 rounded-full border border-blue-500/35 animate-spin" style={{ animationDuration: '9s' }} />
-              <div className="absolute -inset-7 rounded-full border border-dashed border-white/15 animate-spin" style={{ animationDuration: '16s', animationDirection: 'reverse' }} />
               <div className="w-28 h-24 rounded-3xl bg-gradient-to-b from-[#0b1630] to-black border border-blue-500/50 shadow-[0_0_50px_rgba(37,99,235,0.5)] flex items-center justify-center p-3">
                 <BacisLogoEmblem className="w-24 h-20" />
               </div>
             </div>
 
-            {/* Título PORTAL BACIS */}
-            <div className="space-y-1.5 bacis-logo-boot" style={{ animationDelay: '100ms' }}>
+            <div className="space-y-1.5 bacis-logo-boot" style={{ animationDelay: '80ms' }}>
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-600/15 border border-blue-400/30 text-[10px] font-mono font-bold tracking-[0.25em] text-blue-300 uppercase">
                 <Cpu className="w-3 h-3 text-blue-400" />
                 GRUPO MINERO BACÍS S.A. DE C.V.
@@ -640,9 +616,8 @@ export default function LandingHub() {
               </p>
             </div>
 
-            {/* Spinner orbital estilo Windows + Barra de progreso */}
             <div className="w-full space-y-4 pt-2 flex flex-col items-center">
-              <WindowsOrbitLoader size={44} />
+              <WindowsOrbitLoader size={42} />
 
               <div className="w-full max-w-xs space-y-2">
                 <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden border border-white/10">
@@ -661,24 +636,11 @@ export default function LandingHub() {
                 </div>
               </div>
             </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setPhase('ready')
-                setAnimCycle((c) => c + 1)
-              }}
-              className="mt-4 text-[10px] font-mono uppercase tracking-[0.2em] text-slate-500 hover:text-white transition-colors cursor-pointer"
-            >
-              Saltar animación &rarr;
-            </button>
           </div>
         </div>
       )}
 
-      {/* ===================================================================
-          OVERLAY DE BIENVENIDA TIPO WINDOWS AL INICIAR SESIÓN
-         =================================================================== */}
+      {/* OVERLAY DE BIENVENIDA AL AUTENTICAR */}
       {enteringSystem && (
         <div className="fixed inset-0 z-50 bg-[#02050b]/95 backdrop-blur-2xl flex flex-col items-center justify-center p-6 animate-in fade-in duration-300">
           <div className="flex flex-col items-center text-center space-y-5 max-w-md">
@@ -688,7 +650,7 @@ export default function LandingHub() {
             <h2 className="text-3xl font-black tracking-[0.14em] text-white uppercase">
               PORTAL <span className="text-blue-400">BACIS</span>
             </h2>
-            <WindowsOrbitLoader size={46} />
+            <WindowsOrbitLoader size={44} />
             <p className="text-xs font-mono tracking-wider text-blue-200 uppercase">
               {enteringSystem}
             </p>
@@ -696,13 +658,10 @@ export default function LandingHub() {
         </div>
       )}
 
-      {/* ===================================================================
-          BARRA SUPERIOR ESTILO SOFTWARE / WINDOWS TASKBAR (AZUL · BLANCO · NEGRO)
-         =================================================================== */}
+      {/* BARRA SUPERIOR ESTILO SOFTWARE PORTAL BACIS (sin botón de replay) */}
       {phase === 'ready' && (
-        <header className="relative z-20 border-b border-blue-500/20 bg-black/70 backdrop-blur-xl bacis-header-drop">
+        <header className="relative z-20 border-b border-blue-500/20 bg-black/75 backdrop-blur-xl bacis-header-drop">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-            {/* Identidad PORTAL BACIS */}
             <button
               type="button"
               onClick={() => setView('hub')}
@@ -727,7 +686,6 @@ export default function LandingHub() {
               </div>
             </button>
 
-            {/* Controles OS + Reloj */}
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="hidden md:flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 font-mono">
                 <Wifi className="w-3.5 h-3.5 text-blue-400" />
@@ -738,16 +696,6 @@ export default function LandingHub() {
                   <div className="text-[9px] text-slate-400 uppercase">{clockDate}</div>
                 </div>
               </div>
-
-              <button
-                type="button"
-                onClick={handleReplayIntro}
-                className="px-3 py-2 rounded-xl bg-white/[0.05] hover:bg-blue-600/25 border border-white/15 hover:border-blue-400/50 text-[10px] sm:text-xs font-bold text-slate-200 hover:text-white flex items-center gap-1.5 transition-all cursor-pointer"
-                title="Volver a reproducir el arranque de software y acomodo rápido de portales"
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-blue-400" />
-                <span className="hidden sm:inline">Repetir Intro</span>
-              </button>
 
               {view === 'hub' ? (
                 <button
@@ -765,7 +713,7 @@ export default function LandingHub() {
                   className="px-4 py-2 rounded-xl bg-white text-black hover:bg-blue-50 text-xs font-black tracking-wider uppercase flex items-center gap-1.5 shadow-lg transition-all cursor-pointer active:scale-95"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
-                  <span>Ver Portales</span>
+                  <span>Menú de Íconos</span>
                 </button>
               )}
             </div>
@@ -773,38 +721,31 @@ export default function LandingHub() {
         </header>
       )}
 
-      {/* ===================================================================
-          CONTENIDO PRINCIPAL: HUB DE PORTALES ORGANIZADOS Ó LOGIN PORTAL BACIS
-         =================================================================== */}
+      {/* CONTENIDO PRINCIPAL: MENÚ PRINCIPAL DE ÍCONOS Y PANTALLA DE LOGIN CON ÍCONOS */}
       {phase === 'ready' && (
-        <main className="relative z-10 flex-1 flex items-center justify-center px-4 sm:px-6 py-8 sm:py-10">
-          <div className="w-full max-w-7xl">
+        <main className="relative z-10 flex-1 flex items-center justify-center px-4 sm:px-6 py-8">
+          <div className="w-full max-w-6xl">
             {view === 'hub' ? (
               <div className="space-y-8">
-                {/* HERO PORTAL BACIS + DOCK DE FILTROS */}
-                <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 bacis-header-drop">
-                  <div className="space-y-2.5">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-600/15 border border-blue-400/35 text-[10px] font-mono font-bold uppercase tracking-[0.22em] text-blue-300">
-                      <Sparkles className="w-3 h-3 text-white" />
-                      Plataforma Corporativa Integrada · 9 Portales Activos
-                    </div>
+                {/* ENCABEZADO DEL ESCRITORIO DE PORTALES */}
+                <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-5 bacis-header-drop">
+                  <div className="space-y-2">
                     <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white uppercase leading-none">
                       PORTAL <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-sky-200 to-white">BACIS</span>
                     </h1>
-                    <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
-                      Selecciona tu área operativa para iniciar sesión o acceder directamente a los módulos de control de{' '}
-                      <span className="text-white font-bold">Grupo Minero Bacís S.A. de C.V.</span>
+                    <p className="text-xs sm:text-sm text-slate-300 max-w-xl">
+                      Toca el ícono de tu departamento o sistema operativo para ingresar.
                     </p>
                   </div>
 
-                  {/* Dock interactivo de organización por zonas */}
-                  <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-black/75 border border-blue-500/25 backdrop-blur-xl shadow-lg">
+                  {/* Selector de zonas */}
+                  <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-black/80 border border-blue-500/25 backdrop-blur-xl shadow-lg">
                     {(
                       [
-                        { id: 'all', label: 'Todos los Portales', count: 9 },
-                        { id: 'corporativo', label: 'Dirección & RH', count: 3 },
+                        { id: 'all', label: 'Todos', count: 9 },
+                        { id: 'corporativo', label: 'RH & Empresas', count: 3 },
                         { id: 'operacion', label: 'Seguridad & Mina', count: 3 },
-                        { id: 'servicios', label: 'Salud & Logística', count: 3 },
+                        { id: 'servicios', label: 'Médicos & Flota', count: 3 },
                       ] as const
                     ).map((tab) => {
                       const active = activeZone === tab.id
@@ -833,28 +774,28 @@ export default function LandingHub() {
                   </div>
                 </div>
 
-                {/* =========================================================
-                    BLOQUES ORGANIZADOS CON ACOMODO CINÉTICO RÁPIDO 3D
-                   ========================================================= */}
-                <div key={animCycle} className="space-y-7">
+                {/* LANZADOR VISUAL DE ÍCONOS CREADOS A MEDIDA (3 ZONAS ORGANIZADAS) */}
+                <div key={animCycle} className="space-y-6">
                   {visibleZones.map((zoneKey, zIdx) => {
                     const zMeta = ZONE_META[zoneKey]
                     const ZoneIcon = zMeta.icon
                     const cardsInZone = PORTAL_CARDS.filter((c) => c.zone === zoneKey)
 
                     return (
-                      <section key={zoneKey} className="space-y-3.5">
-                        {/* Encabezado elegante de zona */}
+                      <section
+                        key={zoneKey}
+                        className="rounded-3xl bg-gradient-to-br from-[#071127]/75 via-[#040914]/85 to-black/85 border border-blue-500/20 p-5 sm:p-6 backdrop-blur-xl shadow-[0_16px_44px_-16px_rgba(0,0,0,0.8)] space-y-5"
+                      >
                         <div
-                          className="flex items-center justify-between gap-3 pb-2 border-b border-white/10 bacis-zone-reveal"
-                          style={{ animationDelay: `${zIdx * 90}ms` }}
+                          className="flex items-center justify-between gap-3 pb-3 border-b border-white/10 bacis-zone-reveal"
+                          style={{ animationDelay: `${zIdx * 80}ms` }}
                         >
                           <div className="flex items-center gap-3">
                             <span className="w-7 h-7 rounded-lg bg-blue-600 text-white font-mono font-black text-xs flex items-center justify-center shadow-[0_0_15px_rgba(37,99,235,0.6)]">
                               {zMeta.num}
                             </span>
                             <div>
-                              <h2 className="text-xs sm:text-sm font-black uppercase tracking-[0.16em] text-white flex items-center gap-2">
+                              <h2 className="text-xs sm:text-sm font-black uppercase tracking-[0.15em] text-white flex items-center gap-2">
                                 <ZoneIcon className="w-4 h-4 text-blue-400" />
                                 {zMeta.title}
                               </h2>
@@ -864,108 +805,76 @@ export default function LandingHub() {
                             </div>
                           </div>
                           <span className="text-[10px] font-mono text-blue-300/80 uppercase tracking-widest">
-                            {cardsInZone.length} MÓDULOS
+                            {cardsInZone.length} ACCESOS
                           </span>
                         </div>
 
-                        {/* Grid 3 columnas con vuelo rápido individual */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* Íconos estilo App Launcher con vuelo cinético rápido */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                           {cardsInZone.map((card, cIdx) => {
                             const globalIdx = zIdx * 3 + cIdx
                             const flyClass = `bacis-tile-in-${globalIdx % 9}`
                             const staggerMs = globalIdx * 55
-                            const IconComp = card.icon
 
-                            const cardBody = (
+                            const iconTileInner = (
                               <>
-                                {/* Destello metálico azul-blanco al acomodarse */}
-                                <div
-                                  className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl"
-                                >
+                                {/* Destello sutil al acomodarse */}
+                                <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl">
                                   <div
                                     className="w-1/2 h-full bacis-tile-sheen"
                                     style={{
-                                      animationDelay: `${staggerMs + 360}ms`,
+                                      animationDelay: `${staggerMs + 340}ms`,
                                       background:
-                                        'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.18) 50%, rgba(56,189,248,0.22) 70%, transparent 100%)',
+                                        'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.16) 50%, rgba(56,189,248,0.22) 70%, transparent 100%)',
                                     }}
                                   />
                                 </div>
 
-                                {/* Línea superior luminosa azul Bacís */}
-                                <div
-                                  className={`absolute top-0 left-0 right-0 h-[2.5px] transition-all duration-300 ${
-                                    card.featured
-                                      ? 'bg-gradient-to-r from-blue-600 via-white to-blue-500 opacity-100'
-                                      : 'bg-gradient-to-r from-transparent via-blue-500 to-white opacity-45 group-hover:opacity-100'
+                                {/* Badge discreto esquina superior derecha */}
+                                <span
+                                  className={`absolute top-3.5 right-3.5 px-2 py-0.5 rounded-full text-[9px] font-mono font-black tracking-widest uppercase border ${
+                                    card.directAccess
+                                      ? 'bg-white text-black border-white'
+                                      : card.featured
+                                      ? 'bg-blue-600 text-white border-blue-300/60'
+                                      : 'bg-black/75 text-blue-300 border-blue-500/35'
                                   }`}
-                                />
+                                >
+                                  {card.tag}
+                                </span>
 
-                                {/* Marca de agua gigante de fondo */}
-                                <div className="absolute -bottom-3 -right-3 opacity-[0.06] group-hover:opacity-[0.16] transition-all duration-500 pointer-events-none">
-                                  <IconComp className="w-28 h-28 text-blue-400 transform group-hover:scale-110 group-hover:-rotate-6 transition-transform duration-500" />
-                                </div>
-
-                                <div className="relative z-10 space-y-4">
-                                  {/* Fila superior: Ícono + Código y Etiqueta */}
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div
-                                      className={`w-12 h-12 rounded-2xl flex items-center justify-center border transition-all duration-300 group-hover:scale-110 ${
-                                        card.featured
-                                          ? 'bg-blue-600 text-white border-white/40 shadow-[0_0_24px_rgba(37,99,235,0.65)]'
-                                          : 'bg-blue-950/70 text-blue-300 border-blue-500/30 group-hover:bg-blue-600 group-hover:text-white group-hover:border-white/50 group-hover:shadow-[0_0_22px_rgba(37,99,235,0.55)]'
-                                      }`}
-                                    >
-                                      <IconComp className="w-6 h-6" />
-                                    </div>
-
-                                    <div className="flex flex-col items-end gap-1">
-                                      <span
-                                        className={`px-2.5 py-0.5 rounded-full text-[9px] font-mono font-black tracking-widest uppercase border ${
-                                          card.directAccess
-                                            ? 'bg-white text-black border-white'
-                                            : card.featured
-                                            ? 'bg-blue-600/30 text-blue-200 border-blue-400/50'
-                                            : 'bg-black/60 text-blue-300 border-blue-500/30'
-                                        }`}
-                                      >
-                                        {card.tag}
-                                      </span>
-                                      <span className="text-[10px] font-mono text-slate-500 group-hover:text-blue-300 transition-colors">
-                                        SYS//{card.code}
-                                      </span>
-                                    </div>
+                                {/* ÍCONO PERSONALIZADO PROTAGONISTA */}
+                                <div className="relative z-10 flex flex-col items-center text-center pt-3 pb-1 space-y-3">
+                                  <div className="relative transition-transform duration-300 group-hover:scale-110 group-hover:-translate-y-1">
+                                    <div className="absolute -inset-2 rounded-3xl bg-blue-500/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                                    <PortalAppIcon
+                                      id={card.iconId}
+                                      className="w-20 h-20 sm:w-22 sm:h-22"
+                                      active={card.featured}
+                                    />
                                   </div>
 
-                                  {/* Título y descripción */}
-                                  <div>
-                                    <h3 className="text-base sm:text-lg font-black text-white tracking-tight group-hover:text-blue-200 transition-colors">
+                                  <div className="space-y-1">
+                                    <h3 className="text-sm sm:text-base font-black text-white group-hover:text-blue-300 transition-colors tracking-tight">
                                       {card.title}
                                     </h3>
-                                    <p className="text-xs text-slate-400 group-hover:text-slate-300 mt-1.5 leading-relaxed">
+                                    <p className="text-[11px] text-slate-400 group-hover:text-slate-300 leading-snug max-w-[240px] mx-auto line-clamp-2">
                                       {card.subtitle}
                                     </p>
                                   </div>
-                                </div>
 
-                                {/* Footer de la tarjeta */}
-                                <div className="relative z-10 mt-5 pt-3.5 border-t border-white/10 flex items-center justify-between">
-                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-blue-400 group-hover:text-white transition-colors">
-                                    <span>{card.cta}</span>
-                                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1.5 transition-transform" />
-                                  </span>
-                                  <span className="flex items-center gap-1 text-[9px] font-mono text-slate-500 group-hover:text-blue-300 uppercase">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_#3b82f6]" />
-                                    LISTO
-                                  </span>
+                                  <div className="pt-1 flex items-center gap-1.5 text-[10px] font-mono font-black uppercase tracking-widest text-blue-400 group-hover:text-white transition-colors">
+                                    <span>Abrir Portal</span>
+                                    <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
+                                  </div>
                                 </div>
                               </>
                             )
 
-                            const baseClassName = `text-left group relative rounded-3xl p-5 sm:p-6 transition-all duration-300 hover:-translate-y-1.5 overflow-hidden flex flex-col justify-between min-h-[215px] cursor-pointer ${flyClass} ${
+                            const tileClasses = `group relative rounded-3xl p-5 transition-all duration-300 hover:-translate-y-1.5 overflow-hidden cursor-pointer ${flyClass} ${
                               card.featured
-                                ? 'bg-gradient-to-br from-[#0b1b3d] via-[#070f24] to-black border-2 border-blue-500/70 hover:border-white shadow-[0_14px_45px_-12px_rgba(37,99,235,0.45)]'
-                                : 'bg-gradient-to-br from-[#081022]/95 via-[#050a15]/95 to-black/95 border border-white/15 hover:border-blue-400 hover:shadow-[0_14px_40px_-10px_rgba(37,99,235,0.42)]'
+                                ? 'bg-gradient-to-b from-blue-950/75 via-[#071127] to-black border-2 border-blue-500/70 hover:border-white shadow-[0_14px_38px_-12px_rgba(37,99,235,0.5)]'
+                                : 'bg-gradient-to-b from-[#09142c]/90 via-[#050b18]/95 to-black border border-white/15 hover:border-blue-400 hover:shadow-[0_14px_36px_-10px_rgba(37,99,235,0.45)]'
                             }`
 
                             if (card.href) {
@@ -973,10 +882,10 @@ export default function LandingHub() {
                                 <Link
                                   key={card.id}
                                   href={card.href}
-                                  className={baseClassName}
+                                  className={tileClasses}
                                   style={{ animationDelay: `${staggerMs}ms` }}
                                 >
-                                  {cardBody}
+                                  {iconTileInner}
                                 </Link>
                               )
                             }
@@ -986,10 +895,10 @@ export default function LandingHub() {
                                 key={card.id}
                                 type="button"
                                 onClick={() => openPortalLogin(card.target || 'rh')}
-                                className={baseClassName}
+                                className={tileClasses}
                                 style={{ animationDelay: `${staggerMs}ms` }}
                               >
-                                {cardBody}
+                                {iconTileInner}
                               </button>
                             )
                           })}
@@ -1001,73 +910,80 @@ export default function LandingHub() {
               </div>
             ) : (
               /* ===========================================================
-                 PANTALLA DE LOGIN OFICIAL: "PORTAL BACIS" (AZUL · BLANCO · NEGRO)
+                 PANTALLA DE LOGIN OFICIAL "PORTAL BACIS" CON SELECTOR POR ÍCONOS
                  =========================================================== */
-              <div className="max-w-lg mx-auto bacis-tile-in-4">
+              <div className="max-w-xl mx-auto bacis-tile-in-4">
                 <button
                   type="button"
                   onClick={() => setView('hub')}
-                  className="mb-5 inline-flex items-center gap-1.5 text-slate-300 hover:text-white transition-colors text-xs font-black uppercase tracking-wider cursor-pointer"
+                  className="mb-4 inline-flex items-center gap-1.5 text-slate-300 hover:text-white transition-colors text-xs font-black uppercase tracking-wider cursor-pointer"
                 >
                   <ChevronLeft className="w-4 h-4 text-blue-400" />
-                  Volver a los Portales Bacís
+                  Volver al Menú Principal
                 </button>
 
-                <div className="bg-gradient-to-b from-[#081229]/95 via-[#050a17]/95 to-black/95 border-2 border-blue-500/45 rounded-3xl p-7 sm:p-9 backdrop-blur-2xl shadow-[0_24px_70px_-12px_rgba(37,99,235,0.5)] relative overflow-hidden">
-                  {/* Barra superior luminosa Azul-Blanco */}
+                <div className="bg-gradient-to-b from-[#081229]/95 via-[#050a17]/95 to-black/95 border-2 border-blue-500/45 rounded-3xl p-6 sm:p-8 backdrop-blur-2xl shadow-[0_24px_70px_-12px_rgba(37,99,235,0.5)] relative overflow-hidden">
                   <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-blue-700 via-blue-400 to-white" />
 
-                  {/* Encabezado PORTAL BACIS */}
-                  <div className="mb-6 text-center space-y-3">
-                    <div className="w-20 h-16 rounded-2xl mx-auto bg-gradient-to-b from-blue-950 to-black border border-blue-400/40 flex items-center justify-center p-2 shadow-[0_0_30px_rgba(37,99,235,0.45)]">
-                      <BacisLogoEmblem className="w-16 h-14" showGlow={false} />
+                  {/* CABECERA PORTAL BACIS + ÍCONO DEL PORTAL ACTIVO */}
+                  <div className="mb-5 text-center space-y-2.5">
+                    <div className="inline-flex items-center justify-center gap-3">
+                      <div className="w-16 h-14 rounded-2xl bg-gradient-to-b from-blue-950 to-black border border-blue-400/40 flex items-center justify-center p-1.5 shadow-[0_0_24px_rgba(37,99,235,0.4)]">
+                        <BacisLogoEmblem className="w-13 h-11" showGlow={false} />
+                      </div>
+                      <PortalAppIcon id={meta.iconId} className="w-14 h-14" active />
                     </div>
 
                     <div>
                       <h1 className="text-2xl sm:text-3xl font-black tracking-[0.14em] text-white uppercase leading-none">
                         PORTAL <span className="text-blue-400">BACIS</span>
                       </h1>
-                      <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-slate-400 mt-1">
-                        Grupo Minero Bacís S.A. de C.V.
+                      <p className="text-xs font-bold text-blue-200 mt-1">{meta.title}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5 max-w-md mx-auto leading-snug">
+                        {meta.sub}
                       </p>
-                    </div>
-
-                    {/* Badge del módulo seleccionado */}
-                    <div className="p-3 rounded-2xl bg-blue-600/10 border border-blue-500/30">
-                      <span className="inline-block text-[9px] font-mono font-black tracking-[0.22em] text-blue-300 uppercase mb-0.5">
-                        {meta.tag}
-                      </span>
-                      <h2 className="text-sm font-black text-white uppercase tracking-wide">
-                        {meta.title}
-                      </h2>
-                      <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">{meta.sub}</p>
                     </div>
                   </div>
 
-                  {/* Selector rápido de portal destino dentro del mismo login */}
+                  {/* SELECTOR VISUAL DE PORTALES COMO ÍCONOS (SIN DROPDOWN PLANO) */}
                   <div className="mb-5">
-                    <label className="block text-[9px] font-mono font-black text-blue-300/80 uppercase tracking-[0.2em] mb-1.5 ml-1">
-                      Área / Portal de Acceso
-                    </label>
-                    <select
-                      value={loginTarget}
-                      onChange={(e) => {
-                        const val = e.target.value as LoginTarget
-                        setLoginTarget(val)
-                        setError(null)
-                        setRequestDone(false)
-                      }}
-                      className="bacis-portal-input w-full bg-black/80 border border-blue-500/35 rounded-xl py-2.5 px-3.5 text-white text-xs font-bold focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-                    >
-                      <option value="rh">01 · Acceso RH &amp; Control Central</option>
-                      <option value="jefes">02 · Jefes de Departamento &amp; Superintendentes</option>
-                      <option value="contratista">03 · Portal Individual de Contratistas</option>
-                      <option value="seguridad">04 · Seguridad Industrial (Inducciones)</option>
-                      <option value="caseta">05 · Caseta (Credenciales QR)</option>
-                      <option value="campamento">06 · Campamentos y Comedor</option>
-                      <option value="medico">07 · Servicios Médicos &amp; Clínica</option>
-                      <option value="chofer">08 · Portal de Choferes</option>
-                    </select>
+                    <span className="block text-[9px] font-mono font-black text-blue-300/90 uppercase tracking-[0.2em] mb-2 text-center">
+                      Selecciona el ícono del portal al que deseas entrar
+                    </span>
+                    <div className="grid grid-cols-4 gap-2 p-2.5 rounded-2xl bg-black/75 border border-blue-500/25">
+                      {LOGIN_PORTAL_TARGETS.map((item) => {
+                        const isSelected = loginTarget === item.target
+                        return (
+                          <button
+                            key={item.target}
+                            type="button"
+                            onClick={() => {
+                              setLoginTarget(item.target)
+                              setError(null)
+                              setRequestDone(false)
+                            }}
+                            className={`flex flex-col items-center justify-center p-2 rounded-xl border transition-all cursor-pointer group ${
+                              isSelected
+                                ? 'bg-blue-600/25 border-white shadow-[0_0_18px_rgba(37,99,235,0.55)] scale-[1.03]'
+                                : 'bg-white/[0.02] border-transparent hover:border-blue-500/40 hover:bg-white/[0.05]'
+                            }`}
+                          >
+                            <PortalAppIcon
+                              id={item.iconId}
+                              className="w-11 h-11 transition-transform group-hover:scale-105"
+                              active={isSelected}
+                            />
+                            <span
+                              className={`mt-1.5 text-[10px] font-black tracking-tight leading-tight text-center ${
+                                isSelected ? 'text-white' : 'text-slate-400 group-hover:text-white'
+                              }`}
+                            >
+                              {item.label}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
 
                   {loginTarget === 'contratista' && (
@@ -1264,6 +1180,39 @@ export default function LandingHub() {
                       </button>
                     </form>
                   )}
+
+                  {/* ACCESOS DIRECTOS SIN CONTRASEÑA COMO ÍCONOS EN EL LOGIN */}
+                  <div className="mt-6 pt-4 border-t border-white/10">
+                    <span className="block text-[9px] font-mono uppercase tracking-[0.2em] text-slate-400 text-center mb-2.5">
+                      Accesos Rápidos Sin Contraseña
+                    </span>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <Link
+                        href="/caseta-qr"
+                        className="flex items-center gap-2.5 p-2 rounded-xl bg-black/70 border border-white/15 hover:border-blue-400 transition-all group"
+                      >
+                        <PortalAppIcon id="caseta-qr" className="w-10 h-10 shrink-0" />
+                        <div className="text-left">
+                          <div className="text-[11px] font-black text-white group-hover:text-blue-300">
+                            Checador QR
+                          </div>
+                          <div className="text-[9px] text-slate-400">Caseta directa</div>
+                        </div>
+                      </Link>
+                      <Link
+                        href="/reservar-viaje"
+                        className="flex items-center gap-2.5 p-2 rounded-xl bg-black/70 border border-white/15 hover:border-blue-400 transition-all group"
+                      >
+                        <PortalAppIcon id="viajes" className="w-10 h-10 shrink-0" />
+                        <div className="text-left">
+                          <div className="text-[11px] font-black text-white group-hover:text-blue-300">
+                            Portal Viajes
+                          </div>
+                          <div className="text-[9px] text-slate-400">Reservar asiento</div>
+                        </div>
+                      </Link>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -1271,11 +1220,9 @@ export default function LandingHub() {
         </main>
       )}
 
-      {/* ===================================================================
-          FOOTER DE ESTADO ESTILO SOFTWARE CORPORATIVO
-         =================================================================== */}
+      {/* FOOTER ESTILO SOFTWARE CORPORATIVO */}
       {phase === 'ready' && (
-        <footer className="relative z-20 border-t border-white/10 bg-black/60 backdrop-blur-md">
+        <footer className="relative z-20 border-t border-white/10 bg-black/65 backdrop-blur-md">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-2 text-[10px] font-mono text-slate-400 uppercase tracking-widest">
             <span>© {new Date().getFullYear()} GRUPO MINERO BACÍS S.A. DE C.V. · PORTAL BACIS</span>
             <span className="flex items-center gap-2 text-blue-300/90">

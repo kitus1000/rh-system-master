@@ -41,10 +41,42 @@ import {
   LayoutGrid,
   HardHat,
   Layers,
-  QrCode,
-  RotateCcw
+  QrCode
 } from 'lucide-react'
 import { BacisLogoEmblem } from '@/components/BacisLogoEmblem'
+import { PortalAppIcon, type PortalIconId } from '@/components/PortalAppIcons'
+
+const APP_ICON_MAP: Record<string, PortalIconId> = {
+  'med-consultas': 'medico',
+  'med-pacientes': 'medico',
+  'med-pases': 'pases',
+  'med-hotel': 'hotel',
+  'med-farmacia': 'farmacia',
+  'med-clinicas': 'clinicas',
+  'log-choferes': 'chofer',
+  'log-flota': 'flota',
+  'log-accesos': 'accesos',
+  'log-reservas': 'viajes',
+  'rh-integracion': 'integracion',
+  'rh-contratistas': 'contratista',
+  'contratista-portal': 'contratista',
+  'seg-caseta': 'seguridad',
+  'caseta-qr': 'caseta-qr',
+  'rh-empleados': 'rh',
+  'rh-prenomina': 'prenomina',
+  'rh-solicitudes': 'solicitudes',
+  'rh-autorizaciones': 'autorizaciones',
+  'rh-campamentos': 'campamento',
+  'rh-evaluaciones': 'evaluaciones',
+  'rh-comedor': 'comedor',
+  'rh-calendario': 'calendario',
+  'doc-repositorio': 'documentos',
+  'doc-generar': 'documentos',
+  'sys-usuarios': 'usuarios',
+  'sys-catalogos': 'catalogos',
+  'sys-config': 'catalogos',
+  'sys-perfil': 'perfil',
+}
 
 interface AppItem {
   id: string
@@ -588,7 +620,7 @@ export default function InicioPage() {
           </div>
         </div>
 
-        {/* Right: Reloj + Botón Reacomodar + Perfil */}
+        {/* Right: Reloj + Perfil */}
         <div className="flex flex-wrap items-center gap-4 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-6 w-full lg:w-auto justify-between lg:justify-end">
           <div className="text-left lg:text-right font-mono">
             <div className="text-2xl sm:text-3xl font-black tracking-wider text-white drop-shadow-[0_0_14px_rgba(37,99,235,0.65)]">
@@ -598,16 +630,6 @@ export default function InicioPage() {
               <Radio className="w-3 h-3 text-blue-400 animate-pulse" /> Sincronización Minera Activa
             </div>
           </div>
-
-          <button
-            type="button"
-            onClick={() => setAnimCycle((c) => c + 1)}
-            className="px-3 py-2 rounded-xl bg-white/[0.06] hover:bg-blue-600/30 border border-white/15 hover:border-blue-400/60 text-xs font-bold text-white flex items-center gap-1.5 transition-all cursor-pointer"
-            title="Reproducir efecto rápido de acomodo de portales"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-blue-400" />
-            <span className="hidden sm:inline">Reacomodar</span>
-          </button>
 
           <div className="bg-black/80 px-4 py-2 rounded-2xl border border-blue-500/30 text-left">
             <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">Perfil Asignado</span>
@@ -690,18 +712,18 @@ export default function InicioPage() {
             </button>
           </div>
         ) : (
-          <div key={animCycle} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+          <div key={animCycle} className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {finalFilteredApps.map((app, idx) => {
-              const IconComp = app.icon
               const flyClass = `bacis-tile-in-${idx % 9}`
               const staggerMs = Math.min(idx * 38, 420)
+              const iconId: PortalIconId = APP_ICON_MAP[app.id] || 'catalogos'
 
               return (
                 <Link
                   key={app.id}
                   href={app.href}
                   style={{ animationDelay: `${staggerMs}ms` }}
-                  className={`group relative bg-gradient-to-br from-[#081229]/95 via-[#050a16]/95 to-black/95 backdrop-blur-xl border border-white/15 hover:border-blue-400 rounded-3xl p-5 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_14px_40px_-10px_rgba(37,99,235,0.5)] flex flex-col justify-between overflow-hidden ${flyClass}`}
+                  className={`group relative bg-gradient-to-b from-[#081229]/95 via-[#050a16]/95 to-black/95 backdrop-blur-xl border border-white/15 hover:border-blue-400 rounded-3xl p-4 sm:p-5 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_14px_40px_-10px_rgba(37,99,235,0.5)] flex flex-col items-center text-center justify-between overflow-hidden ${flyClass}`}
                 >
                   {/* Barrido metálico azul-blanco al aterrizar */}
                   <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl">
@@ -718,39 +740,31 @@ export default function InicioPage() {
                   {/* Línea superior azul Bacís */}
                   <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-blue-500 to-white opacity-40 group-hover:opacity-100 transition-opacity" />
 
-                  <div className="relative z-10 space-y-4">
-                    {/* Top Row: App Icon & Badge */}
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="w-12 h-12 rounded-2xl bg-blue-950/75 border border-blue-500/35 flex items-center justify-center shadow-lg text-blue-300 group-hover:scale-110 group-hover:bg-blue-600 group-hover:text-white group-hover:border-white/60 transition-all">
-                        <IconComp className="w-6 h-6" />
-                      </div>
+                  {app.badge && (
+                    <span className="relative z-10 text-[9px] font-mono font-black tracking-widest bg-black/80 text-blue-200 px-2.5 py-0.5 rounded-full border border-blue-500/30 uppercase group-hover:bg-white group-hover:text-black group-hover:border-white transition-colors self-end">
+                      {app.badge}
+                    </span>
+                  )}
 
-                      {app.badge && (
-                        <span className="text-[9px] font-mono font-black tracking-widest bg-black/80 text-blue-200 px-2.5 py-1 rounded-full border border-blue-500/30 uppercase group-hover:bg-white group-hover:text-black group-hover:border-white transition-colors">
-                          {app.badge}
-                        </span>
-                      )}
+                  <div className="relative z-10 flex flex-col items-center space-y-3 my-2">
+                    <div className="transition-transform duration-300 group-hover:scale-110 group-hover:-translate-y-1">
+                      <PortalAppIcon id={iconId} className="w-16 h-16 sm:w-20 sm:h-20" />
                     </div>
 
-                    {/* App Title & Subtitle */}
                     <div>
-                      <h3 className="text-sm font-black text-white group-hover:text-blue-200 transition-colors tracking-tight">
+                      <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-blue-200 transition-colors tracking-tight">
                         {app.name}
                       </h3>
-                      <p className="text-xs text-slate-400 group-hover:text-slate-300 mt-1 leading-relaxed line-clamp-2">
+                      <p className="text-[11px] text-slate-400 group-hover:text-slate-300 mt-1 leading-snug line-clamp-2">
                         {app.subtitle}
                       </p>
                     </div>
                   </div>
 
                   {/* Bottom Action Footer */}
-                  <div className="relative z-10 mt-6 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-slate-400 group-hover:text-white transition-colors">
-                    <span className="text-[10px] font-mono font-black uppercase tracking-wider text-blue-400 group-hover:text-white">
-                      ABRIR MÓDULO
-                    </span>
-                    <div className="w-6 h-6 rounded-full bg-black border border-blue-500/40 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white group-hover:border-white transition-all">
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </div>
+                  <div className="relative z-10 w-full mt-3 pt-2.5 border-t border-white/10 flex items-center justify-center gap-1.5 text-[10px] font-mono font-black uppercase tracking-wider text-blue-400 group-hover:text-white transition-colors">
+                    <span>Abrir</span>
+                    <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
                   </div>
                 </Link>
               )

@@ -879,3 +879,454 @@ export function getEmployeeRegimenClassification(emp: any): EmployeeRegimenInfo 
   }
 }
 
+// ============================================================================
+// DETECCIÓN UNIFICADA DE DUPLICIDADES (EMPLEADOS Y PACIENTES / BENEFICIARIOS)
+// ============================================================================
+
+const DEDUP_ABBREVIATIONS: Record<string, string> = {
+  MA: 'MARIA',
+  GPE: 'GUADALUPE',
+  FCO: 'FRANCISCO',
+  GLEZ: 'GONZALEZ',
+  GDZ: 'GONZALEZ',
+  HDZ: 'HERNANDEZ',
+  MTZ: 'MARTINEZ',
+  RDZ: 'RODRIGUEZ',
+  RGUEZ: 'RODRIGUEZ',
+  SCHZ: 'SANCHEZ',
+  FDZ: 'FERNANDEZ',
+  LPZ: 'LOPEZ',
+  PZ: 'PEREZ',
+}
+
+/**
+ * Expande abreviaturas frecuentes mexicanas (MA. -> MARIA, GPE -> GUADALUPE, MTZ -> MARTINEZ)
+ * y devuelve tokens ordenados para comparar posibles duplicados.
+ */
+export function normalizeNameTokensForDedup(fullName?: string | null): string[] {
+  const clean = cleanAsciiUpper(fullName)
+  if (!clean) return []
+  return clean
+    .split(/\s+/)
+    .map((w) => DEDUP_ABBREVIATIONS[w] || w)
+    .filter((w) => w.length > 1 && !NAME_CONNECTORS.has(w))
+    .sort()
+}
+
+/**
+ * Indica si un registro de `empleados` corresponde a un residuo soft-delete "[FUSIONADO->...]"
+ */
+export function isMergedGhostEmployee(emp: any): boolean {
+  const nom = cleanAsciiUpper(emp?.nombre)
+  return nom.startsWith('FUSIONADO') || String(emp?.nombre || '').includes('[FUSIONADO')
+}
+
+/**
+ * Determina de forma consistente en todo el sistema si un registro de `pacientes`
+ * representa al propio trabajador Titular o a un Beneficiario / Familiar.
+ */
+export function isTitularPatient(pac: any): boolean {
+  const par = cleanAsciiUpper(pac?.parentesco)
+  if (
+    par === 'TITULAR' ||
+    par === 'TITULAR TRABAJADOR' ||
+    par === 'TRABAJADOR' ||
+    par === 'ELLA MISMA' ||
+    par === 'EL MISMO' ||
+    par === 'ELLO MISMO' ||
+    par === 'MISMO TRABAJADOR'
+  ) {
+    return true
+  }
+  // Si el parentesco está vacío y coincide exactamente el nombre con su empleado titular vinculado
+  if (!par && pac?.empleados) {
+    const pTokens = normalizeNameTokens(pac.nombre_completo).join('|')
+    const eTokens = normalizeNameTokens(getEmployeeFullName(pac.empleados)).join('|')
+    if (pTokens && pTokens === eTokens) return true
+  }
+  return false
+}
+
+class UnionFind {
+  private parent: number[]
+  constructor(n: number) {
+    this.parent = Array.from({ length: n }, (_, i) => i)
+  }
+  find(x: number): number {
+    while (this.parent[x] !== x) {
+      this.parent[x] = this.parent[this.parent[x]]
+      x = this.parent[x]
+    }
+    return x
+  }
+  union(a: number, b: number) {
+    const ra = this.find(a)
+    const rb = this.find(b)
+    if (ra !== rb) this.parent[rb] = ra
+  }
+}
+
+export interface UnifiedEmployeeDuplicateGroup {
+  key: string
+  matchReason: string
+  items: any[]
+}
+
+/**
+ * Motor unificado por componentes conexos (Union-Find) para agrupar empleados duplicados:
+ * - Excluye registros fantasma "[FUSIONADO->" (reportados por separado para purga directa)
+ * - Detecta duplicados por tokens exactos/invertidos, abreviaturas + fonética, ficha repetida,
+ *   CURP repetida y similitud Jaccard (>= 0.72).
+ * - Garantiza que cada persona repetida aparezca en UN SOLO grupo consolidado sin traslapes.
+ */
+export function detectEmployeeDuplicateGroups(empList: any[]): {
+  groups: UnifiedEmployeeDuplicateGroup[]
+  ghosts: any[]
+} {
+  const ghosts: any[] = []
+  const activeEmps: any[] = []
+
+  empList.forEach((emp) => {
+    if (isMergedGhostEmployee(emp)) {
+      ghosts.push(emp)
+    } else {
+      activeEmps.push({
+        ...emp,
+        _computedName: getEmployeeFullName(emp),
+        _tokens: normalizeNameTokensForDedup(getEmployeeFullName(emp)),
+      })
+    }
+  })
+
+  const n = activeEmps.length
+  const uf = new UnionFind(n)
+  const reasonsByPair = new Map<number, Set<string>>()
+
+  const linkGroup = (indices: number[], reason: string) => {
+    if (indices.length < 2) return
+    const first = indices[0]
+    for (let k = 1; k < indices.length; k++) {
+      uf.union(first, indices[k])
+    }
+    indices.forEach((idx) => {
+      if (!reasonsByPair.has(idx)) reasonsByPair.set(idx, new Set())
+      reasonsByPair.get(idx)!.add(reason)
+    })
+  }
+
+  const tokenIdxMap = new Map<string, number[]>()
+  const phonIdxMap = new Map<string, number[]>()
+  const numIdxMap = new Map<string, number[]>()
+  const curpIdxMap = new Map<string, number[]>()
+
+  activeEmps.forEach((emp, i) => {
+    const tList = emp._tokens as string[]
+    if (tList.length >= 2) {
+      const tk = tList.join('|')
+      const arr = tokenIdxMap.get(tk) || []
+      arr.push(i)
+      tokenIdxMap.set(tk, arr)
+
+      const pk = tList.map(phoneticSpanishToken).sort().join('|')
+      const pArr = phonIdxMap.get(pk) || []
+      pArr.push(i)
+      phonIdxMap.set(pk, pArr)
+    }
+
+    if (emp.numero_empleado !== null && emp.numero_empleado !== undefined && String(emp.numero_empleado).trim() !== '') {
+      const nk = String(emp.numero_empleado).trim()
+      const arr = numIdxMap.get(nk) || []
+      arr.push(i)
+      numIdxMap.set(nk, arr)
+    }
+
+    if (emp.curp && String(emp.curp).trim().length >= 10) {
+      const ck = cleanAsciiUpper(emp.curp)
+      const arr = curpIdxMap.get(ck) || []
+      arr.push(i)
+      curpIdxMap.set(ck, arr)
+    }
+  })
+
+  tokenIdxMap.forEach((indices) => {
+    if (indices.length > 1) {
+      const rawSet = new Set(indices.map((i) => cleanAsciiUpper(activeEmps[i]._computedName)))
+      const reason =
+        rawSet.size > 1
+          ? '🔄 NOMBRE INVERTIDO O PERMUTADO (Mismas palabras en distinto orden)'
+          : '👥 NOMBRE EXACTAMENTE DUPLICADO'
+      linkGroup(indices, reason)
+    }
+  })
+
+  phonIdxMap.forEach((indices) => {
+    if (indices.length > 1) {
+      linkGroup(indices, '≈ COINCIDENCIA FONÉTICA / ABREVIATURA (Ej. S/Z, B/V, H, MA./MARIA)')
+    }
+  })
+
+  numIdxMap.forEach((indices, nk) => {
+    if (indices.length > 1) {
+      linkGroup(indices, `🔢 MISMO NÚMERO DE EMPLEADO / FICHA (#${nk})`)
+    }
+  })
+
+  curpIdxMap.forEach((indices, ck) => {
+    if (indices.length > 1) {
+      linkGroup(indices, `🧬 MISMA CURP (${ck})`)
+    }
+  })
+
+  // Jaccard >= 0.72 entre tokens únicos
+  const tokenEntries = Array.from(tokenIdxMap.entries())
+  for (let a = 0; a < tokenEntries.length; a++) {
+    const [k1, idx1] = tokenEntries[a]
+    const t1 = k1.split('|')
+    for (let b = a + 1; b < tokenEntries.length; b++) {
+      const [k2, idx2] = tokenEntries[b]
+      const t2 = k2.split('|')
+      const set2 = new Set(t2)
+      const intersection = t1.filter((t) => set2.has(t))
+      const unionSize = new Set([...t1, ...t2]).size
+      if (intersection.length >= 2 && intersection.length / unionSize >= 0.72) {
+        linkGroup([...idx1, ...idx2], `🔍 ALTA SIMILITUD DE NOMBRE (${intersection.join(' ')})`)
+      }
+    }
+  }
+
+  const componentMap = new Map<number, number[]>()
+  for (let i = 0; i < n; i++) {
+    const root = uf.find(i)
+    const arr = componentMap.get(root) || []
+    arr.push(i)
+    componentMap.set(root, arr)
+  }
+
+  const groups: UnifiedEmployeeDuplicateGroup[] = []
+  componentMap.forEach((indices) => {
+    if (indices.length < 2) return
+    const items = indices.map((i) => activeEmps[i])
+    const reasonSet = new Set<string>()
+    indices.forEach((i) => {
+      reasonsByPair.get(i)?.forEach((r) => reasonSet.add(r))
+    })
+    const signature = items
+      .map((it) => String(it.id_empleado))
+      .sort()
+      .join('_')
+    groups.push({
+      key: `EMP_GRP_${signature}`,
+      matchReason: Array.from(reasonSet).slice(0, 2).join(' + ') || '👥 POSIBLE DUPLICADO',
+      items,
+    })
+  })
+
+  return { groups, ghosts }
+}
+
+export interface UnifiedPatientDuplicateGroup {
+  key: string
+  normalizedName: string
+  matchReason: string
+  groupType: 'BENEFICIARIOS' | 'TITULARES_CLINICA'
+  items: any[]
+  recommendedMasterId: string
+}
+
+/**
+ * Motor único y compartido para detectar duplicidades en la tabla `pacientes`
+ * (tanto en Módulo Médico -> Beneficiarios como en RH -> Depurar Duplicados).
+ * - Nunca mezcla un Trabajador Titular con un Hijo/Esposa homónimo.
+ * - Detecta duplicados exactos, nombres invertidos, errores fonéticos (S/Z, B/V, H),
+ *   abreviaturas (MA. / GPE.), y nombres parciales bajo el mismo Trabajador Titular.
+ * - También detecta si un trabajador tiene doble fila de Titular en `pacientes`.
+ */
+export function detectPatientDuplicateGroups(
+  pacientesList: any[],
+  consultasCountMap: Record<string, number> = {},
+  pasesCountMap: Record<string, number> = {},
+  options?: { includeTitularDuplicates?: boolean }
+): UnifiedPatientDuplicateGroup[] {
+  const includeTitularDuplicates = options?.includeTitularDuplicates ?? true
+
+  const titularRows: any[] = []
+  const beneficiaryRows: any[] = []
+
+  pacientesList.forEach((p) => {
+    const enriched = {
+      ...p,
+      _computedName: (p.nombre_completo || '').trim(),
+      _tokens: normalizeNameTokensForDedup(p.nombre_completo),
+    }
+    if (isTitularPatient(p)) {
+      titularRows.push(enriched)
+    } else {
+      beneficiaryRows.push(enriched)
+    }
+  })
+
+  const buildGroupsForBucket = (
+    rows: any[],
+    groupType: 'BENEFICIARIOS' | 'TITULARES_CLINICA',
+    checkSameWorkerSubset: boolean
+  ): UnifiedPatientDuplicateGroup[] => {
+    const m = rows.length
+    if (m < 2) return []
+
+    const uf = new UnionFind(m)
+    const reasonsMap = new Map<number, Set<string>>()
+
+    const link = (indices: number[], reason: string) => {
+      if (indices.length < 2) return
+      const first = indices[0]
+      for (let k = 1; k < indices.length; k++) {
+        uf.union(first, indices[k])
+      }
+      indices.forEach((idx) => {
+        if (!reasonsMap.has(idx)) reasonsMap.set(idx, new Set())
+        reasonsMap.get(idx)!.add(reason)
+      })
+    }
+
+    const tokenMap = new Map<string, number[]>()
+    const phonMap = new Map<string, number[]>()
+    const workerGroups = new Map<string, number[]>()
+
+    rows.forEach((r, idx) => {
+      const tList = r._tokens as string[]
+      if (tList.length >= 2) {
+        const tk = tList.join('|')
+        const arr = tokenMap.get(tk) || []
+        arr.push(idx)
+        tokenMap.set(tk, arr)
+
+        const pk = tList.map(phoneticSpanishToken).sort().join('|')
+        const pArr = phonMap.get(pk) || []
+        pArr.push(idx)
+        phonMap.set(pk, pArr)
+      }
+
+      if (r.id_empleado) {
+        const ek = String(r.id_empleado)
+        const wArr = workerGroups.get(ek) || []
+        wArr.push(idx)
+        workerGroups.set(ek, wArr)
+      }
+    })
+
+    tokenMap.forEach((indices) => {
+      if (indices.length > 1) {
+        link(
+          indices,
+          groupType === 'TITULARES_CLINICA'
+            ? '🔄 DOBLE REGISTRO DE TITULAR EN CLÍNICA'
+            : '🔄 NOMBRE DUPLICADO O INVERTIDO EN BENEFICIARIOS'
+        )
+      }
+    })
+
+    phonMap.forEach((indices) => {
+      if (indices.length > 1) {
+        link(indices, '≈ COINCIDENCIA FONÉTICA / ABREVIATURA (Ej. MA./MARIA, CHAVEZ/CHAVES)')
+      }
+    })
+
+    if (groupType === 'TITULARES_CLINICA') {
+      // Mismo id_empleado no debe tener 2 filas TITULAR en pacientes
+      workerGroups.forEach((indices) => {
+        if (indices.length > 1) {
+          link(indices, '🆔 MISMO TRABAJADOR TITULAR REGISTRADO DOS VECES EN PACIENTES')
+        }
+      })
+    } else if (checkSameWorkerSubset) {
+      // Bajo el mismo trabajador titular: detectar nombres parciales/abreviados ("MARIA ARANA" vs "MARIA GUADALUPE ARANA CHAVEZ")
+      workerGroups.forEach((indices) => {
+        if (indices.length < 2) return
+        for (let a = 0; a < indices.length; a++) {
+          const idxA = indices[a]
+          const tokA = (rows[idxA]._tokens as string[]) || []
+          if (tokA.length < 2) continue
+          const setA = new Set(tokA)
+          for (let b = a + 1; b < indices.length; b++) {
+            const idxB = indices[b]
+            const tokB = (rows[idxB]._tokens as string[]) || []
+            if (tokB.length < 2) continue
+            const setB = new Set(tokB)
+            const intersection = tokA.filter((t) => setB.has(t))
+            const minLen = Math.min(setA.size, setB.size)
+            const unionLen = new Set([...tokA, ...tokB]).size
+            const isSubset = intersection.length === minLen && minLen >= 2
+            const highJaccard = intersection.length >= 2 && intersection.length / unionLen >= 0.65
+            if (isSubset || highJaccard) {
+              link(
+                [idxA, idxB],
+                `👨‍👩‍👧‍👦 MISMO TITULAR CON NOMBRE SIMILAR (${intersection.join(' ')})`
+              )
+            }
+          }
+        }
+      })
+    }
+
+    const compMap = new Map<number, number[]>()
+    for (let i = 0; i < m; i++) {
+      const root = uf.find(i)
+      const arr = compMap.get(root) || []
+      arr.push(i)
+      compMap.set(root, arr)
+    }
+
+    const result: UnifiedPatientDuplicateGroup[] = []
+    compMap.forEach((indices) => {
+      if (indices.length < 2) return
+      const items = indices.map((i) => rows[i])
+
+      // Seleccionar el mejor Maestro (mayor cantidad de consultas/pases, con id_empleado, datos completos)
+      let bestItem = items[0]
+      let bestScore = -1
+      items.forEach((it) => {
+        const cCount = consultasCountMap[it.id_paciente] || 0
+        const pCount = pasesCountMap[it.id_paciente] || 0
+        let score = cCount * 10 + pCount * 5
+        if (it.id_empleado) score += 20
+        if (it.parentesco && it.parentesco !== 'Población General') score += 5
+        if (it.fecha_nacimiento) score += 4
+        if (it.acompanante) score += 2
+        if (score > bestScore) {
+          bestScore = score
+          bestItem = it
+        }
+      })
+
+      const reasonSet = new Set<string>()
+      indices.forEach((i) => {
+        reasonsMap.get(i)?.forEach((r) => reasonSet.add(r))
+      })
+
+      const signature = items
+        .map((i) => String(i.id_paciente))
+        .sort()
+        .join('_')
+
+      result.push({
+        key: `${groupType}_${signature}`,
+        normalizedName: bestItem.nombre_completo || items[0].nombre_completo || 'SIN NOMBRE',
+        matchReason: Array.from(reasonSet)[0] || '🔄 REGISTRO DUPLICADO',
+        groupType,
+        items,
+        recommendedMasterId: bestItem.id_paciente,
+      })
+    })
+
+    return result
+  }
+
+  const beneficiaryGroups = buildGroupsForBucket(beneficiaryRows, 'BENEFICIARIOS', true)
+  const titularGroups = includeTitularDuplicates
+    ? buildGroupsForBucket(titularRows, 'TITULARES_CLINICA', false)
+    : []
+
+  return [...beneficiaryGroups, ...titularGroups]
+}
+
+
