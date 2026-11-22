@@ -1,9 +1,10 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { useRouter, usePathname } from 'next/navigation'
 import { ShieldAlert } from 'lucide-react'
+import { TEST_AUTH_LEVELS, getTestAuthLevel, type TestAuthLevel } from '@/utils/testAuthLevels'
 
 type Role = 'Administrativo' | 'Superintendente' | 'Jefe de Departamento' | string
 
@@ -11,7 +12,9 @@ interface AuthProfile {
     id: string
     nombre_completo: string
     rol: Role
+    email?: string
     id_departamento?: string
+    departamento_simulado?: string
     departamentos_autorizados?: string[]
     id_empresa_contratista?: string | null
 }
@@ -19,15 +22,23 @@ interface AuthProfile {
 interface AuthContextType {
     user: any | null
     profile: AuthProfile | null
+    realProfile: AuthProfile | null
     loading: boolean
     hasAccess: (allowedRoles: Role[]) => boolean
+    testLevelId: string
+    activeTestLevel: TestAuthLevel
+    setTestLevel: (levelId: string) => void
 }
 
 const AuthContext = createContext<AuthContextType>({
     user: null,
     profile: null,
+    realProfile: null,
     loading: true,
-    hasAccess: () => false
+    hasAccess: () => false,
+    testLevelId: 'REAL_SESSION',
+    activeTestLevel: TEST_AUTH_LEVELS[0],
+    setTestLevel: () => {}
 })
 
 export function useAuth() {
@@ -39,8 +50,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [profile, setProfile] = useState<AuthProfile | null>(null)
     const [loading, setLoading] = useState(true)
     const [accessDenied, setAccessDenied] = useState(false)
+    const [testLevelId, setTestLevelId] = useState<string>('REAL_SESSION')
     const pathname = usePathname()
     const router = useRouter()
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('bacis_test_auth_level')
+            if (saved && TEST_AUTH_LEVELS.some((l) => l.id === saved)) {
+                setTestLevelId(saved)
+            }
+        }
+    }, [])
+
+    const setTestLevel = (levelId: string) => {
+        const valid = TEST_AUTH_LEVELS.some((l) => l.id === levelId) ? levelId : 'REAL_SESSION'
+        setTestLevelId(valid)
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('bacis_test_auth_level', valid)
+            window.dispatchEvent(new CustomEvent('bacis-test-level-change', { detail: valid }))
+        }
+    }
 
     useEffect(() => {
         let mounted = true
@@ -92,21 +122,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         
                         setProfile({
                             ...profData,
+                            email: session.user.email || profData.email,
                             rol: normalizedRol,
                             id_empresa_contratista: profData.id_empresa_contratista || metaEmpresa
                         } as AuthProfile)
                     } else {
-                        // Create their profile dynamically in the database
                         const newProfile = {
                             id: session.user.id,
                             nombre_completo: session.user.user_metadata?.full_name || session.user.email || 'Usuario de Emergencia',
                             rol: 'Administrativo'
-                        };
-                        
-                        // Attempt to insert
-                        await supabase.from('perfiles').insert(newProfile);
-                        
-                        setProfile(newProfile as AuthProfile);
+                        }
+                        await supabase.from('perfiles').insert(newProfile)
+                        setProfile({
+                            ...newProfile,
+                            email: session.user.email,
+                        } as AuthProfile)
                     }
                 }
             } catch (err) {
@@ -134,9 +164,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     }, [router])
 
+    const activeTestLevel = useMemo(() => getTestAuthLevel(testLevelId), [testLevelId])
+    const isTestModeActive = testLevelId !== 'REAL_SESSION'
+
+    // Usuario y perfil efectivos (toman el nivel de prueba cuando se activa la simulación Multi-Vista)
+    const effectiveUser = useMemo(() => {
+        if (!user) return null
+        if (!isTestModeActive) return user
+        return {
+            ...user,
+            email: activeTestLevel.email || user.email,
+            user_metadata: {
+                ...(user.user_metadata || {}),
+                full_name: activeTestLevel.nombre_completo,
+                rol: activeTestLevel.rol,
+                departamento: activeTestLevel.departamento,
+            },
+        }
+    }, [user, isTestModeActive, activeTestLevel])
+
+    const effectiveProfile = useMemo<AuthProfile | null>(() => {
+        if (!profile) return null
+        if (!isTestModeActive) return profile
+        return {
+            ...profile,
+            nombre_completo: activeTestLevel.nombre_completo,
+            rol: activeTestLevel.rol,
+            email: activeTestLevel.email || profile.email,
+            departamento_simulado: activeTestLevel.departamento,
+        }
+    }, [profile, isTestModeActive, activeTestLevel])
+
     const hasAccess = (allowedRoles: Role[]) => {
-        if (!profile) return false
-        const userRolLower = (profile.rol || '').toLowerCase()
+        if (isTestModeActive) return true
+        if (!effectiveProfile) return false
+        const userRolLower = (effectiveProfile.rol || '').toLowerCase()
         return allowedRoles.some(r => {
             const rLower = r.toLowerCase()
             if (rLower === userRolLower) return true
@@ -149,120 +211,96 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // RBAC Route Guarding Logic
     useEffect(() => {
-        if (loading || !profile || !pathname) return
+        if (loading || !effectiveProfile || !pathname) return
+
+        // En Modo Prueba multi-vista permitimos recorrer libremente todos los portales para probar autorizaciones
+        if (isTestModeActive) {
+            setAccessDenied(false)
+            return
+        }
         
         let denied = false
 
-        // Contratista is strictly locked to their external Portal de Contratistas and Mi Perfil
-        if (profile.rol === 'Contratista') {
+        if (effectiveProfile.rol === 'Contratista') {
             const allowedContratistaPaths = ['/contratistas-portal', '/mi-perfil']
             const isAllowed = allowedContratistaPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
-            if (!isAllowed) {
-                denied = true
-            }
+            if (!isAllowed) denied = true
         }
 
-        // Seguridad Industrial is strictly locked to /seguridad (Inducciones y Requisitos), Mi Perfil and Acerca de
-        if (profile.rol === 'Seguridad Industrial' || profile.rol === 'Seguridad') {
-            const allowedSeguridadPaths = ['/seguridad', '/mi-perfil', '/acerca-de']
+        if (effectiveProfile.rol === 'Seguridad Industrial' || effectiveProfile.rol === 'Seguridad') {
+            const allowedSeguridadPaths = ['/seguridad', '/autorizaciones', '/mi-perfil', '/acerca-de']
             const isAllowed = allowedSeguridadPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
-            if (!isAllowed) {
-                denied = true
-            }
+            if (!isAllowed) denied = true
         }
 
-        // Caseta / Seguridad Patrimonial is strictly locked to /caseta (Solo Credenciales QR), Mi Perfil and Acerca de
-        if (profile.rol === 'Caseta' || profile.rol === 'Seguridad Patrimonial') {
+        if (effectiveProfile.rol === 'Caseta' || effectiveProfile.rol === 'Seguridad Patrimonial') {
             const allowedCasetaPaths = ['/caseta', '/mi-perfil', '/acerca-de']
             const isAllowed = allowedCasetaPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
-            if (!isAllowed) {
-                denied = true
-            }
+            if (!isAllowed) denied = true
         }
 
-        // Chofer is strictly locked to Portal Choferes and Mi Perfil
-        if (profile.rol === 'Chofer') {
+        if (effectiveProfile.rol === 'Chofer') {
             const allowedChoferPaths = ['/logistica/choferes', '/mi-perfil']
             const isAllowed = allowedChoferPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
-            if (!isAllowed) {
-                denied = true
-            }
+            if (!isAllowed) denied = true
         }
 
-        // Encargado de Campamento y Comedor is strictly locked to Campamentos, Comedor, Mi Perfil, Acerca de (no RH/chofer/medico leaks)
-        if (profile.rol === 'Encargado de Campamento y Comedor') {
-            const allowedCampComedorPaths = ['/campamentos', '/comedor', '/mi-perfil', '/acerca-de']
+        if (effectiveProfile.rol === 'Encargado de Campamento y Comedor') {
+            const allowedCampComedorPaths = ['/campamentos', '/comedor', '/autorizaciones', '/mi-perfil', '/acerca-de']
             const isAllowed = allowedCampComedorPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
-            if (!isAllowed) {
-                denied = true
-            }
+            if (!isAllowed) denied = true
         }
 
-        // Sindicato is strictly locked to Movimientos/Escalafón, Mi Perfil, Chat and Acerca de
-        if (profile.rol === 'Sindicato') {
-            const allowedSindicatoPaths = ['/movimientos-sindicato', '/mi-perfil', '/chat', '/acerca-de']
+        if (effectiveProfile.rol === 'Sindicato') {
+            const allowedSindicatoPaths = ['/movimientos-sindicato', '/autorizaciones', '/mi-perfil', '/chat', '/acerca-de']
             const isAllowed = allowedSindicatoPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
-            if (!isAllowed) {
-                denied = true
-            }
+            if (!isAllowed) denied = true
         }
 
-        // Jefe de RH Unidad y Superintendente de RH Corporativo
-        if (profile.rol === 'Jefe de RH Unidad' || profile.rol === 'Superintendente de RH Corporativo') {
+        if (effectiveProfile.rol === 'Jefe de RH Unidad' || effectiveProfile.rol === 'Superintendente de RH Corporativo') {
             const allowedRHExecutivePaths = [
                 '/movimientos-sindicato', '/mi-departamento', '/integracion-rh', '/contratistas',
                 '/empleados', '/autorizaciones', '/dashboard', '/inicio', '/mi-perfil', '/chat',
                 '/reportes/prenomina', '/consulta-medica', '/solicitudes', '/calendario', '/acerca-de'
             ]
             const isAllowed = allowedRHExecutivePaths.some(p => pathname === p || pathname.startsWith(p + '/'))
-            if (!isAllowed) {
-                denied = true
-            }
+            if (!isAllowed) denied = true
         }
 
-        // Only Administrativos / RH can manage Config, Usuarios, Catalogos, Integracion RH
         if (pathname.startsWith('/configuracion') || pathname.startsWith('/usuarios') || pathname.startsWith('/catalogos')) {
-            if (profile.rol !== 'Administrativo' && profile.rol !== 'Recursos Humanos' && profile.rol !== 'Sistemas') denied = true
+            if (effectiveProfile.rol !== 'Administrativo' && effectiveProfile.rol !== 'Recursos Humanos' && effectiveProfile.rol !== 'Sistemas') denied = true
         }
         if (pathname.startsWith('/integracion-rh')) {
             if (
-                profile.rol !== 'Administrativo' &&
-                profile.rol !== 'Recursos Humanos' &&
-                profile.rol !== 'Sistemas' &&
-                profile.rol !== 'Jefe de RH Unidad' &&
-                profile.rol !== 'Superintendente de RH Corporativo'
+                effectiveProfile.rol !== 'Administrativo' &&
+                effectiveProfile.rol !== 'Recursos Humanos' &&
+                effectiveProfile.rol !== 'Sistemas' &&
+                effectiveProfile.rol !== 'Jefe de RH Unidad' &&
+                effectiveProfile.rol !== 'Superintendente de RH Corporativo'
             ) {
                 denied = true
             }
         }
 
-        // Médico and Jefe Médico are strictly restricted to medical, profile, chat and inicio modules
-        const isDoctor = profile.rol === 'Médico' || profile.rol === 'Jefe Médico' || 
-                         (profile.rol || '').toLowerCase().includes('médic') || 
-                         (profile.rol || '').toLowerCase().includes('medic')
+        const isDoctor = effectiveProfile.rol === 'Médico' || effectiveProfile.rol === 'Jefe Médico' || 
+                         (effectiveProfile.rol || '').toLowerCase().includes('médic') || 
+                         (effectiveProfile.rol || '').toLowerCase().includes('medic')
         
         if (isDoctor) {
             const allowedMedicalPaths = [
-                '/inicio', '/mi-perfil', '/chat', '/acerca-de', '/medico', '/consulta-medica'
+                '/inicio', '/mi-perfil', '/chat', '/acerca-de', '/medico', '/consulta-medica', '/autorizaciones'
             ]
             const isAllowed = allowedMedicalPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
-            if (!isAllowed) {
-                denied = true
-            }
+            if (!isAllowed) denied = true
         }
 
-        // Superintendentes and Admins can see everything else.
-        // Jefes de Departamento are restricted.
-        if (profile.rol === 'Jefe de Departamento') {
-            // Can they see 'empleados/nuevo'? No, usually HR does that.
+        if (effectiveProfile.rol === 'Jefe de Departamento') {
             if (pathname === '/empleados/nuevo') denied = true
-            // Can they see 'reportes/prenomina'? Maybe only their own, but typically pre-nomina is global.
-            // We'll allow Jefes to see pre-nomina but the UI itself will filter by their department automatically.
         }
 
         setAccessDenied(denied)
 
-    }, [pathname, profile, loading])
+    }, [pathname, effectiveProfile, loading, isTestModeActive])
 
 
     if (loading) {
@@ -275,22 +313,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 <ShieldAlert className="w-16 h-16 text-red-500 mb-4" />
                 <h1 className="text-3xl font-black text-zinc-900 mb-2 uppercase">Acceso Denegado</h1>
                 <p className="text-zinc-500 max-w-md">
-                    Tu rol actual ({profile?.rol}) no tiene permisos para acceder a esta sección o dominio. Si crees que esto es un error, contacta al administrador.
+                    Tu rol actual ({effectiveProfile?.rol}) no tiene permisos para acceder a esta sección o dominio. Si crees que esto es un error, contacta al administrador.
                 </p>
                 <button 
                     onClick={() => {
                         setAccessDenied(false)
-                        if (profile?.rol === 'Contratista') router.push('/contratistas-portal')
-                        else if (profile?.rol === 'Caseta' || profile?.rol === 'Seguridad Patrimonial') router.push('/caseta')
-                        else if (profile?.rol === 'Seguridad Industrial' || profile?.rol === 'Seguridad') router.push('/seguridad')
-                        else if (profile?.rol === 'Chofer') router.push('/logistica/choferes')
-                        else if (profile?.rol === 'Encargado de Campamento y Comedor') router.push('/campamentos')
-                        else if (profile?.rol === 'Médico' || profile?.rol === 'Jefe Médico') router.push('/medico/consultas')
-                        else if (profile?.rol === 'Jefe de Departamento' || profile?.rol === 'Supervisor') router.push('/mi-departamento')
+                        if (effectiveProfile?.rol === 'Contratista') router.push('/contratistas-portal')
+                        else if (effectiveProfile?.rol === 'Caseta' || effectiveProfile?.rol === 'Seguridad Patrimonial') router.push('/caseta')
+                        else if (effectiveProfile?.rol === 'Seguridad Industrial' || effectiveProfile?.rol === 'Seguridad') router.push('/seguridad')
+                        else if (effectiveProfile?.rol === 'Chofer') router.push('/logistica/choferes')
+                        else if (effectiveProfile?.rol === 'Encargado de Campamento y Comedor') router.push('/campamentos')
+                        else if (effectiveProfile?.rol === 'Médico' || effectiveProfile?.rol === 'Jefe Médico') router.push('/medico/consultas')
+                        else if (effectiveProfile?.rol === 'Jefe de Departamento' || effectiveProfile?.rol === 'Supervisor') router.push('/mi-departamento')
                         else if (
-                            profile?.rol === 'Sindicato' ||
-                            profile?.rol === 'Jefe de RH Unidad' ||
-                            profile?.rol === 'Superintendente de RH Corporativo'
+                            effectiveProfile?.rol === 'Sindicato' ||
+                            effectiveProfile?.rol === 'Jefe de RH Unidad' ||
+                            effectiveProfile?.rol === 'Superintendente de RH Corporativo'
                         ) router.push('/movimientos-sindicato')
                         else router.push('/inicio')
                     }} 
@@ -303,7 +341,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     return (
-        <AuthContext.Provider value={{ user, profile, loading, hasAccess }}>
+        <AuthContext.Provider value={{
+            user: effectiveUser,
+            profile: effectiveProfile,
+            realProfile: profile,
+            loading,
+            hasAccess,
+            testLevelId,
+            activeTestLevel,
+            setTestLevel
+        }}>
             {children}
         </AuthContext.Provider>
     )

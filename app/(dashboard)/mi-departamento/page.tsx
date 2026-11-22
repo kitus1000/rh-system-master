@@ -95,9 +95,15 @@ export default function MiDepartamentoPage() {
       const depts = deptsData || []
       setDepartamentos(depts)
 
-      // Determinar el departamento del usuario logueado
-      let initialDeptId = selectedDeptId
-      if (!initialDeptId && depts.length > 0) {
+      // Si hay un Nivel de Modo Prueba activo con departamento simulado, priorizar ese departamento
+      const simulatedDept = profile?.departamento_simulado
+      if (simulatedDept && simulatedDept !== 'TODOS' && depts.length > 0) {
+        const matchedSim = depts.find((d) => areDepartmentsEquivalent(d.departamento, simulatedDept))
+        if (matchedSim) {
+          setSelectedDeptId(String(matchedSim.id_departamento))
+        }
+      } else if (!selectedDeptId && depts.length > 0) {
+        let initialDeptId = ''
         const profDeptId =
           profile?.id_departamento ||
           (profile?.departamentos_autorizados && profile.departamentos_autorizados[0]) ||
