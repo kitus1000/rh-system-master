@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { 
   Home, Plus, Bed, Trash2, UserPlus, Search, Building, MapPin, 
@@ -8,8 +8,13 @@ import {
   Box, Eye, Layers, RotateCw, User, Calendar, Clock, RefreshCw, X,
   Shirt, Sparkles as SparklesIcon, Zap, Settings, ShieldAlert, Move, ZoomIn, Info,
   BarChart3, ChevronLeft, ArrowRight, CheckCircle2, Sliders, CalendarDays,
-  HardHat, UserCheck, Repeat, UserPlus2
+  HardHat, UserCheck, Repeat, UserPlus2, Sun, Moon
 } from 'lucide-react'
+import {
+  normalizeNameTokens,
+  canonicalizeDepartment,
+  matchesFlexiblePersonSearch,
+} from '@/utils/dataNormalization'
 
 interface Persona {
   id_empleado: string
@@ -136,6 +141,11 @@ export default function CampamentosPage() {
   // Assignment state
   const [assignmentTarget, setAssignmentTarget] = useState<{ id_cama: string, numero: number } | null>(null)
   const [assignmentSearch, setAssignmentSearch] = useState('')
+  const [showOnlyUnassignedInModal, setShowOnlyUnassignedInModal] = useState(true)
+  const [cleaningDuplicates, setCleaningDuplicates] = useState(false)
+
+  // Tema visual de la Maqueta 3D: 'bacis' (Vista Institucional Bacís Oro/Cobre/Marfil) | 'dark' (Modo Oscuro Subterráneo)
+  const [sceneTheme3D, setSceneTheme3D] = useState<'bacis' | 'dark'>('bacis')
 
   // Solicitudes de hospedaje de Portal Contratistas
   const [contratistasSolicitudes, setContratistasSolicitudes] = useState<any[]>([])
@@ -148,6 +158,19 @@ export default function CampamentosPage() {
     fetchEmpleados()
     fetchIncidencias()
     fetchContratistasSolicitudes()
+
+    const savedTheme = localStorage.getItem('bacis_ui_theme') as 'bacis' | 'dark' | null
+    if (savedTheme === 'dark' || savedTheme === 'bacis') {
+      setSceneTheme3D(savedTheme)
+    }
+
+    const onThemeChange = (e: any) => {
+      if (e?.detail === 'dark' || e?.detail === 'bacis') {
+        setSceneTheme3D(e.detail)
+      }
+    }
+    window.addEventListener('bacis-theme-change', onThemeChange)
+    return () => window.removeEventListener('bacis-theme-change', onThemeChange)
   }, [])
 
   const fetchContratistasSolicitudes = async () => {
@@ -631,7 +654,161 @@ export default function CampamentosPage() {
     }
   }
 
-  // THREE.JS REAL-TIME 3D VOLUMETRIC SCENE ENGINE
+  // ==========================================================================
+  // DETECTOR Y BLOQUEADOR DE DUPLICIDAD DE PERSONAS EN CAMAS DE CAMPAMENTOS
+  // ==========================================================================
+  const occupiedBedsAnalysis = useMemo(() => {
+    const byEmpId = new Map<
+      string,
+      {
+        id_cama: string
+        numero: number
+        id_cuarto: string
+        cuartoNombre: string
+        id_campamento: string
+        campNombre: string
+        id_empleado: string
+        empNombre: string
+        numero_empleado?: string | number
+      }[]
+    >()
+    const byTokenKey = new Map<string, any[]>()
+
+    campamentos.forEach((camp) => {
+      ;(camp.campamento_cuartos || []).forEach((cuarto) => {
+        ;(cuarto.campamento_camas || []).forEach((cama) => {
+          if (!cama.id_empleado) return
+          const emp = cama.empleados
+          const fullName = emp
+            ? `${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.trim()
+            : `ID ${cama.id_empleado}`
+          const entry = {
+            id_cama: cama.id_cama,
+            numero: cama.numero,
+            id_cuarto: cuarto.id_cuarto,
+            cuartoNombre: cuarto.nombre,
+            id_campamento: camp.id_campamento,
+            campNombre: camp.nombre,
+            id_empleado: String(cama.id_empleado),
+            empNombre: fullName,
+            numero_empleado: emp?.numero_empleado,
+          }
+
+          const idKey = String(cama.id_empleado)
+          const listById = byEmpId.get(idKey) || []
+          listById.push(entry)
+          byEmpId.set(idKey, listById)
+
+          const tokKey = normalizeNameTokens(fullName).join('|')
+          if (tokKey) {
+            const listByTok = byTokenKey.get(tokKey) || []
+            listByTok.push(entry)
+            byTokenKey.set(tokKey, listByTok)
+          }
+        })
+      })
+    })
+
+    // Detectar trabajadores que ocupan 2 o más camas simultáneamente (por mismo ID o mismo nombre invertido)
+    const duplicates: {
+      key: string
+      empNombre: string
+      id_empleado: string
+      beds: {
+        id_cama: string
+        numero: number
+        cuartoNombre: string
+        campNombre: string
+      }[]
+    }[] = []
+    const seenBedSets = new Set<string>()
+
+    byEmpId.forEach((beds, empId) => {
+      if (beds.length > 1) {
+        const sig = beds
+          .map((b) => b.id_cama)
+          .sort()
+          .join('_')
+        if (!seenBedSets.has(sig)) {
+          seenBedSets.add(sig)
+          duplicates.push({
+            key: `ID_${empId}`,
+            empNombre: beds[0].empNombre,
+            id_empleado: empId,
+            beds,
+          })
+        }
+      }
+    })
+
+    byTokenKey.forEach((beds, tokKey) => {
+      if (beds.length > 1) {
+        const sig = beds
+          .map((b) => b.id_cama)
+          .sort()
+          .join('_')
+        if (!seenBedSets.has(sig)) {
+          seenBedSets.add(sig)
+          duplicates.push({
+            key: `TOK_${tokKey}`,
+            empNombre: beds[0].empNombre,
+            id_empleado: beds[0].id_empleado,
+            beds,
+          })
+        }
+      }
+    })
+
+    const duplicatedBedIds = new Set<string>()
+    duplicates.forEach((d) => d.beds.forEach((b) => duplicatedBedIds.add(b.id_cama)))
+
+    return {
+      byEmpId,
+      byTokenKey,
+      duplicates,
+      duplicatedBedIds,
+    }
+  }, [campamentos])
+
+  const getExistingBedsForPersona = (persona?: Persona | null) => {
+    if (!persona) return []
+    const byId = occupiedBedsAnalysis.byEmpId.get(String(persona.id_empleado)) || []
+    const fullName = `${persona.nombre || ''} ${persona.apellido_paterno || ''} ${persona.apellido_materno || ''}`.trim()
+    const tokKey = normalizeNameTokens(fullName).join('|')
+    const byTok = tokKey ? occupiedBedsAnalysis.byTokenKey.get(tokKey) || [] : []
+
+    const map = new Map<string, any>()
+    ;[...byId, ...byTok].forEach((b) => map.set(b.id_cama, b))
+    return Array.from(map.values())
+  }
+
+  const handleCleanDuplicateBeds = async () => {
+    if (occupiedBedsAnalysis.duplicates.length === 0) return
+    if (
+      !confirm(
+        `Se detectaron ${occupiedBedsAnalysis.duplicates.length} persona(s) asignadas a más de una cama con el mismo ID o nombre.\n\n¿Deseas conservar únicamente su primera cama y liberar automáticamente las camas repetidas?`
+      )
+    ) {
+      return
+    }
+    setCleaningDuplicates(true)
+    try {
+      for (const dup of occupiedBedsAnalysis.duplicates) {
+        const extraBeds = dup.beds.slice(1)
+        for (const eb of extraBeds) {
+          await supabase.from('campamento_camas').update({ id_empleado: null }).eq('id_cama', eb.id_cama)
+        }
+      }
+      await fetchData()
+      alert('¡Camas duplicadas liberadas! Ahora cada trabajador ocupa únicamente una cama.')
+    } catch (e: any) {
+      alert('Error limpiando camas duplicadas: ' + e.message)
+    } finally {
+      setCleaningDuplicates(false)
+    }
+  }
+
+  // THREE.JS REAL-TIME 3D VOLUMETRIC SCENE ENGINE (ARTICULATED MINERS & DUAL THEME)
   useEffect(() => {
     if (viewMode !== '3d' || !mountRef.current || !selectedCampamento) return
 
@@ -645,15 +822,84 @@ export default function CampamentosPage() {
 
       const container = mountRef.current
       const width = container.clientWidth || 800
-      const height = container.clientHeight || 500
+      const height = container.clientHeight || 580
 
-      // 1. Scene setup
+      const isBacisLight = sceneTheme3D === 'bacis'
+
+      // Helper para crear etiquetas 3D flotantes de alta nitidez (Sprites Canvas)
+      const createFloatingBillboard = (
+        titleText: string,
+        subText: string,
+        statusText: string,
+        accentHex: string,
+        isAlert = false
+      ) => {
+        const canvas = document.createElement('canvas')
+        canvas.width = 512
+        canvas.height = 176
+        const ctx = canvas.getContext('2d')!
+
+        // Fondo con borde redondeado
+        ctx.fillStyle = isAlert
+          ? 'rgba(127, 29, 29, 0.96)'
+          : isBacisLight
+          ? 'rgba(24, 24, 27, 0.93)'
+          : 'rgba(15, 18, 28, 0.94)'
+        ctx.strokeStyle = isAlert ? '#ef4444' : accentHex
+        ctx.lineWidth = 6
+
+        const r = 24
+        ctx.beginPath()
+        ctx.moveTo(r, 6)
+        ctx.lineTo(506 - r, 6)
+        ctx.quadraticCurveTo(506, 6, 506, 6 + r)
+        ctx.lineTo(506, 170 - r)
+        ctx.quadraticCurveTo(506, 170, 506 - r, 170)
+        ctx.lineTo(r, 170)
+        ctx.quadraticCurveTo(6, 170, 6, 170 - r)
+        ctx.lineTo(6, 6 + r)
+        ctx.quadraticCurveTo(6, 6, r, 6)
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+
+        // Franja superior de estado
+        ctx.fillStyle = isAlert ? '#ef4444' : accentHex
+        ctx.font = '900 22px Arial, sans-serif'
+        ctx.textAlign = 'center'
+        ctx.fillText(statusText.slice(0, 34), 256, 42)
+
+        // Nombre principal del trabajador o cuarto
+        ctx.fillStyle = '#ffffff'
+        ctx.font = '900 31px Arial, sans-serif'
+        ctx.fillText(titleText.slice(0, 26), 256, 94)
+
+        // Subtítulo (Departamento / Puesto / Rol)
+        ctx.fillStyle = '#fcd34d'
+        ctx.font = 'bold 22px monospace'
+        ctx.fillText(subText.slice(0, 34), 256, 140)
+
+        const texture = new THREE.CanvasTexture(canvas)
+        texture.needsUpdate = true
+        const spriteMat = new THREE.SpriteMaterial({
+          map: texture,
+          transparent: true,
+          depthTest: false,
+        })
+        const sprite = new THREE.Sprite(spriteMat)
+        sprite.scale.set(2.85, 0.98, 1)
+        sprite.renderOrder = 999
+        return sprite
+      }
+
+      // 1. Scene setup (Adaptado a las 2 vistas: Vista Bacís Institucional vs Modo Oscuro Minero)
       const scene = new THREE.Scene()
-      scene.background = new THREE.Color(0x0c0d10)
-      scene.fog = new THREE.FogExp2(0x0c0d10, 0.012)
+      const bgHex = isBacisLight ? 0xefe7d6 : 0x0a0c12
+      scene.background = new THREE.Color(bgHex)
+      scene.fog = new THREE.FogExp2(bgHex, 0.009)
 
       // 2. Camera setup
-      const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 1000)
+      const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 1000)
       camera.position.set(24, 24, 30)
       camera.lookAt(0, 1, 0)
 
@@ -670,39 +916,52 @@ export default function CampamentosPage() {
       container.appendChild(renderer.domElement)
 
       // 4. Lighting setup
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.8)
+      const ambientLight = new THREE.AmbientLight(
+        isBacisLight ? 0xfffbf0 : 0xffffff,
+        isBacisLight ? 1.15 : 0.85
+      )
       scene.add(ambientLight)
 
-      const dirLight = new THREE.DirectionalLight(0xfff5ea, 1.4)
-      dirLight.position.set(25, 45, 25)
+      const dirLight = new THREE.DirectionalLight(0xfff3db, isBacisLight ? 1.65 : 1.4)
+      dirLight.position.set(28, 48, 28)
       dirLight.castShadow = true
       dirLight.shadow.mapSize.width = 2048
       dirLight.shadow.mapSize.height = 2048
       scene.add(dirLight)
 
-      const pointLight = new THREE.PointLight(0xf59e0b, 1.2, 60)
-      pointLight.position.set(0, 18, 0)
+      const pointLight = new THREE.PointLight(0xf59e0b, isBacisLight ? 0.9 : 1.4, 70)
+      pointLight.position.set(0, 20, 0)
       scene.add(pointLight)
 
       // 5. Ground / Terrain Grid 3D
-      const gridHelper = new THREE.GridHelper(70, 35, 0xf59e0b, 0x27272a)
+      const gridHelper = new THREE.GridHelper(
+        76,
+        38,
+        0xd97706,
+        isBacisLight ? 0xd6c7ab : 0x222634
+      )
       gridHelper.position.y = -0.01
       scene.add(gridHelper)
 
-      const groundGeo = new THREE.PlaneGeometry(90, 90)
-      const groundMat = new THREE.MeshStandardMaterial({ color: 0x141519, roughness: 0.8, metalness: 0.2 })
+      const groundGeo = new THREE.PlaneGeometry(100, 100)
+      const groundMat = new THREE.MeshStandardMaterial({
+        color: isBacisLight ? 0xe5dac3 : 0x11141d,
+        roughness: 0.85,
+        metalness: 0.15,
+      })
       const groundMesh = new THREE.Mesh(groundGeo, groundMat)
       groundMesh.rotation.x = -Math.PI / 2
       groundMesh.receiveShadow = true
       scene.add(groundMesh)
 
-      // 6. Build 3D Volumetric Realistic Room Cubes
+      // 6. Build 3D Volumetric Realistic Room Cabins & Articulated 3D Miners
       const rooms = selectedCampamento.campamento_cuartos || []
       const roomsPerRow = 4
-      const roomSpacingX = 9.0
-      const roomSpacingZ = 9.0
+      const roomSpacingX = 9.4
+      const roomSpacingZ = 9.4
 
-      const roomObjectsMap = new Map<any, { room: Cuarto, bed?: Cama }>()
+      const roomObjectsMap = new Map<any, { room: Cuarto; bed?: Cama }>()
+      const animatedMiners: { group: any; billboard: any; phase: number }[] = []
 
       rooms.forEach((cuarto, idx) => {
         const row = Math.floor(idx / roomsPerRow)
@@ -714,10 +973,13 @@ export default function CampamentosPage() {
         roomGroup.position.set(xPos, 0, zPos)
 
         // Room Floor 3D
-        const floorGeo = new THREE.BoxGeometry(7.2, 0.2, 7.2)
-        const floorMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.6 })
+        const floorGeo = new THREE.BoxGeometry(7.5, 0.24, 7.5)
+        const floorMat = new THREE.MeshStandardMaterial({
+          color: isBacisLight ? 0x3f3a34 : 0x232733,
+          roughness: 0.55,
+        })
         const floorMesh = new THREE.Mesh(floorGeo, floorMat)
-        floorMesh.position.y = 0.1
+        floorMesh.position.y = 0.12
         floorMesh.receiveShadow = true
         roomGroup.add(floorMesh)
 
@@ -726,115 +988,301 @@ export default function CampamentosPage() {
         const isCleaning = cuarto.estatus_limpieza === 'En Limpieza'
         const wallAccentColor = isDirty ? 0xef4444 : isCleaning ? 0xf59e0b : 0x10b981
 
+        const wallMat = new THREE.MeshStandardMaterial({
+          color: isBacisLight ? 0xf7f2e7 : 0x363c4e,
+          roughness: 0.65,
+        })
+
         // Back Wall 3D
-        const backWallGeo = new THREE.BoxGeometry(7.2, 3.2, 0.3)
-        const wallMat = new THREE.MeshStandardMaterial({ color: 0x3f3f46, roughness: 0.7 })
+        const backWallGeo = new THREE.BoxGeometry(7.5, 3.3, 0.32)
         const backWallMesh = new THREE.Mesh(backWallGeo, wallMat)
-        backWallMesh.position.set(0, 1.7, -3.45)
+        backWallMesh.position.set(0, 1.75, -3.59)
         backWallMesh.castShadow = true
         roomGroup.add(backWallMesh)
 
         // Side Walls 3D
-        const sideWallGeo = new THREE.BoxGeometry(0.3, 3.2, 7.2)
+        const sideWallGeo = new THREE.BoxGeometry(0.32, 3.3, 7.5)
         const leftWallMesh = new THREE.Mesh(sideWallGeo, wallMat)
-        leftWallMesh.position.set(-3.45, 1.7, 0)
+        leftWallMesh.position.set(-3.59, 1.75, 0)
         leftWallMesh.castShadow = true
         roomGroup.add(leftWallMesh)
 
         const rightWallMesh = new THREE.Mesh(sideWallGeo, wallMat)
-        rightWallMesh.position.set(3.45, 1.7, 0)
+        rightWallMesh.position.set(3.59, 1.75, 0)
         rightWallMesh.castShadow = true
         roomGroup.add(rightWallMesh)
 
         // Front Door Frame 3D
-        const doorFrameGeo = new THREE.BoxGeometry(1.8, 2.8, 0.3)
-        const doorMat = new THREE.MeshStandardMaterial({ color: 0x18181b })
+        const doorFrameGeo = new THREE.BoxGeometry(1.7, 2.7, 0.32)
+        const doorMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.5 })
         const doorMesh = new THREE.Mesh(doorFrameGeo, doorMat)
-        doorMesh.position.set(-2.0, 1.5, 3.45)
+        doorMesh.position.set(-2.1, 1.45, 3.59)
         roomGroup.add(doorMesh)
 
         // Room LED Border Accent Light 3D
-        const borderGeo = new THREE.BoxGeometry(7.3, 0.1, 7.3)
+        const borderGeo = new THREE.BoxGeometry(7.62, 0.14, 7.62)
         const borderMat = new THREE.MeshBasicMaterial({ color: wallAccentColor })
         const borderMesh = new THREE.Mesh(borderGeo, borderMat)
-        borderMesh.position.y = 3.3
+        borderMesh.position.y = 3.42
         roomGroup.add(borderMesh)
 
-        // 3D Beds inside the room
+        // Cartel 3D del Cuarto
         const camas = cuarto.campamento_camas || []
+        const ocupadasCount = camas.filter((c) => c.id_empleado).length
+        const roomSign = createFloatingBillboard(
+          cuarto.nombre.toUpperCase(),
+          `${ocupadasCount}/${camas.length} CAMAS OCUPADAS`,
+          `LIMPIEZA: ${cuarto.estatus_limpieza.toUpperCase()}`,
+          isDirty ? '#ef4444' : '#f59e0b'
+        )
+        roomSign.position.set(0, 4.35, -3.4)
+        roomSign.scale.set(2.9, 0.95, 1)
+        roomGroup.add(roomSign)
+
+        // 3D Beds & Articulated 3D Miners inside the room
         camas.forEach((cama, cIdx) => {
           const bedGroup = new THREE.Group()
-          const bedOffsetX = (cIdx % 2 === 0 ? -1.9 : 1.9)
-          const bedOffsetZ = (cIdx < 2 ? -1.6 : 1.6)
-          bedGroup.position.set(bedOffsetX, 0.2, bedOffsetZ)
+          const bedOffsetX = cIdx % 2 === 0 ? -1.95 : 1.95
+          const bedOffsetZ = cIdx < 2 ? -1.6 : 1.6
+          bedGroup.position.set(bedOffsetX, 0.24, bedOffsetZ)
 
-          // 3D Wooden Bed Frame & Headboard
-          const bedFrameGeo = new THREE.BoxGeometry(2.1, 0.4, 2.9)
-          const bedFrameMat = new THREE.MeshStandardMaterial({ color: 0x52525b, roughness: 0.5 })
+          const isOccupied = Boolean(cama.id_empleado)
+          const isDuplicatedBed = occupiedBedsAnalysis.duplicatedBedIds.has(cama.id_cama)
+          const proj = calculateShiftProjection(cama.empleados)
+
+          // 3D Wooden/Metal Bed Frame & Headboard
+          const bedFrameGeo = new THREE.BoxGeometry(2.15, 0.42, 2.95)
+          const bedFrameMat = new THREE.MeshStandardMaterial({
+            color: isBacisLight ? 0x57534e : 0x4b5563,
+            roughness: 0.45,
+          })
           const bedFrameMesh = new THREE.Mesh(bedFrameGeo, bedFrameMat)
-          bedFrameMesh.position.y = 0.2
+          bedFrameMesh.position.y = 0.21
           bedFrameMesh.castShadow = true
           bedGroup.add(bedFrameMesh)
 
-          const headboardGeo = new THREE.BoxGeometry(2.1, 1.0, 0.2)
+          const headboardGeo = new THREE.BoxGeometry(2.15, 1.1, 0.22)
           const headboardMesh = new THREE.Mesh(headboardGeo, bedFrameMat)
-          headboardMesh.position.set(0, 0.7, -1.35)
+          headboardMesh.position.set(0, 0.75, -1.36)
           bedGroup.add(headboardMesh)
 
           // 3D Nightstand / Buró next to bed
-          const buroGeo = new THREE.BoxGeometry(0.8, 0.7, 0.8)
+          const buroGeo = new THREE.BoxGeometry(0.75, 0.72, 0.75)
           const buroMat = new THREE.MeshStandardMaterial({ color: 0x27272a })
           const buroMesh = new THREE.Mesh(buroGeo, buroMat)
-          buroMesh.position.set(cIdx % 2 === 0 ? -1.3 : 1.3, 0.35, -1.0)
+          buroMesh.position.set(cIdx % 2 === 0 ? -1.32 : 1.32, 0.36, -1.0)
           bedGroup.add(buroMesh)
 
           // 3D Mattress & Sheet
-          const isOccupied = Boolean(cama.id_empleado)
-          const proj = calculateShiftProjection(cama.empleados)
-          const sheetColor = isOccupied ? (proj.isFranco ? 0xf59e0b : 0x10b981) : 0xe4e4e7
+          const sheetColor = isOccupied
+            ? isDuplicatedBed
+              ? 0xef4444
+              : proj.isFranco
+              ? 0xf59e0b
+              : 0x10b981
+            : 0xe4e4e7
 
-          const matGeo = new THREE.BoxGeometry(1.9, 0.3, 2.7)
-          const matMaterial = new THREE.MeshStandardMaterial({ color: sheetColor, roughness: 0.7 })
+          const matGeo = new THREE.BoxGeometry(1.94, 0.32, 2.75)
+          const matMaterial = new THREE.MeshStandardMaterial({ color: sheetColor, roughness: 0.65 })
           const matMesh = new THREE.Mesh(matGeo, matMaterial)
-          matMesh.position.y = 0.55
+          matMesh.position.y = 0.56
           matMesh.castShadow = true
           bedGroup.add(matMesh)
 
           // 3D Pillow
-          const pillowGeo = new THREE.BoxGeometry(1.5, 0.2, 0.7)
+          const pillowGeo = new THREE.BoxGeometry(1.45, 0.22, 0.68)
           const pillowMat = new THREE.MeshStandardMaterial({ color: 0xffffff })
           const pillowMesh = new THREE.Mesh(pillowGeo, pillowMat)
-          pillowMesh.position.set(0, 0.75, -0.9)
+          pillowMesh.position.set(0, 0.78, -0.92)
           bedGroup.add(pillowMesh)
 
-          // 3D PERSON FIGURE / AVATAR (If Occupied)
+          // ==================================================================
+          // ARTICULATED 3D MINER CHARACTER + HOLOGRAPHIC 3D NAMEPLATE
+          // ==================================================================
           if (isOccupied && cama.empleados) {
+            const emp = cama.empleados
             const personGroup = new THREE.Group()
-            personGroup.position.set(0, 0.7, 0)
+            personGroup.position.set(0, 0.72, 0.15)
 
-            // Torso (Shirt) 3D
-            const shirtColor = proj.isFranco ? 0xd97706 : 0x059669
-            const torsoGeo = new THREE.CylinderGeometry(0.42, 0.38, 0.95, 12)
-            const torsoMat = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.3 })
+            // 1. Halo / Anillo Luminoso en la base del trabajador
+            const haloGeo = new THREE.RingGeometry(0.52, 0.68, 24)
+            const haloMat = new THREE.MeshBasicMaterial({
+              color: isDuplicatedBed ? 0xef4444 : proj.isFranco ? 0xf59e0b : 0x10b981,
+              side: THREE.DoubleSide,
+            })
+            const haloMesh = new THREE.Mesh(haloGeo, haloMat)
+            haloMesh.rotation.x = -Math.PI / 2
+            haloMesh.position.y = 0.02
+            personGroup.add(haloMesh)
+
+            // 2. Botas Mineras con Casquillo (2 botas)
+            const bootGeo = new THREE.BoxGeometry(0.24, 0.18, 0.38)
+            const bootMat = new THREE.MeshStandardMaterial({ color: 0x292524, roughness: 0.7 })
+            const leftBoot = new THREE.Mesh(bootGeo, bootMat)
+            leftBoot.position.set(-0.2, 0.09, 0.06)
+            const rightBoot = new THREE.Mesh(bootGeo, bootMat)
+            rightBoot.position.set(0.2, 0.09, 0.06)
+            personGroup.add(leftBoot, rightBoot)
+
+            // 3. Piernas (Pantalón de Mezclilla Minero)
+            const legGeo = new THREE.CylinderGeometry(0.14, 0.13, 0.56, 12)
+            const denimMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.75 })
+            const leftLeg = new THREE.Mesh(legGeo, denimMat)
+            leftLeg.position.set(-0.2, 0.44, 0)
+            leftLeg.castShadow = true
+            const rightLeg = new THREE.Mesh(legGeo, denimMat)
+            rightLeg.position.set(0.2, 0.44, 0)
+            rightLeg.castShadow = true
+            personGroup.add(leftLeg, rightLeg)
+
+            // 4. Cinturón Minero con Hebilla Dorada Bacís
+            const beltGeo = new THREE.CylinderGeometry(0.39, 0.38, 0.12, 16)
+            const beltMat = new THREE.MeshStandardMaterial({ color: 0x18181b })
+            const beltMesh = new THREE.Mesh(beltGeo, beltMat)
+            beltMesh.position.y = 0.74
+            personGroup.add(beltMesh)
+
+            const buckleGeo = new THREE.BoxGeometry(0.18, 0.12, 0.08)
+            const goldMat = new THREE.MeshStandardMaterial({
+              color: 0xf59e0b,
+              metalness: 0.7,
+              roughness: 0.2,
+            })
+            const buckleMesh = new THREE.Mesh(buckleGeo, goldMat)
+            buckleMesh.position.set(0, 0.74, 0.38)
+            personGroup.add(buckleMesh)
+
+            // 5. Torso y Chaleco Minero con Franjas Reflejantes
+            const vestColor = isDuplicatedBed
+              ? 0xdc2626
+              : emp.es_contratista
+              ? 0xea580c
+              : proj.isFranco
+              ? 0xd97706
+              : 0x059669
+            const torsoGeo = new THREE.CylinderGeometry(0.42, 0.38, 0.78, 16)
+            const torsoMat = new THREE.MeshStandardMaterial({ color: vestColor, roughness: 0.35 })
             const torsoMesh = new THREE.Mesh(torsoGeo, torsoMat)
-            torsoMesh.position.y = 0.5
+            torsoMesh.position.y = 1.15
             torsoMesh.castShadow = true
             personGroup.add(torsoMesh)
 
-            // Head 3D
-            const headGeo = new THREE.SphereGeometry(0.34, 16, 16)
-            const headMat = new THREE.MeshStandardMaterial({ color: 0xfbd5a5, roughness: 0.6 })
-            const headMesh = new THREE.Mesh(headGeo, headMat)
-            headMesh.position.y = 1.2
+            // Franjas reflejantes plateadas/doradas en el chaleco
+            const stripeGeo = new THREE.CylinderGeometry(0.43, 0.41, 0.08, 16)
+            const stripeMat = new THREE.MeshStandardMaterial({
+              color: 0xfef08a,
+              emissive: 0xf59e0b,
+              emissiveIntensity: 0.35,
+              roughness: 0.2,
+            })
+            const stripe1 = new THREE.Mesh(stripeGeo, stripeMat)
+            stripe1.position.y = 1.02
+            const stripe2 = new THREE.Mesh(stripeGeo, stripeMat)
+            stripe2.position.y = 1.24
+            personGroup.add(stripe1, stripe2)
+
+            // 6. Brazos Articulados y Guantes/Manos
+            const armGeo = new THREE.CylinderGeometry(0.11, 0.1, 0.62, 12)
+            const leftArm = new THREE.Mesh(armGeo, torsoMat)
+            leftArm.position.set(-0.52, 1.12, 0)
+            leftArm.rotation.z = 0.14
+            leftArm.castShadow = true
+
+            const rightArm = new THREE.Mesh(armGeo, torsoMat)
+            rightArm.position.set(0.52, 1.12, 0)
+            rightArm.rotation.z = -0.14
+            rightArm.castShadow = true
+            personGroup.add(leftArm, rightArm)
+
+            const skinMat = new THREE.MeshStandardMaterial({ color: 0xf4c794, roughness: 0.55 })
+            const handGeo = new THREE.SphereGeometry(0.11, 10, 10)
+            const leftHand = new THREE.Mesh(handGeo, skinMat)
+            leftHand.position.set(-0.56, 0.78, 0)
+            const rightHand = new THREE.Mesh(handGeo, skinMat)
+            rightHand.position.set(0.56, 0.78, 0)
+            personGroup.add(leftHand, rightHand)
+
+            // 7. Cabeza y Lentes de Seguridad
+            const headGeo = new THREE.SphereGeometry(0.33, 18, 18)
+            const headMesh = new THREE.Mesh(headGeo, skinMat)
+            headMesh.position.y = 1.82
             headMesh.castShadow = true
             personGroup.add(headMesh)
 
-            // Helmet 3D (Minero)
-            const helmetGeo = new THREE.SphereGeometry(0.37, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2)
-            const helmetMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.2, metalness: 0.4 })
-            const helmetMesh = new THREE.Mesh(helmetGeo, helmetMat)
-            helmetMesh.position.y = 1.3
+            // Lentes de protección oscuros
+            const glassesGeo = new THREE.BoxGeometry(0.42, 0.11, 0.14)
+            const glassesMat = new THREE.MeshStandardMaterial({
+              color: 0x09090b,
+              metalness: 0.8,
+              roughness: 0.15,
+            })
+            const glassesMesh = new THREE.Mesh(glassesGeo, glassesMat)
+            glassesMesh.position.set(0, 1.84, 0.28)
+            personGroup.add(glassesMesh)
+
+            // 8. Casco Minero Bacís con Visera y Lámpara Minera Frontal LED
+            const helmetColor = emp.es_contratista ? 0xf97316 : 0xf59e0b
+            const helmetMat = new THREE.MeshStandardMaterial({
+              color: helmetColor,
+              roughness: 0.2,
+              metalness: 0.45,
+            })
+            const helmetDomeGeo = new THREE.SphereGeometry(
+              0.365,
+              18,
+              18,
+              0,
+              Math.PI * 2,
+              0,
+              Math.PI / 1.85
+            )
+            const helmetMesh = new THREE.Mesh(helmetDomeGeo, helmetMat)
+            helmetMesh.position.y = 1.9
             personGroup.add(helmetMesh)
+
+            // Visera del casco
+            const brimGeo = new THREE.CylinderGeometry(0.41, 0.41, 0.04, 18)
+            const brimMesh = new THREE.Mesh(brimGeo, helmetMat)
+            brimMesh.position.set(0, 1.91, 0.06)
+            personGroup.add(brimMesh)
+
+            // Lámpara Minera Frontal LED en el casco
+            const lampBoxGeo = new THREE.BoxGeometry(0.16, 0.14, 0.12)
+            const lampBoxMesh = new THREE.Mesh(lampBoxGeo, beltMat)
+            lampBoxMesh.position.set(0, 2.04, 0.36)
+            personGroup.add(lampBoxMesh)
+
+            const ledGeo = new THREE.SphereGeometry(0.055, 10, 10)
+            const ledMat = new THREE.MeshBasicMaterial({ color: 0xfef9c3 })
+            const ledMesh = new THREE.Mesh(ledGeo, ledMat)
+            ledMesh.position.set(0, 2.04, 0.42)
+            personGroup.add(ledMesh)
+
+            // 9. Etiqueta 3D Flotante (Holograma con Nombre, Ficha, Departamento y Estado)
+            const shortName = `${emp.nombre || ''} ${emp.apellido_paterno || ''}`.trim().toUpperCase()
+            const fichaTxt = emp.numero_empleado ? `#${emp.numero_empleado}` : ''
+            const deptCan = canonicalizeDepartment(emp.departamento).shortTag
+            const statusBanner = isDuplicatedBed
+              ? '⚠️ ID REPETIDO EN OTRA CAMA'
+              : proj.isFranco
+              ? `🟡 EN FRANCO (${emp.rol_tipo || '20x10'})`
+              : `🟢 EN SITIO · ROL ${emp.rol_tipo || '20x10'}`
+
+            const minerBillboard = createFloatingBillboard(
+              `${shortName} ${fichaTxt}`.trim(),
+              `${deptCan} · ${(emp.puesto || 'OPERATIVO').toUpperCase()}`,
+              statusBanner,
+              isDuplicatedBed ? '#ef4444' : proj.isFranco ? '#f59e0b' : '#10b981',
+              isDuplicatedBed
+            )
+            minerBillboard.position.set(0, 2.85, 0)
+            personGroup.add(minerBillboard)
+
+            animatedMiners.push({
+              group: personGroup,
+              billboard: minerBillboard,
+              phase: idx * 1.3 + cIdx * 0.8,
+            })
 
             bedGroup.add(personGroup)
           }
@@ -856,15 +1304,15 @@ export default function CampamentosPage() {
       // 7. Interactive Mouse Orbit & Raycasting
       let isDragging = false
       let previousMousePosition = { x: 0, y: 0 }
-      let cameraAngleX = 45 * (Math.PI / 180)
-      let cameraAngleY = 45 * (Math.PI / 180)
-      let cameraRadius = 38
+      let cameraAngleX = 42 * (Math.PI / 180)
+      let cameraAngleY = 42 * (Math.PI / 180)
+      let cameraRadius = 36
 
       const updateCameraPosition = () => {
         camera.position.x = cameraRadius * Math.sin(cameraAngleY) * Math.cos(cameraAngleX)
         camera.position.y = cameraRadius * Math.sin(cameraAngleX)
         camera.position.z = cameraRadius * Math.cos(cameraAngleY) * Math.cos(cameraAngleX)
-        camera.lookAt(0, 1.5, 0)
+        camera.lookAt(0, 1.6, 0)
       }
 
       const onMouseDown = (e: MouseEvent) => {
@@ -878,7 +1326,7 @@ export default function CampamentosPage() {
         const deltaY = e.clientY - previousMousePosition.y
 
         cameraAngleY -= deltaX * 0.008
-        cameraAngleX = Math.max(0.1, Math.min(Math.PI / 2.2, cameraAngleX + deltaY * 0.008))
+        cameraAngleX = Math.max(0.12, Math.min(Math.PI / 2.15, cameraAngleX + deltaY * 0.008))
 
         previousMousePosition = { x: e.clientX, y: e.clientY }
         updateCameraPosition()
@@ -890,7 +1338,7 @@ export default function CampamentosPage() {
 
       const onWheel = (e: WheelEvent) => {
         e.preventDefault()
-        cameraRadius = Math.max(12, Math.min(90, cameraRadius + e.deltaY * 0.03))
+        cameraRadius = Math.max(10, Math.min(85, cameraRadius + e.deltaY * 0.03))
         updateCameraPosition()
       }
 
@@ -935,10 +1383,16 @@ export default function CampamentosPage() {
 
       updateCameraPosition()
 
-      // 8. Animation Loop
+      // 8. Smooth Animation Loop (Respiración y Flotación 3D de Mineros)
+      let startTime = performance.now()
       const animate = () => {
         if (isDisposed) return
         animationFrameId = requestAnimationFrame(animate)
+        const elapsed = (performance.now() - startTime) * 0.001
+        animatedMiners.forEach((m) => {
+          m.group.position.y = 0.72 + Math.sin(elapsed * 2.4 + m.phase) * 0.035
+          m.billboard.position.y = 2.85 + Math.sin(elapsed * 2.4 + m.phase) * 0.05
+        })
         renderer.render(scene, camera)
       }
       animate()
@@ -963,7 +1417,7 @@ export default function CampamentosPage() {
       if (animationFrameId) cancelAnimationFrame(animationFrameId)
       if (cleanupEvents) cleanupEvents()
     }
-  }, [viewMode, selectedCampamento])
+  }, [viewMode, selectedCampamento, sceneTheme3D, occupiedBedsAnalysis.duplicatedBedIds])
 
   // Save Worker Shift Role
   const handleSaveShiftRole = async (e: React.FormEvent) => {
@@ -1050,12 +1504,31 @@ export default function CampamentosPage() {
     }
   }
 
-  // Handle Quick Bed Assignment for existing Contractor
+  // Handle Quick Bed Assignment for existing Contractor (con validación anti-duplicidad)
   const handleQuickAssignBedContractor = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!assigningBedContractor || !quickAssignBedId) return
 
     try {
+      const existingBeds = getExistingBedsForPersona(assigningBedContractor)
+      if (existingBeds.some((b) => b.id_cama === quickAssignBedId)) {
+        alert('Esta persona ya se encuentra asignada en esta misma cama.')
+        return
+      }
+      if (existingBeds.length > 0) {
+        const locations = existingBeds
+          .map((b) => `${b.campNombre} / ${b.cuartoNombre} / Cama #${b.numero}`)
+          .join(', ')
+        const confirmMove = confirm(
+          `⚠️ PREVENCIÓN DE DUPLICIDAD:\n"${assigningBedContractor.nombre} ${assigningBedContractor.apellido_paterno}" ya tiene asignada una cama en:\n📍 ${locations}\n\nNo puede estar duplicado en dos camas. ¿Deseas MUDARLO a esta nueva cama y liberar automáticamente su cama anterior?`
+        )
+        if (!confirmMove) return
+
+        for (const oldBed of existingBeds) {
+          await supabase.from('campamento_camas').update({ id_empleado: null }).eq('id_cama', oldBed.id_cama)
+        }
+      }
+
       const { error } = await supabase.from('campamento_camas')
         .update({ id_empleado: assigningBedContractor.id_empleado })
         .eq('id_cama', quickAssignBedId)
@@ -1267,17 +1740,45 @@ export default function CampamentosPage() {
   const handleAssignPerson = async (persona: Persona) => {
     if (!assignmentTarget) return
     try {
-      const { error } = await supabase.from('campamento_camas')
+      // Validación estricta anti-duplicidad por ID y por Huella de Nombre
+      const existingBeds = getExistingBedsForPersona(persona)
+      if (existingBeds.some((b) => b.id_cama === assignmentTarget.id_cama)) {
+        alert('Esta persona ya ocupa actualmente esta misma cama.')
+        return
+      }
+
+      if (existingBeds.length > 0) {
+        const currentLocations = existingBeds
+          .map((b) => `${b.campNombre} → ${b.cuartoNombre} → Cama #${b.numero}`)
+          .join('\n• ')
+        const confirmTransfer = confirm(
+          `⚠️ PREVENCIÓN DE ID DUPLICADO EN CAMPAMENTOS:\n\n` +
+            `El trabajador "${persona.nombre} ${persona.apellido_paterno} ${persona.apellido_materno || ''}" (#${persona.numero_empleado || 'S/N'}) YA TIENE CAMA ASIGNADA en:\n• ${currentLocations}\n\n` +
+            `Para evitar duplicidades, no puede ocupar dos camas a la vez.\n¿Deseas MUDARLO / TRANSFERIRLO a la Cama #${assignmentTarget.numero} y liberar automáticamente su cama anterior?`
+        )
+        if (!confirmTransfer) return
+
+        // Liberar primero todas las camas previas donde estaba asignado
+        for (const oldBed of existingBeds) {
+          await supabase.from('campamento_camas').update({ id_empleado: null }).eq('id_cama', oldBed.id_cama)
+        }
+      }
+
+      const { error } = await supabase
+        .from('campamento_camas')
         .update({ id_empleado: persona.id_empleado })
         .eq('id_cama', assignmentTarget.id_cama)
-      
+
       if (error) throw error
       setAssignmentTarget(null)
       setAssignmentSearch('')
       if (selectedBed3D) {
         setSelectedBed3D(null)
       }
-      fetchData()
+      if (selectedRoom3D) {
+        setSelectedRoom3D(null)
+      }
+      await fetchData()
     } catch (error) {
       console.error('Error assigning person:', error)
     }
@@ -1336,10 +1837,31 @@ export default function CampamentosPage() {
     }
   }
 
-  const filteredEmployees = empleados.filter(emp => {
-    const full = `${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.toLowerCase()
-    return full.includes(assignmentSearch.toLowerCase())
-  })
+  const filteredEmployees = useMemo(() => {
+    const seenIds = new Set<string>()
+    const seenTokens = new Set<string>()
+    const uniqueEmps: Persona[] = []
+
+    empleados.forEach((emp) => {
+      const idStr = String(emp.id_empleado)
+      const fullName = `${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.trim()
+      const tokKey = normalizeNameTokens(fullName).join('|')
+      if (seenIds.has(idStr) || (tokKey && seenTokens.has(tokKey))) return
+      seenIds.add(idStr)
+      if (tokKey) seenTokens.add(tokKey)
+      uniqueEmps.push(emp)
+    })
+
+    return uniqueEmps.filter((emp) => {
+      const matchesQ = matchesFlexiblePersonSearch(emp, assignmentSearch)
+      if (!matchesQ) return false
+      if (showOnlyUnassignedInModal) {
+        const existingBeds = getExistingBedsForPersona(emp)
+        return existingBeds.length === 0
+      }
+      return true
+    })
+  }, [empleados, assignmentSearch, showOnlyUnassignedInModal, occupiedBedsAnalysis])
 
   // Days array for current Gantt month view
   const getDaysInGanttMonth = () => {
@@ -1586,6 +2108,41 @@ export default function CampamentosPage() {
         </div>
       </div>
 
+      {/* BANNER DE ALERTA Y CORRECCIÓN AUTOMÁTICA SI HAY UNA PERSONA CON ID DUPLICADO EN 2+ CAMAS */}
+      {occupiedBedsAnalysis.duplicates.length > 0 && (
+        <div className="bg-rose-50 border-2 border-rose-400 text-rose-950 p-4 rounded-2xl shadow-md flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 animate-in fade-in">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-rose-600 text-white rounded-xl shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div className="text-xs space-y-1">
+              <div className="font-black uppercase text-rose-900">
+                ⚠️ Se detectaron {occupiedBedsAnalysis.duplicates.length} persona(s) con el mismo ID repetido en varias camas:
+              </div>
+              <div className="space-y-0.5 text-rose-800 font-medium">
+                {occupiedBedsAnalysis.duplicates.map((dup) => (
+                  <div key={dup.key}>
+                    • <strong>{dup.empNombre}</strong> ocupa {dup.beds.length} camas:{' '}
+                    {dup.beds.map((b) => `${b.campNombre} (${b.cuartoNombre} - Cama #${b.numero})`).join(' y ')}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleCleanDuplicateBeds}
+            disabled={cleaningDuplicates}
+            className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl shadow-md shrink-0 cursor-pointer transition-all"
+          >
+            {cleaningDuplicates
+              ? 'Limpiando duplicados...'
+              : '🧹 Limpiar Camas Duplicadas (Dejar 1 sola cama por persona)'}
+          </button>
+        </div>
+      )}
+
       {/* ACTIVE SELECTED CAMPAMENTO MANAGEMENT BAR */}
       {selectedCampamento && (
         <div className="bg-gradient-to-r from-zinc-900 to-zinc-950 text-white px-5 py-3 rounded-2xl border border-zinc-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-md">
@@ -1654,19 +2211,48 @@ export default function CampamentosPage() {
           <div className="bg-zinc-900 text-white p-4 rounded-2xl flex flex-wrap justify-between items-center gap-4 shadow-lg border border-zinc-800">
             <div className="flex items-center gap-3">
               <span className="text-xs font-black text-amber-400 uppercase flex items-center gap-1.5">
-                <Move className="w-4 h-4" /> INSTRUCCIONES 3D:
+                <Move className="w-4 h-4" /> VISOR 3D INTERACTIVO:
               </span>
               <span className="text-xs text-zinc-300 font-mono">
-                <strong>Arrastrar mouse:</strong> Rotar 360° | <strong>Rueda mouse:</strong> Zoom | <strong>Clic en cualquier parte del cuarto 3D:</strong> Ver Ocupantes
+                <strong>Arrastrar:</strong> Rotar 360° | <strong>Rueda:</strong> Zoom | <strong>Clic en Persona o Cuarto 3D:</strong> Abrir Ficha
               </span>
             </div>
 
-            <button
-              onClick={() => setShowAddRoomModal(true)}
-              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md"
-            >
-              <Plus className="w-3.5 h-3.5" /> + Diseñar Cuarto 3D
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setSceneTheme3D('bacis')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-black flex items-center gap-1 cursor-pointer transition-all ${
+                    sceneTheme3D === 'bacis'
+                      ? 'bg-amber-500 text-zinc-950'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Sun className="w-3.5 h-3.5" />
+                  <span>3D Bacís (Día)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSceneTheme3D('dark')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-black flex items-center gap-1 cursor-pointer transition-all ${
+                    sceneTheme3D === 'dark'
+                      ? 'bg-indigo-600 text-white'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Moon className="w-3.5 h-3.5" />
+                  <span>3D Oscuro</span>
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowAddRoomModal(true)}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-md cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" /> + Diseñar Cuarto 3D
+              </button>
+            </div>
           </div>
 
           {/* THREE.JS CANVAS CONTAINER */}
@@ -2706,15 +3292,20 @@ export default function CampamentosPage() {
         </div>
       )}
 
-      {/* MODAL ASIGNAR PERSONAL A CAMA */}
+      {/* MODAL ASIGNAR PERSONAL A CAMA (CON PREVENCIÓN ESTRICTA DE ID DUPLICADO) */}
       {assignmentTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-zinc-200 space-y-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 border border-zinc-200 space-y-4">
             <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
-              <h3 className="text-sm font-black text-zinc-900 uppercase flex items-center gap-2">
-                <UserPlus className="w-4 h-4 text-emerald-600" />
-                Asignar Trabajador a Cama #{assignmentTarget.numero}
-              </h3>
+              <div>
+                <h3 className="text-sm font-black text-zinc-900 uppercase flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-emerald-600" />
+                  Asignar Trabajador a Cama #{assignmentTarget.numero}
+                </h3>
+                <p className="text-[11px] text-zinc-500">
+                  El sistema impide duplicar el mismo ID en varias camas simultáneamente.
+                </p>
+              </div>
               <button onClick={() => setAssignmentTarget(null)} className="text-zinc-400 hover:text-zinc-700 font-bold">✕</button>
             </div>
 
@@ -2723,38 +3314,67 @@ export default function CampamentosPage() {
                 <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
                 <input
                   type="text"
-                  placeholder="Buscar por nombre de trabajador o contratista..."
+                  placeholder="Buscar por nombre (en cualquier orden), ficha o departamento..."
                   value={assignmentSearch}
                   onChange={e => setAssignmentSearch(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800"
                 />
               </div>
 
-              <div className="max-h-60 overflow-y-auto divide-y divide-zinc-100 border border-zinc-200 rounded-2xl">
+              <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 bg-zinc-100 px-3 py-2 rounded-xl cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showOnlyUnassignedInModal}
+                  onChange={e => setShowOnlyUnassignedInModal(e.target.checked)}
+                  className="rounded text-emerald-600"
+                />
+                <span>🟢 Mostrar solo trabajadores disponibles (sin cama asignada)</span>
+              </label>
+
+              <div className="max-h-64 overflow-y-auto divide-y divide-zinc-100 border border-zinc-200 rounded-2xl">
                 {filteredEmployees.length === 0 ? (
                   <div className="p-4 text-center text-xs text-zinc-400 font-bold">
-                    No se encontraron trabajadores activos.
+                    No se encontraron trabajadores disponibles con ese criterio.
                   </div>
                 ) : (
-                  filteredEmployees.map(emp => (
-                    <div
-                      key={emp.id_empleado}
-                      onClick={() => handleAssignPerson(emp)}
-                      className="p-3 hover:bg-emerald-50 cursor-pointer transition-colors flex justify-between items-center"
-                    >
-                      <div>
-                        <div className="font-black text-xs text-zinc-900">
-                          {emp.nombre} {emp.apellido_paterno} {emp.apellido_materno || ''}
+                  filteredEmployees.map(emp => {
+                    const existingBeds = getExistingBedsForPersona(emp)
+                    const hasBed = existingBeds.length > 0
+                    const currentLoc = hasBed
+                      ? `${existingBeds[0].campNombre} · ${existingBeds[0].cuartoNombre} · Cama #${existingBeds[0].numero}`
+                      : null
+
+                    return (
+                      <div
+                        key={emp.id_empleado}
+                        onClick={() => handleAssignPerson(emp)}
+                        className="p-3 hover:bg-emerald-50 cursor-pointer transition-colors flex justify-between items-center gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-black text-xs text-zinc-900 truncate uppercase">
+                            #{emp.numero_empleado || 'S/N'} — {emp.nombre} {emp.apellido_paterno} {emp.apellido_materno || ''}
+                          </div>
+                          <div className="text-[10px] text-zinc-500 font-mono truncate">
+                            {canonicalizeDepartment(emp.departamento).officialName} · {emp.puesto || 'General'}
+                          </div>
+                          {hasBed && (
+                            <div className="text-[10px] font-bold text-amber-700 mt-0.5">
+                              🛏️ Ya hospedado en: {currentLoc}
+                            </div>
+                          )}
                         </div>
-                        <div className="text-[10px] text-zinc-500 font-mono">
-                          {emp.puesto || emp.departamento || 'General'}
-                        </div>
+                        {hasBed ? (
+                          <span className="text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-1 rounded-lg shrink-0">
+                            ⇄ Mudar Aquí
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-black bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-lg shrink-0">
+                            + Asignar
+                          </span>
+                        )}
                       </div>
-                      <span className="text-[10px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
-                        Asignar
-                      </span>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
             </div>

@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  --background: #f7f4ed;
   --foreground: #171717;
+  --bacis-gold: #f59e0b;
+  --bacis-copper: #b45309;
+  --bacis-surface: #ffffff;
+  --bacis-border: #e5dcc8;
 }
 
 @theme inline {
@@ -12,51 +16,142 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
-/* Force Light Mode inputs globally as requested - High Specificity */
-:root input,
-:root textarea,
-:root select,
-body input,
-body textarea,
-body select {
-  color: #000000 !important;
+/* ============================================================================
+   VISTA 1: MODO INSTITUCIONAL BACÍS (ORO, COBRE, MARFIL Y GRAFITO MINERO)
+   ============================================================================ */
+[data-theme="bacis"] .app-shell-bg {
+  background: radial-gradient(circle at top right, #fdfbf7 0%, #f5efe2 55%, #ece3d0 100%) !important;
+}
+
+[data-theme="bacis"] main .bg-white:not(.hoja-carta):not(.hoja-impresion):not(.ficha-media-carta) {
+  border-color: #e4d9c3;
+  box-shadow: 0 4px 18px -4px rgba(180, 83, 9, 0.06), 0 2px 6px -1px rgba(24, 24, 27, 0.04);
+}
+
+[data-theme="bacis"] input:not([type="checkbox"]):not([type="radio"]),
+[data-theme="bacis"] textarea,
+[data-theme="bacis"] select {
+  color: #18181b !important;
   background-color: #ffffff !important;
-  -webkit-text-fill-color: #000000 !important;
-  /* For Safari/Chrome specific override */
+  -webkit-text-fill-color: #18181b !important;
 }
 
-/* Ensure placeholders are visible but distinct */
-::placeholder {
-  color: #666666 !important;
+/* ============================================================================
+   VISTA 2: MODO OSCURO MINERO (SUBTERRÁNEO CARBÓN & ORO NEÓN BACÍS)
+   ============================================================================ */
+[data-theme="dark"] {
+  --background: #0a0c12;
+  --foreground: #f4f4f5;
+}
+
+[data-theme="dark"] .app-shell-bg {
+  background: radial-gradient(circle at top right, #151926 0%, #0b0d14 60%, #07080c 100%) !important;
+  color: #f4f4f5 !important;
+}
+
+[data-theme="dark"] main .bg-white:not(.hoja-carta):not(.hoja-impresion):not(.ficha-media-carta) {
+  background-color: #131722 !important;
+  color: #f4f4f5 !important;
+  border-color: #252b3d !important;
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.55) !important;
+}
+
+[data-theme="dark"] main .bg-zinc-50:not(.hoja-carta *),
+[data-theme="dark"] main .bg-slate-50:not(.hoja-carta *),
+[data-theme="dark"] main .bg-zinc-100:not(.hoja-carta *) {
+  background-color: #1a1f2e !important;
+  color: #e4e4e7 !important;
+  border-color: #2c3347 !important;
+}
+
+[data-theme="dark"] main .text-zinc-900:not(.hoja-carta *):not(.bg-amber-400 *):not(.bg-amber-500 *),
+[data-theme="dark"] main .text-zinc-800:not(.hoja-carta *):not(.bg-amber-400 *):not(.bg-amber-500 *),
+[data-theme="dark"] main .text-zinc-950:not(.hoja-carta *):not(.bg-amber-400):not(.bg-amber-500):not(.bg-emerald-500) {
+  color: #f4f4f5 !important;
+}
+
+[data-theme="dark"] main .text-zinc-700:not(.hoja-carta *),
+[data-theme="dark"] main .text-zinc-600:not(.hoja-carta *),
+[data-theme="dark"] main .text-zinc-500:not(.hoja-carta *) {
+  color: #a1a8b8 !important;
+}
+
+[data-theme="dark"] main .border-zinc-200:not(.hoja-carta *),
+[data-theme="dark"] main .border-zinc-100:not(.hoja-carta *),
+[data-theme="dark"] main .border-slate-200:not(.hoja-carta *),
+[data-theme="dark"] main .divide-zinc-200 > :not([hidden]) ~ :not([hidden]),
+[data-theme="dark"] main .divide-zinc-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #252b3d !important;
+}
+
+[data-theme="dark"] main input:not([type="checkbox"]):not([type="radio"]),
+[data-theme="dark"] main textarea,
+[data-theme="dark"] main select {
+  color: #f8fafc !important;
+  background-color: #181d2b !important;
+  border-color: #323a52 !important;
+  -webkit-text-fill-color: #f8fafc !important;
+}
+
+[data-theme="dark"] main ::placeholder {
+  color: #7c859b !important;
   opacity: 1 !important;
+}
+
+/* Asegurar que hojas de impresión siempre conserven fondo blanco y tinta negra aún en Modo Oscuro */
+.hoja-carta,
+.hoja-carta *,
+.hoja-impresion,
+.hoja-impresion * {
+  /* En vista previa de papel físico se respeta blanco/negro */
+}
+[data-theme="dark"] .hoja-carta,
+[data-theme="dark"] .ficha-media-carta {
+  background-color: #ffffff !important;
+  color: #18181b !important;
+}
+
+/* Animaciones y Transiciones Fluidas para Drag & Drop y Tarjetas */
+.card-interactive {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.card-interactive:hover {
+  transform: translateY(-2px);
+}
+
+@keyframes pulse-gold {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
+  }
+}
+
+.dropzone-active {
+  animation: pulse-gold 1.5s infinite;
 }
 
 /* Sidebar custom scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
+  width: 5px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: #3f3f46;
   border-radius: 10px;
 }
 .custom-scrollbar:hover::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: #f59e0b;
 }
 
 @media print {

@@ -36,6 +36,7 @@ import {
   BADGE_SIZE_OPTIONS,
   BadgeSizeFormat,
 } from '@/utils/contratistaBadgePdf'
+import { areDepartmentsEquivalent, canonicalizeDepartment } from '@/utils/dataNormalization'
 
 export default function MiDepartamentoPage() {
   const { user, profile } = useAuth()
@@ -213,30 +214,62 @@ export default function MiDepartamentoPage() {
     }
   }
 
-  // Departamentos que este usuario tiene permitido ver
+  // Departamentos que este usuario tiene permitido ver (deduplicados por identidad canónica para evitar RH / recursos humanos / RECURSOS HUMANOS repetidos)
   const allowedDepartments = useMemo(() => {
-    if (isGlobalViewer) return departamentos
-    const authIds = new Set<string>()
-    if (profile?.id_departamento) authIds.add(String(profile.id_departamento))
-    if (Array.isArray(profile?.departamentos_autorizados)) {
-      profile.departamentos_autorizados.forEach((id) => authIds.add(String(id)))
+    let baseList = departamentos
+    if (!isGlobalViewer) {
+      const authIds = new Set<string>()
+      if (profile?.id_departamento) authIds.add(String(profile.id_departamento))
+      if (Array.isArray(profile?.departamentos_autorizados)) {
+        profile.departamentos_autorizados.forEach((id) => authIds.add(String(id)))
+      }
+      if (authIds.size > 0) {
+        const filtered = departamentos.filter((d) => authIds.has(String(d.id_departamento)))
+        if (filtered.length > 0) baseList = filtered
+      }
     }
-    if (authIds.size > 0) {
-      const filtered = departamentos.filter((d) => authIds.has(String(d.id_departamento)))
-      if (filtered.length > 0) return filtered
-    }
-    return departamentos
+
+    const seenCanonical = new Map<string, any>()
+    baseList.forEach((d) => {
+      const can = canonicalizeDepartment(d.departamento)
+      if (!seenCanonical.has(can.canonicalKey)) {
+        seenCanonical.set(can.canonicalKey, {
+          ...d,
+          departamento_original: d.departamento,
+          departamento: can.officialName,
+          canonicalKey: can.canonicalKey,
+        })
+      }
+    })
+    return Array.from(seenCanonical.values())
   }, [departamentos, profile, isGlobalViewer])
 
   const currentDept = useMemo(
-    () => departamentos.find((d) => String(d.id_departamento) === String(selectedDeptId)) || allowedDepartments[0] || null,
+    () =>
+      allowedDepartments.find((d) => String(d.id_departamento) === String(selectedDeptId)) ||
+      departamentos.find((d) => String(d.id_departamento) === String(selectedDeptId)) ||
+      allowedDepartments[0] ||
+      null,
     [departamentos, selectedDeptId, allowedDepartments]
   )
 
-  // Verifica si un nombre de departamento o ID coincide con el departamento seleccionado
+  // Verifica si un nombre de departamento o ID coincide con el departamento seleccionado (incluyendo equivalencias como RH === RECURSOS HUMANOS)
   const matchesSelectedDepartment = (deptId?: string | number | null, deptName?: string | null): boolean => {
     if (!currentDept) return true
     if (deptId && String(deptId) === String(currentDept.id_departamento)) return true
+
+    // Si el deptId apunta a otro registro en cat_departamentos que es equivalente canónicamente (ej. "RH" vs "Recursos Humanos")
+    if (deptId) {
+      const linkedDept = departamentos.find((d) => String(d.id_departamento) === String(deptId))
+      if (linkedDept && areDepartmentsEquivalent(currentDept.departamento, linkedDept.departamento)) {
+        return true
+      }
+    }
+
+    if (deptName && areDepartmentsEquivalent(currentDept.departamento, deptName)) {
+      return true
+    }
+
     const targetName = normalizeText(currentDept.departamento)
     const candidateName = normalizeText(deptName)
     if (!targetName || !candidateName) return false

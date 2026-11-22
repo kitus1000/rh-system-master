@@ -2,15 +2,28 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Plus, Trash2, Tag, FileType } from 'lucide-react'
+import { Plus, Trash2, Tag, FileType, Sparkles } from 'lucide-react'
+import Link from 'next/link'
+import { areDepartmentsEquivalent, canonicalizeDepartment } from '@/utils/dataNormalization'
 
 export default function CatalogosPage() {
-    const [activeTab, setActiveTab] = useState('incidencias')
+    const [activeTab, setActiveTab] = useState('departamentos')
 
     return (
-        <div className="max-w-6xl mx-auto">
-            <h1 className="text-2xl font-bold text-zinc-900 mb-2">Administración de Catálogos</h1>
-            <p className="text-zinc-500 mb-8">Gestione las opciones disponibles para incidencias y solicitudes.</p>
+        <div className="max-w-6xl mx-auto space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-zinc-200 shadow-xs">
+                <div>
+                    <h1 className="text-xl sm:text-2xl font-black text-zinc-900">Administración de Catálogos Oficiales</h1>
+                    <p className="text-xs text-zinc-500 mt-0.5">Gestione departamentos, roles de trabajo, unidades, incidencias y solicitudes.</p>
+                </div>
+                <Link
+                    href="/empleados/duplicados"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-black text-xs rounded-xl shadow-xs shrink-0"
+                >
+                    <Sparkles className="w-4 h-4" />
+                    <span>Depurar Departamentos Duplicados (RH / Recursos Humanos)</span>
+                </Link>
+            </div>
 
             <div className="flex space-x-4 mb-6 border-b border-zinc-200 overflow-x-auto">
                 <button
@@ -196,7 +209,20 @@ function CatalogManager({ table, idField, nameField, title, icon }: any) {
 
     async function handleAdd() {
         if (!newItem.trim()) return
-        const { error } = await (supabase as any).from(table).insert([{ [nameField]: newItem }])
+
+        let valueToSave = newItem.trim()
+        if (table === 'cat_departamentos') {
+            const existingEquivalent = items.find((it) => areDepartmentsEquivalent(it[nameField], valueToSave))
+            if (existingEquivalent) {
+                alert(
+                    `⚠️ Ya existe un departamento equivalente en el catálogo: "${existingEquivalent[nameField]}".\n\nEvita crear variantes duplicadas (como RH / Recursos Humanos). Si necesitas unificarlos, usa el botón "Depurar Departamentos Duplicados".`
+                )
+                return
+            }
+            valueToSave = canonicalizeDepartment(valueToSave).officialName
+        }
+
+        const { error } = await (supabase as any).from(table).insert([{ [nameField]: valueToSave }])
         if (error) {
             alert('Error: ' + error.message)
         } else {

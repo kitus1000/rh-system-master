@@ -190,39 +190,170 @@ export default function Dashboard() {
       </div>
 
       {/* BANNER CENTRO INTEGRADO RH & CONTRATISTAS */}
-      <div className="bg-gradient-to-r from-emerald-900 via-zinc-900 to-zinc-950 p-6 rounded-2xl text-white shadow-xl flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border border-emerald-500/30">
+      <div className="bg-gradient-to-r from-emerald-900 via-zinc-900 to-zinc-950 p-5 sm:p-6 rounded-2xl text-white shadow-xl flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border border-emerald-500/30">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-emerald-500 text-black rounded-2xl shrink-0">
-            <Activity className="w-8 h-8" />
+            <Activity className="w-7 h-7" />
           </div>
           <div>
-            <div className="text-xs font-black uppercase text-emerald-400 tracking-wider">Sincronización Interna RH</div>
-            <h2 className="text-xl font-black tracking-tight">Centro Integrado: Médicos, Choferes, Campamentos, Comedor y Contratistas</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Consolida la operación externa directamente en RH y controla los ingresos multi-factor de contratistas.</p>
+            <div className="text-xs font-black uppercase text-emerald-400 tracking-wider">Centro de Comando y Sincronización</div>
+            <h2 className="text-lg sm:text-xl font-black tracking-tight">Mapa Maestro: Todo el Sistema Conectado y Organizado por Flujo</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">Selecciona directamente el paso o módulo al que necesitas ir sin perderte en menús.</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
           <Link
+            href="/empleados/duplicados"
+            className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-black text-xs rounded-xl shadow-lg flex items-center gap-1.5 transition-all uppercase tracking-wider"
+          >
+            <span>🧹 Depurar Duplicados (RH / Nombres)</span>
+            <ArrowUpRight className="w-4 h-4" />
+          </Link>
+          <Link
+            href="/mi-departamento"
+            className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl shadow-lg flex items-center gap-1.5 transition-all uppercase tracking-wider"
+          >
+            <span>🏢 Mi Departamento</span>
+            <ArrowUpRight className="w-4 h-4" />
+          </Link>
+          <Link
             href="/integracion-rh"
-            className="px-5 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition-all uppercase tracking-wider"
+            className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-1.5 transition-all uppercase tracking-wider border border-zinc-700"
           >
-            <span>Centro Integrado RH</span>
+            <span>Centro 360°</span>
             <ArrowUpRight className="w-4 h-4" />
           </Link>
-          <Link
-            href="/contratistas"
-            className="px-5 py-3 bg-orange-500 hover:bg-orange-400 text-black font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition-all uppercase tracking-wider"
-          >
-            <span>Contratistas</span>
-            <ArrowUpRight className="w-4 h-4" />
-          </Link>
-          <Link
-            href="/contratistas-portal"
-            className="px-5 py-3 bg-amber-400 hover:bg-amber-300 text-black font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition-all uppercase tracking-wider"
-          >
-            <span>Portal Contratista</span>
-            <ArrowUpRight className="w-4 h-4" />
-          </Link>
+        </div>
+      </div>
+
+      {/* MAPA LÓGICO DE FLUJOS PASO A PASO (¿QUÉ NECESITAS HACER HOY?) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* FLUJO 1: ALTA -> INDUCCIÓN -> SERVICIOS -> CREDENCIAL */}
+        <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-xs space-y-3">
+          <div className="flex items-center justify-between border-b border-zinc-100 pb-2.5">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                Flujo Operativo 1
+              </span>
+              <h3 className="text-sm font-black text-zinc-900 uppercase mt-1">
+                👷 Alta de Trabajador → Inducción → Servicios → Credencial
+              </h3>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+            <Link href="/empleados/nuevo" className="p-2.5 rounded-xl bg-zinc-50 hover:bg-amber-50 border border-zinc-200 hover:border-amber-300 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] font-black text-amber-600">PASO 1</span>
+              <span>➕ Alta Empleado</span>
+            </Link>
+            <Link href="/seguridad" className="p-2.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200 hover:border-orange-300 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] font-black text-orange-600">PASO 2</span>
+              <span>🛡️ Inducción Seg.</span>
+            </Link>
+            <Link href="/campamentos" className="p-2.5 rounded-xl bg-zinc-50 hover:bg-emerald-50 border border-zinc-200 hover:border-emerald-300 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] font-black text-emerald-600">PASO 3</span>
+              <span>🛏️ Campamento</span>
+            </Link>
+            <Link href="/lockers" className="p-2.5 rounded-xl bg-zinc-50 hover:bg-blue-50 border border-zinc-200 hover:border-blue-300 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] font-black text-blue-600">PASO 4</span>
+              <span>🔐 Locker y QR</span>
+            </Link>
+            <Link href="/empleados/credenciales" className="p-2.5 rounded-xl bg-zinc-50 hover:bg-amber-50 border border-zinc-200 hover:border-amber-300 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] font-black text-amber-600">PASO 5</span>
+              <span>🪪 Credencial QR</span>
+            </Link>
+            <Link href="/empleados" className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-400 font-black flex flex-col justify-between">
+              <span className="text-[10px] text-zinc-400">DIRECTORIO</span>
+              <span>📋 Ver Padrón</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* FLUJO 2: DEPURACIÓN DE DUPLICADOS Y CATÁLOGOS */}
+        <div className="bg-white p-5 rounded-2xl border-2 border-amber-300 shadow-xs space-y-3">
+          <div className="flex items-center justify-between border-b border-zinc-100 pb-2.5">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-900 bg-amber-200 px-2 py-0.5 rounded-full">
+                Flujo de Limpieza e Integridad
+              </span>
+              <h3 className="text-sm font-black text-zinc-900 uppercase mt-1">
+                🧹 Conflicto de Duplicidades (RH / Recursos Humanos y Personas)
+              </h3>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+            <Link href="/empleados/duplicados" className="p-3 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 font-black text-zinc-900 flex flex-col justify-between">
+              <span className="text-[10px] text-amber-700">1. DEPARTAMENTOS</span>
+              <span>🏢 Unificar RH / recursos humanos / RECURSOS HUMANOS</span>
+            </Link>
+            <Link href="/empleados/duplicados" className="p-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 font-black text-zinc-900 flex flex-col justify-between">
+              <span className="text-[10px] text-emerald-700">2. DOBLE PERSONA</span>
+              <span>👥 Unir Jose Arana Chavez ↔ Arana Chavez Jose</span>
+            </Link>
+            <Link href="/catalogos" className="p-3 rounded-xl bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] text-purple-600 font-black">3. CATÁLOGOS</span>
+              <span>📚 Administrar Departamentos y Roles Oficiales</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* FLUJO 3: SINDICATO, VACANTES (DRAG & DROP), SEMANALES/QUINCENALES Y MI DEPARTAMENTO */}
+        <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-xs space-y-3">
+          <div className="flex items-center justify-between border-b border-zinc-100 pb-2.5">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">
+                Flujo Operativo 2
+              </span>
+              <h3 className="text-sm font-black text-zinc-900 uppercase mt-1">
+                🔀 Escalafón, Vacantes (Art. 116 C.C.T.), Semanales/Quincenales y Beneficiarios
+              </h3>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+            <Link href="/movimientos-sindicato" className="p-2.5 rounded-xl bg-zinc-50 hover:bg-amber-50 border border-zinc-200 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] font-black text-amber-600">ARRASTRAR Y SOLTAR</span>
+              <span>🔀 Mover a Lugar Vacío</span>
+            </Link>
+            <Link href="/mi-departamento" className="p-2.5 rounded-xl bg-zinc-50 hover:bg-emerald-50 border border-zinc-200 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] font-black text-emerald-600">MI ÁREA</span>
+              <span>🏢 Mi Departamento</span>
+            </Link>
+            <Link href="/medico/pacientes" className="p-2.5 rounded-xl bg-zinc-50 hover:bg-rose-50 border border-zinc-200 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] font-black text-rose-600">FAMILIAS</span>
+              <span>👨‍👩‍👧‍👦 Beneficiarios Sindicato</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* FLUJO 4: CONTRATISTAS, CASETA, CLÍNICA Y TRANSPORTE */}
+        <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-xs space-y-3">
+          <div className="flex items-center justify-between border-b border-zinc-100 pb-2.5">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">
+                Flujo Operativo 3
+              </span>
+              <h3 className="text-sm font-black text-zinc-900 uppercase mt-1">
+                🪖 Contratistas, Caseta QR, Clínica Médica y Transporte
+              </h3>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <Link href="/contratistas" className="p-2.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] font-black text-orange-600">EMPRESAS</span>
+              <span>🏗️ Contratistas</span>
+            </Link>
+            <Link href="/caseta" className="p-2.5 rounded-xl bg-zinc-50 hover:bg-amber-50 border border-zinc-200 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] font-black text-amber-600">VIGILANCIA</span>
+              <span>🚧 Caseta QR</span>
+            </Link>
+            <Link href="/medico/pases" className="p-2.5 rounded-xl bg-zinc-50 hover:bg-rose-50 border border-zinc-200 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] font-black text-rose-600">CLÍNICA</span>
+              <span>🚑 Pases Médicos</span>
+            </Link>
+            <Link href="/transporte" className="p-2.5 rounded-xl bg-zinc-50 hover:bg-cyan-50 border border-zinc-200 font-bold text-zinc-800 flex flex-col justify-between">
+              <span className="text-[10px] font-black text-cyan-600">MOVILIDAD</span>
+              <span>🚌 Viajes y Rutas</span>
+            </Link>
+          </div>
         </div>
       </div>
 

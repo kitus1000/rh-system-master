@@ -1,458 +1,952 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { supabase } from '@/utils/supabase/client'
-import { Plus, Search, RefreshCw, FileDown, Upload, Sparkles, QrCode } from 'lucide-react'
+import {
+  Plus,
+  Search,
+  FileDown,
+  Upload,
+  Sparkles,
+  QrCode,
+  ShieldCheck,
+  Home,
+  FolderLock,
+  ArrowLeftRight,
+  Building2,
+  AlertTriangle,
+  UserCheck,
+} from 'lucide-react'
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
-import { useRef } from 'react'
+import {
+  canonicalizeDepartment,
+  matchesFlexiblePersonSearch,
+  analyzeSingleEmployeeNameStructure,
+  invertEmployeeNameFields,
+  normalizeNameTokens,
+  getEmployeeFullName,
+} from '@/utils/dataNormalization'
 
 export default function EmpleadosPage() {
-    const [empleados, setEmpleados] = useState<any[]>([])
-    const [loading, setLoading] = useState(true)
-    const [searchTerm, setSearchTerm] = useState('')
-    const [statusFilter, setStatusFilter] = useState('Activo') // 'Todos', 'Activo', 'Baja'
-    const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null)
-    const [canManage, setCanManage] = useState(false)
-    const fileInputRef = useRef<HTMLInputElement>(null)
-    const [importing, setImporting] = useState(false)
+  const [empleados, setEmpleados] = useState<any[]>([])
+  const [pacientes, setPacientes] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('Activo') // 'Todos', 'Activo', 'Baja'
+  const [deptFilter, setDeptFilter] = useState('TODOS')
+  const [regimenFilter, setRegimenFilter] = useState<'TODOS' | 'SEMANAL_SINDICATO' | 'QUINCENAL_CONFIANZA' | 'CON_BENEFICIARIOS'>('TODOS')
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
+  const [canManage, setCanManage] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importing, setImporting] = useState(false)
 
-    useEffect(() => {
-        checkPermissions()
-        fetchEmpleados()
-    }, [])
+  useEffect(() => {
+    checkPermissions()
+    fetchEmpleados()
+  }, [])
 
-    async function checkPermissions() {
-        try {
-            // Check if user is Admin or HR Manager
-            const { data: { user } } = await supabase.auth.getUser()
-            if (user) {
-                const { data: profile } = await supabase
-                    .from('perfiles')
-                    .select('rol, cat_departamentos(departamento)')
-                    .eq('id', user.id)
-                    .single()
+  async function checkPermissions() {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('perfiles')
+          .select('rol, cat_departamentos(departamento)')
+          .eq('id', user.id)
+          .single()
 
-                if (profile) {
-                    console.log('--- DEBUG PERMISSIONS ---')
-                    console.log('Profile:', profile)
-                    const role = profile.rol || ''
-                    const isAdmin = role === 'Administrativo' || role === 'Administrador' || role === 'Admin'
+        if (profile) {
+          const role = (profile.rol || '').toUpperCase()
+          const isAdmin =
+            role.includes('ADMIN') ||
+            role.includes('SISTEMAS') ||
+            role.includes('RECURSOS HUMANOS') ||
+            role.includes('RH')
 
-                    const deptAny = profile.cat_departamentos as any
-                    const deptName = (deptAny?.departamento || (Array.isArray(deptAny) ? deptAny[0]?.departamento : '') || '').toLowerCase()
+          const deptAny = profile.cat_departamentos as any
+          const deptRaw =
+            deptAny?.departamento || (Array.isArray(deptAny) ? deptAny[0]?.departamento : '') || ''
+          const isHRDept = canonicalizeDepartment(deptRaw).canonicalKey === 'RECURSOS_HUMANOS'
 
-                    // Robust check: case insensitive
-                    const isHR = (role === 'Jefe' && (
-                        deptName.includes('recursos') ||
-                        deptName.includes('humanos') ||
-                        deptName === 'rh'
-                    )) || role.toLowerCase().includes('recursos humanos')
-
-                    console.log('Result:', { isAdmin, isHR, role, deptName })
-                    setCanManage(isAdmin || isHR)
-                }
-            }
-        } catch (e) {
-            console.error('Error in checkPermissions:', e)
-            // Fallback: at least let them see if something is wrong
-            setCanManage(false)
+          setCanManage(isAdmin || isHRDept)
         }
+      }
+    } catch (e) {
+      console.error('Error in checkPermissions:', e)
+      setCanManage(false)
     }
+  }
 
-    async function fetchEmpleados() {
-        try {
-            let empList: any[] = []
-            const fullRes = await supabase
-                .from('empleados')
-                .select(`
-                    *,
-                    empleado_roles (
-                        fecha_inicio,
-                        cat_tipos_rol (tipo_rol, dias_trabajo, dias_descanso)
-                    )
-                `)
-                .order('apellido_paterno', { ascending: true })
+  async function fetchEmpleados() {
+    setLoading(true)
+    try {
+      let empList: any[] = []
+      const [fullRes, pacRes] = await Promise.all([
+        supabase
+          .from('empleados')
+          .select(`
+            *,
+            empleado_roles (
+              fecha_inicio,
+              cat_tipos_rol (tipo_rol, dias_trabajo, dias_descanso)
+            ),
+            empleado_adscripciones (
+              id_departamento,
+              cat_departamentos (id_departamento, departamento),
+              cat_puestos (puesto)
+            )
+          `)
+          .order('apellido_paterno', { ascending: true }),
+        supabase
+          .from('pacientes')
+          .select('id_paciente, id_empleado, nombre_completo, parentesco')
+          .order('nombre_completo', { ascending: true }),
+      ])
 
-            if (fullRes.error) {
-                console.warn('Empleados join error, fallback to base query:', fullRes.error.message)
-                const baseRes = await supabase.from('empleados').select('*').order('apellido_paterno', { ascending: true })
-                if (baseRes.data) empList = baseRes.data
-            } else if (fullRes.data) {
-                empList = fullRes.data
-            }
+      if (pacRes.data) setPacientes(pacRes.data)
 
-            // Auto-seed if list is empty
-            if (empList.length === 0) {
-                console.log('No employees found, seeding choferes...')
-                await seedChoferesDirect()
-                const retry = await supabase.from('empleados').select('*').order('apellido_paterno', { ascending: true })
-                if (retry.data) empList = retry.data
-            }
+      if (fullRes.error) {
+        const baseRes = await supabase
+          .from('empleados')
+          .select('*')
+          .order('apellido_paterno', { ascending: true })
+        if (baseRes.data) empList = baseRes.data
+      } else if (fullRes.data) {
+        empList = fullRes.data
+      }
 
-            setEmpleados(empList)
-        } catch (error) {
-            console.error('Error fetching empleados:', error)
-        } finally {
-            setLoading(false)
+      if (empList.length === 0) {
+        await seedChoferesDirect()
+        const retry = await supabase
+          .from('empleados')
+          .select('*')
+          .order('apellido_paterno', { ascending: true })
+        if (retry.data) empList = retry.data
+      }
+
+      setEmpleados(empList)
+    } catch (error) {
+      console.error('Error fetching empleados:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function seedChoferesDirect() {
+    const choferesData = [
+      { numero_empleado: 101, nombre: 'ADALBERTO', apellido_paterno: 'PINALES', puesto: 'Chofer', departamento: 'MOVILIDAD', estado_empleado: 'Activo' },
+      { numero_empleado: 102, nombre: 'RAMON', apellido_paterno: 'YAÑEZ', puesto: 'Chofer', departamento: 'MOVILIDAD', estado_empleado: 'Activo' },
+      { numero_empleado: 103, nombre: 'OSCAR', apellido_paterno: 'VAZQUEZ', puesto: 'Chofer', departamento: 'MOVILIDAD', estado_empleado: 'Activo' },
+      { numero_empleado: 104, nombre: 'ENRIQUE', apellido_paterno: 'LINARES', puesto: 'Chofer', departamento: 'MOVILIDAD', estado_empleado: 'Activo' },
+      { numero_empleado: 105, nombre: 'SAMUEL', apellido_paterno: 'MADRILES', puesto: 'Chofer', departamento: 'MOVILIDAD', estado_empleado: 'Activo' },
+      { numero_empleado: 106, nombre: 'JESUS', apellido_paterno: 'SAUCEDO', puesto: 'Chofer', departamento: 'MOVILIDAD', estado_empleado: 'Activo' },
+    ]
+
+    for (const c of choferesData) {
+      try {
+        await supabase.from('empleados').insert([c])
+      } catch (_) {}
+    }
+  }
+
+  const getResolvedDepartment = (emp: any) => {
+    const adsDept = emp?.empleado_adscripciones?.[0]?.cat_departamentos?.departamento
+    const raw = emp?.departamento || adsDept || ''
+    return canonicalizeDepartment(raw)
+  }
+
+  const getResolvedPuesto = (emp: any) => {
+    const adsPuesto = emp?.empleado_adscripciones?.[0]?.cat_puestos?.puesto
+    return emp?.puesto || adsPuesto || 'General'
+  }
+
+  // Clasificador de Nómina Semanal (Sindicato Secc. 45) vs Quincenal (Confianza)
+  const getEmployeeRegimen = (emp: any) => {
+    const puesto = getResolvedPuesto(emp).toUpperCase()
+    const dept = getResolvedDepartment(emp).officialName.toUpperCase()
+    const combined = `${puesto} ${dept}`
+    const isQuincenal =
+      combined.includes('SUPERINTENDENTE') ||
+      combined.includes('JEFE') ||
+      combined.includes('SUPERVISOR') ||
+      combined.includes('GERENTE') ||
+      combined.includes('INGENIERO') ||
+      combined.includes('CONTADOR') ||
+      combined.includes('RECURSOS HUMANOS') ||
+      combined.includes('ADMINISTRATIV') ||
+      combined.includes('MEDICO') ||
+      combined.includes('MÉDICO') ||
+      combined.includes('SISTEMAS') ||
+      combined.includes('COORDINADOR')
+    return isQuincenal
+      ? {
+          code: 'QUINCENAL_CONFIANZA' as const,
+          label: '📆 Quincenal · Confianza',
+          badgeClass: 'bg-indigo-100 text-indigo-900 border-indigo-300',
         }
-    }
-
-    async function seedChoferesDirect() {
-        const choferesData = [
-            { numero_empleado: 101, nombre: 'Adalberto', apellido_paterno: 'Pinales', puesto: 'Chofer', departamento: 'Movilidad', estado_empleado: 'Activo' },
-            { numero_empleado: 102, nombre: 'Ramon', apellido_paterno: 'Yañez', puesto: 'Chofer', departamento: 'Movilidad', estado_empleado: 'Activo' },
-            { numero_empleado: 103, nombre: 'Oscar', apellido_paterno: 'Vazquez', puesto: 'Chofer', departamento: 'Movilidad', estado_empleado: 'Activo' },
-            { numero_empleado: 104, nombre: 'Enrique', apellido_paterno: 'Linares', puesto: 'Chofer', departamento: 'Movilidad', estado_empleado: 'Activo' },
-            { numero_empleado: 105, nombre: 'Samuel', apellido_paterno: 'Madriles', puesto: 'Chofer', departamento: 'Movilidad', estado_empleado: 'Activo' },
-            { numero_empleado: 106, nombre: 'Jesus', apellido_paterno: 'Saucedo', puesto: 'Chofer', departamento: 'Movilidad', estado_empleado: 'Activo' },
-        ]
-
-        for (const c of choferesData) {
-            try {
-                await supabase.from('empleados').insert([c])
-            } catch (e) {}
+      : {
+          code: 'SEMANAL_SINDICATO' as const,
+          label: '🗓️ Semanal · Sindicato Secc. 45',
+          badgeClass: 'bg-amber-100 text-amber-950 border-amber-300',
         }
+  }
+
+  const beneficiariosByEmpleado = useMemo(() => {
+    const map = new Map<string, any[]>()
+    pacientes.forEach((p) => {
+      if (!p.id_empleado) return
+      const key = String(p.id_empleado)
+      const list = map.get(key) || []
+      list.push(p)
+      map.set(key, list)
+    })
+    return map
+  }, [pacientes])
+
+  // Lista única de departamentos canónicos para el filtro
+  const availableCanonicalDepts = useMemo(() => {
+    const map = new Map<string, { key: string; name: string; count: number }>()
+    empleados.forEach((emp) => {
+      const info = getResolvedDepartment(emp)
+      if (info.canonicalKey === 'SIN_ASIGNAR') return
+      const prev = map.get(info.canonicalKey)
+      if (prev) {
+        prev.count += 1
+      } else {
+        map.set(info.canonicalKey, { key: info.canonicalKey, name: info.officialName, count: 1 })
+      }
+    })
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
+  }, [empleados])
+
+  // Conteo rápido de alertas de duplicidad o nombres invertidos
+  const duplicateAlertsSummary = useMemo(() => {
+    const tokenCounts: Record<string, number> = {}
+    let invertedCount = 0
+    const rawDeptSet = new Set<string>()
+    const canDeptSet = new Set<string>()
+
+    empleados.forEach((emp) => {
+      const tokens = normalizeNameTokens(getEmployeeFullName(emp))
+      if (tokens.length >= 2) {
+        const k = tokens.join('|')
+        tokenCounts[k] = (tokenCounts[k] || 0) + 1
+      }
+      if (analyzeSingleEmployeeNameStructure(emp).isMalformed) {
+        invertedCount++
+      }
+      if (emp.departamento) {
+        rawDeptSet.add(emp.departamento.trim())
+        canDeptSet.add(canonicalizeDepartment(emp.departamento).canonicalKey)
+      }
+    })
+
+    const dupPersonGroups = Object.values(tokenCounts).filter((c) => c > 1).length
+    const extraDeptVariants = Math.max(0, rawDeptSet.size - canDeptSet.size)
+
+    return {
+      dupPersonGroups,
+      invertedCount,
+      extraDeptVariants,
+      totalIssues: dupPersonGroups + invertedCount + extraDeptVariants,
     }
+  }, [empleados])
 
-    async function handleSync(id: string) {
-        // TODO: Implementar lógica real de sincronización (e.g. recalcular vacaciones)
-        alert('Sincronización de vacaciones no implementada aún.')
+  const handleQuickInvertSingle = async (emp: any) => {
+    const swapped = invertEmployeeNameFields({
+      nombre: emp.nombre || '',
+      apellido_paterno: emp.apellido_paterno || '',
+      apellido_materno: emp.apellido_materno || '',
+    })
+    if (
+      !confirm(
+        `¿Invertir nombre de "${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}" a:\n\nNombre(s): ${swapped.nombre}\nApellido Paterno: ${swapped.apellido_paterno}\nApellido Materno: ${swapped.apellido_materno}?`
+      )
+    ) {
+      return
     }
+    const { error } = await supabase
+      .from('empleados')
+      .update({
+        nombre: swapped.nombre.toUpperCase(),
+        apellido_paterno: swapped.apellido_paterno.toUpperCase(),
+        apellido_materno: swapped.apellido_materno ? swapped.apellido_materno.toUpperCase() : null,
+      })
+      .eq('id_empleado', emp.id_empleado)
 
-    const handleSort = (key: string) => {
-        let direction: 'asc' | 'desc' = 'asc'
-        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
-            direction = 'desc'
-        }
-        setSortConfig({ key, direction })
+    if (!error) fetchEmpleados()
+  }
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc'
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc'
     }
+    setSortConfig({ key, direction })
+  }
 
-    const filteredEmpleados = empleados.filter(emp => {
-        const matchesSearch =
-            emp.nombre?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            emp.apellido_paterno?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            emp.numero_empleado?.toString().includes(searchTerm)
+  const regimenSummaryCounts = useMemo(() => {
+    let semanal = 0
+    let quincenal = 0
+    let conBeneficiarios = 0
+    empleados.forEach((emp) => {
+      const reg = getEmployeeRegimen(emp)
+      if (reg.code === 'SEMANAL_SINDICATO') semanal++
+      else quincenal++
+      if ((beneficiariosByEmpleado.get(String(emp.id_empleado)) || []).length > 0) {
+        conBeneficiarios++
+      }
+    })
+    return { semanal, quincenal, conBeneficiarios }
+  }, [empleados, beneficiariosByEmpleado])
 
-        const matchesStatus = statusFilter === 'Todos'
+  const filteredEmpleados = useMemo(() => {
+    return empleados
+      .filter((emp) => {
+        const matchesSearch = matchesFlexiblePersonSearch(
+          {
+            ...emp,
+            departamento: getResolvedDepartment(emp).officialName,
+            puesto: getResolvedPuesto(emp),
+          },
+          searchTerm
+        )
+
+        const matchesStatus = statusFilter === 'Todos' ? true : emp.estado_empleado === statusFilter
+
+        const matchesDept =
+          deptFilter === 'TODOS' ? true : getResolvedDepartment(emp).canonicalKey === deptFilter
+
+        const reg = getEmployeeRegimen(emp)
+        const bens = beneficiariosByEmpleado.get(String(emp.id_empleado)) || []
+        const matchesRegimen =
+          regimenFilter === 'TODOS'
             ? true
-            : emp.estado_empleado === statusFilter
+            : regimenFilter === 'CON_BENEFICIARIOS'
+            ? bens.length > 0
+            : reg.code === regimenFilter
 
-        return matchesSearch && matchesStatus
-    }).sort((a, b) => {
+        return matchesSearch && matchesStatus && matchesDept && matchesRegimen
+      })
+      .sort((a, b) => {
         if (!sortConfig) return 0
         const { key, direction } = sortConfig
-
-        let valA = a[key]
-        let valB = b[key]
-
+        let valA = a[key] || ''
+        let valB = b[key] || ''
         if (typeof valA === 'string') valA = valA.toLowerCase()
         if (typeof valB === 'string') valB = valB.toLowerCase()
-
         if (valA < valB) return direction === 'asc' ? -1 : 1
         if (valA > valB) return direction === 'asc' ? 1 : -1
         return 0
-    })
+      })
+  }, [empleados, searchTerm, statusFilter, deptFilter, regimenFilter, sortConfig, beneficiariosByEmpleado])
 
-    const headers = [
-        'Número', 'Nombre', 'Paterno', 'Materno', 'Sexo', 'Fecha Nacimiento', 
-        'CURP', 'RFC', 'NSS', 'Teléfono', 'Email', 'Estado Civil', 
-        'Tipo Residencia', 'Número de Hijos', 'Estado', 'Foto URL'
-    ]
+  const headers = [
+    'Número',
+    'Nombre',
+    'Paterno',
+    'Materno',
+    'Departamento',
+    'Puesto',
+    'Sexo',
+    'Fecha Nacimiento',
+    'CURP',
+    'RFC',
+    'NSS',
+    'Teléfono',
+    'Email',
+    'Estado Civil',
+    'Tipo Residencia',
+    'Número de Hijos',
+    'Estado',
+    'Foto URL',
+  ]
 
-    const exportToExcel = () => {
-        if (filteredEmpleados.length === 0) return
+  const exportToExcel = () => {
+    if (filteredEmpleados.length === 0) return
 
-        const data = filteredEmpleados.map(emp => [
-            emp.numero_empleado,
-            emp.nombre,
-            emp.apellido_paterno,
-            emp.apellido_materno || '',
-            emp.sexo || '',
-            emp.fecha_nacimiento || '',
-            emp.curp || '',
-            emp.rfc || '',
-            emp.nss || '',
-            emp.telefono || '',
-            emp.correo_electronico || '',
-            emp.estado_civil || '',
-            emp.tipo_residencia || '',
-            emp.hijos_numero || 0,
-            emp.estado_empleado,
-            emp.foto_url || ''
-        ])
+    const data = filteredEmpleados.map((emp) => [
+      emp.numero_empleado,
+      emp.nombre,
+      emp.apellido_paterno,
+      emp.apellido_materno || '',
+      getResolvedDepartment(emp).officialName,
+      getResolvedPuesto(emp),
+      emp.sexo || '',
+      emp.fecha_nacimiento || '',
+      emp.curp || '',
+      emp.rfc || '',
+      emp.nss || '',
+      emp.telefono || '',
+      emp.correo_electronico || '',
+      emp.estado_civil || '',
+      emp.tipo_residencia || '',
+      emp.hijos_numero || 0,
+      emp.estado_empleado,
+      emp.foto_url || '',
+    ])
 
-        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...data])
-        const workbook = XLSX.utils.book_new()
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Empleados')
-        XLSX.writeFile(workbook, `Directorio_Empleados.xlsx`)
-    }
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...data])
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Empleados')
+    XLSX.writeFile(workbook, `Directorio_Empleados.xlsx`)
+  }
 
-    const downloadTemplate = () => {
-        const worksheet = XLSX.utils.aoa_to_sheet([headers])
-        const workbook = XLSX.utils.book_new()
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Plantilla')
-        XLSX.writeFile(workbook, `Plantilla_Empleados.xlsx`)
-    }
+  const downloadTemplate = () => {
+    const worksheet = XLSX.utils.aoa_to_sheet([headers])
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Plantilla')
+    XLSX.writeFile(workbook, `Plantilla_Empleados.xlsx`)
+  }
 
-    const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
 
-        setImporting(true)
-        const reader = new FileReader()
-        reader.onload = async (event) => {
-            try {
-                const data = new Uint8Array(event.target?.result as ArrayBuffer)
-                const workbook = XLSX.read(data, { type: 'array' })
-                const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-                const jsonData = XLSX.utils.sheet_to_json(firstSheet)
+    setImporting(true)
+    const reader = new FileReader()
+    reader.onload = async (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer)
+        const workbook = XLSX.read(data, { type: 'array' })
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet)
 
-                if (jsonData.length === 0) throw new Error("El archivo está vacío")
+        if (jsonData.length === 0) throw new Error('El archivo está vacío')
 
-                const nuevosEmpleados = jsonData.map((row: any) => ({
-                    numero_empleado: parseInt(row['Número'] || row['Numero']),
-                    nombre: row['Nombre'],
-                    apellido_paterno: row['Paterno'],
-                    apellido_materno: row['Materno'] || null,
-                    sexo: row['Sexo'] || null,
-                    fecha_nacimiento: row['Fecha Nacimiento'] || row['Fecha de Nacimiento'] ? new Date(row['Fecha Nacimiento'] || row['Fecha de Nacimiento']).toISOString().split('T')[0] : null,
-                    curp: row['CURP'] || null,
-                    rfc: row['RFC'] || null,
-                    nss: row['NSS'] || null,
-                    telefono: row['Teléfono'] || row['Telefono'] || null,
-                    correo_electronico: row['Email'] || row['Correo'] || null,
-                    estado_civil: row['Estado Civil'] || null,
-                    tipo_residencia: row['Tipo Residencia'] || null,
-                    hijos_numero: parseInt(row['Número de Hijos'] || row['Hijos'] || '0'),
-                    estado_empleado: row['Estado'] || 'Activo',
-                    foto_url: row['Foto URL'] || null
-                })).filter(emp => emp.numero_empleado && emp.nombre && emp.apellido_paterno)
+        // Huellas existentes para evitar duplicar nombres invertidos al importar
+        const existingTokens = new Set(
+          empleados
+            .map((emp) => normalizeNameTokens(getEmployeeFullName(emp)).join('|'))
+            .filter(Boolean)
+        )
+        const existingNumbers = new Set(
+          empleados.map((emp) => String(emp.numero_empleado || '')).filter(Boolean)
+        )
 
-                if (nuevosEmpleados.length === 0) {
-                    throw new Error("No se encontraron registros válidos. Columnas obligatorias: Número, Nombre, Paterno.")
-                }
+        let skippedDuplicates = 0
+        const nuevosEmpleados: any[] = []
 
-                const { error } = await supabase.from('empleados').insert(nuevosEmpleados)
-                if (error) throw error
+        jsonData.forEach((row: any) => {
+          const num = parseInt(row['Número'] || row['Numero'])
+          const rawNom = String(row['Nombre'] || '').trim()
+          const rawPat = String(row['Paterno'] || '').trim()
+          const rawMat = String(row['Materno'] || '').trim()
+          const rawDepto = String(row['Departamento'] || row['Área'] || row['Area'] || '').trim()
+          const rawPuesto = String(row['Puesto'] || row['Categoría'] || '').trim()
 
-                alert(`Se importaron ${nuevosEmpleados.length} empleados correctamente.`)
-                fetchEmpleados()
-            } catch (err: any) {
-                alert("Error al importar: " + err.message)
-            } finally {
-                setImporting(false)
-                if (fileInputRef.current) fileInputRef.current.value = ''
-            }
+          if (!num || !rawNom) return
+
+          // Si metieron todo en Nombre o invertido, auto-analizar
+          const analysis = analyzeSingleEmployeeNameStructure({
+            nombre: rawNom,
+            apellido_paterno: rawPat,
+            apellido_materno: rawMat,
+          })
+
+          const finalNom = (analysis.isMalformed ? analysis.suggestedNombre : rawNom).toUpperCase()
+          const finalPat = (analysis.isMalformed ? analysis.suggestedPaterno : rawPat).toUpperCase()
+          const finalMat = (analysis.isMalformed ? analysis.suggestedMaterno : rawMat).toUpperCase() || null
+
+          const tokenKey = normalizeNameTokens(`${finalNom} ${finalPat} ${finalMat || ''}`).join('|')
+          if (existingNumbers.has(String(num)) || (tokenKey && existingTokens.has(tokenKey))) {
+            skippedDuplicates++
+            return
+          }
+
+          existingNumbers.add(String(num))
+          if (tokenKey) existingTokens.add(tokenKey)
+
+          const canDept = canonicalizeDepartment(rawDepto)
+
+          nuevosEmpleados.push({
+            numero_empleado: num,
+            nombre: finalNom,
+            apellido_paterno: finalPat,
+            apellido_materno: finalMat,
+            departamento: canDept.canonicalKey !== 'SIN_ASIGNAR' ? canDept.officialName : null,
+            puesto: rawPuesto ? rawPuesto.toUpperCase() : null,
+            sexo: row['Sexo'] || null,
+            fecha_nacimiento:
+              row['Fecha Nacimiento'] || row['Fecha de Nacimiento']
+                ? new Date(row['Fecha Nacimiento'] || row['Fecha de Nacimiento']).toISOString().split('T')[0]
+                : null,
+            curp: row['CURP'] ? String(row['CURP']).toUpperCase() : null,
+            rfc: row['RFC'] ? String(row['RFC']).toUpperCase() : null,
+            nss: row['NSS'] ? String(row['NSS']) : null,
+            telefono: row['Teléfono'] || row['Telefono'] || null,
+            correo_electronico: row['Email'] || row['Correo'] || null,
+            estado_civil: row['Estado Civil'] || null,
+            tipo_residencia: row['Tipo Residencia'] || null,
+            hijos_numero: parseInt(row['Número de Hijos'] || row['Hijos'] || '0'),
+            estado_empleado: row['Estado'] || 'Activo',
+            foto_url: row['Foto URL'] || null,
+          })
+        })
+
+        if (nuevosEmpleados.length === 0) {
+          throw new Error(
+            skippedDuplicates > 0
+              ? `No se importaron registros nuevos porque los ${skippedDuplicates} trabajadores del archivo ya existen en el padrón.`
+              : 'No se encontraron registros válidos. Columnas obligatorias: Número, Nombre.'
+          )
         }
-        reader.readAsArrayBuffer(file)
+
+        const { error } = await supabase.from('empleados').insert(nuevosEmpleados)
+        if (error) throw error
+
+        alert(
+          `Se importaron ${nuevosEmpleados.length} empleados correctamente (con departamentos y nombres normalizados).${
+            skippedDuplicates > 0 ? `\nSe omitieron ${skippedDuplicates} duplicados detectados.` : ''
+          }`
+        )
+        fetchEmpleados()
+      } catch (err: any) {
+        alert('Error al importar: ' + err.message)
+      } finally {
+        setImporting(false)
+        if (fileInputRef.current) fileInputRef.current.value = ''
+      }
     }
+    reader.readAsArrayBuffer(file)
+  }
 
-    return (
-        <div className="space-y-6 relative">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold text-zinc-900">Directorio de Empleados</h1>
-                    <p className="text-sm text-zinc-500">Gestione la información de todo el personal</p>
-                </div>
-                <div className="flex items-center space-x-3">
-                    <input 
-                        type="file" 
-                        accept=".xlsx, .xls" 
-                        className="hidden" 
-                        ref={fileInputRef} 
-                        onChange={handleImportExcel} 
-                    />
-                    <button
-                        onClick={downloadTemplate}
-                        className="inline-flex items-center px-4 py-2 border border-zinc-300 rounded-md shadow-sm text-sm font-medium text-zinc-700 bg-white hover:bg-zinc-50 focus:outline-none"
-                        title="Descargar Plantilla Vacía"
-                    >
-                        Plantilla
-                    </button>
-                    <button
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={importing}
-                        className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none"
-                    >
-                        <Upload className="-ml-1 mr-2 h-5 w-5" />
-                        {importing ? 'Importando...' : 'Importar Excel'}
-                    </button>
-                    <button
-                        onClick={exportToExcel}
-                        className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none"
-                    >
-                        <FileDown className="-ml-1 mr-2 h-5 w-5" />
-                        Exportar Todo
-                    </button>
-                    <Link
-                        href="/empleados/credenciales"
-                        className="inline-flex items-center px-4 py-2 border border-zinc-900 rounded-md shadow-sm text-sm font-black text-white bg-zinc-900 hover:bg-zinc-800 focus:outline-none"
-                    >
-                        <QrCode className="-ml-1 mr-2 h-4 w-4 text-amber-400" />
-                        Credenciales QR
-                    </Link>
-                    <Link
-                        href="/empleados/duplicados"
-                        className="inline-flex items-center px-4 py-2 border border-amber-300 rounded-md shadow-sm text-sm font-bold text-amber-950 bg-amber-100 hover:bg-amber-200 focus:outline-none"
-                    >
-                        <Sparkles className="-ml-1 mr-2 h-4 w-4 text-amber-700" />
-                        Detector de Duplicados
-                    </Link>
-                    <Link
-                        href="/empleados/nuevo"
-                        className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-black hover:bg-zinc-800 focus:outline-none"
-                    >
-                        <Plus className="-ml-1 mr-2 h-5 w-5" aria-hidden="true" />
-                        Nuevo Empleado
-                    </Link>
-                </div>
+  return (
+    <div className="space-y-5 max-w-7xl mx-auto pb-20">
+      {/* HEADER RESPONSIVO UNIFORME */}
+      <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-black text-zinc-900 tracking-tight">
+            Directorio General de Empleados
+          </h1>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Padrón conectado con Inducción, Campamentos, Lockers QR, Credenciales y Depuración de Duplicados.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="file"
+            accept=".xlsx, .xls"
+            className="hidden"
+            ref={fileInputRef}
+            onChange={handleImportExcel}
+          />
+          <button
+            onClick={downloadTemplate}
+            className="inline-flex items-center px-3 py-2 border border-zinc-300 rounded-xl text-xs font-bold text-zinc-700 bg-white hover:bg-zinc-50 cursor-pointer"
+            title="Descargar Plantilla Vacía"
+          >
+            Plantilla Excel
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="inline-flex items-center px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 cursor-pointer"
+          >
+            <Upload className="mr-1.5 h-4 w-4" />
+            {importing ? 'Importando...' : 'Importar Excel'}
+          </button>
+          <button
+            onClick={exportToExcel}
+            className="inline-flex items-center px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
+          >
+            <FileDown className="mr-1.5 h-4 w-4" />
+            Exportar
+          </button>
+          <Link
+            href="/empleados/credenciales"
+            className="inline-flex items-center px-3.5 py-2 rounded-xl text-xs font-black text-white bg-zinc-900 hover:bg-zinc-800"
+          >
+            <QrCode className="mr-1.5 h-4 w-4 text-amber-400" />
+            Credenciales QR
+          </Link>
+          <Link
+            href="/empleados/duplicados"
+            className="inline-flex items-center px-3.5 py-2 border-2 border-amber-400 rounded-xl text-xs font-black text-zinc-950 bg-amber-400 hover:bg-amber-300 shadow-xs"
+          >
+            <Sparkles className="mr-1.5 h-4 w-4 text-zinc-950" />
+            <span>Depurar Duplicados / Deptos</span>
+            {duplicateAlertsSummary.totalIssues > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.2 rounded-full bg-zinc-950 text-amber-400 text-[10px]">
+                {duplicateAlertsSummary.totalIssues}
+              </span>
+            )}
+          </Link>
+          <Link
+            href="/empleados/nuevo"
+            className="inline-flex items-center px-4 py-2 rounded-xl text-xs font-black text-amber-400 bg-zinc-950 hover:bg-zinc-800 shadow-sm"
+          >
+            <Plus className="mr-1.5 h-4 w-4" />
+            Nuevo Empleado
+          </Link>
+        </div>
+      </div>
+
+      {/* BANNER DE ALERTA SI HAY DEPARTAMENTOS O NOMBRES DUPLICADOS/INVERTIDOS */}
+      {duplicateAlertsSummary.totalIssues > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-500 text-zinc-950 shrink-0">
+              <AlertTriangle className="w-5 h-5" />
             </div>
-
-            <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4 bg-white p-4 rounded-lg border border-zinc-200 shadow-sm">
-                <div className="relative flex-grow w-full md:w-auto">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Search className="h-5 w-5 text-zinc-400" />
-                    </div>
-                    <input
-                        type="text"
-                        className="focus:ring-black focus:border-black block w-full pl-10 sm:text-sm border-zinc-300 rounded-md"
-                        placeholder="Buscar por nombre, número de empleado..."
-                        value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
-                    />
-                </div>
-                <div className="w-full md:w-48">
-                    <select
-                        className="block w-full pl-3 pr-10 py-2 text-base border-zinc-300 focus:outline-none focus:ring-black focus:border-black sm:text-sm rounded-md"
-                        value={statusFilter}
-                        onChange={e => setStatusFilter(e.target.value)}
-                    >
-                        <option value="Activo">Activos</option>
-                        <option value="Baja">Bajas</option>
-                        <option value="Todos">Todos</option>
-                    </select>
-                </div>
+            <div className="text-xs">
+              <p className="font-black text-zinc-900 uppercase">
+                Atención: Se detectaron posibles duplicidades o nombres invertidos en el padrón
+              </p>
+              <p className="text-zinc-700 mt-0.5">
+                {duplicateAlertsSummary.dupPersonGroups > 0 && (
+                  <span className="mr-3">
+                    • <strong>{duplicateAlertsSummary.dupPersonGroups}</strong> grupos de personas duplicadas (ej. Nombre Invertido)
+                  </span>
+                )}
+                {duplicateAlertsSummary.invertedCount > 0 && (
+                  <span className="mr-3">
+                    • <strong>{duplicateAlertsSummary.invertedCount}</strong> registros con apellidos en campo Nombre
+                  </span>
+                )}
+                {duplicateAlertsSummary.extraDeptVariants > 0 && (
+                  <span>
+                    • <strong>{duplicateAlertsSummary.extraDeptVariants}</strong> variantes de departamento (ej. RH / Recursos Humanos)
+                  </span>
+                )}
+              </p>
             </div>
+          </div>
+          <Link
+            href="/empleados/duplicados"
+            className="px-4 py-2 bg-zinc-950 hover:bg-zinc-800 text-amber-400 font-black text-xs rounded-xl shrink-0"
+          >
+            Ir al Centro de Unificación &rarr;
+          </Link>
+        </div>
+      )}
 
-            {/* Table */}
-            <div className="rounded-lg bg-white shadow border border-zinc-200 overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-zinc-200">
-                        <thead className="bg-zinc-50">
-                            <tr>
-                                <th
-                                    scope="col"
-                                    className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 cursor-pointer hover:bg-zinc-100"
-                                    onClick={() => handleSort('nombre')}
-                                >
-                                    Empleado {sortConfig?.key === 'nombre' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                                </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                                    Rol Actual
-                                </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                                    Contacto
-                                </th>
-                                <th
-                                    scope="col"
-                                    className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 cursor-pointer hover:bg-zinc-100"
-                                    onClick={() => handleSort('estado_empleado')}
-                                >
-                                    Estado {sortConfig?.key === 'estado_empleado' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                                </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 w-48">
-                                    Acciones
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-200 bg-white">
-                            {loading ? (
-                                <tr>
-                                    <td colSpan={5} className="px-6 py-4 text-center text-sm text-zinc-500">
-                                        Cargando empleados...
-                                    </td>
-                                </tr>
-                            ) : filteredEmpleados.length === 0 ? (
-                                <tr>
-                                    <td colSpan={5} className="px-6 py-4 text-center text-sm text-zinc-500">
-                                        No se encontraron empleados registrados.
-                                    </td>
-                                </tr>
-                            ) : (
-                                filteredEmpleados.map((empleado) => {
-                                    // Find active role
-                                    const roles = empleado.empleado_roles || []
-                                    const activeRole = roles.sort((a: any, b: any) => new Date(b.fecha_inicio).getTime() - new Date(a.fecha_inicio).getTime())[0]
+      {/* TARJETAS INTERACTIVAS DE RÉGIMEN: SEMANALES (SINDICATO), QUINCENALES (CONFIANZA) Y BENEFICIARIOS */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <button
+          type="button"
+          onClick={() => setRegimenFilter('TODOS')}
+          className={`card-interactive p-4 rounded-2xl border-2 text-left cursor-pointer transition-all ${
+            regimenFilter === 'TODOS'
+              ? 'bg-zinc-900 text-white border-amber-500 shadow-md'
+              : 'bg-white text-zinc-900 border-zinc-200 hover:border-zinc-300'
+          }`}
+        >
+          <span className="text-[10px] font-black uppercase tracking-wider text-amber-500 block">
+            1. Padrón Total
+          </span>
+          <div className="text-2xl font-black mt-1">{empleados.length}</div>
+          <span className="text-[11px] font-semibold opacity-75">Todos los trabajadores</span>
+        </button>
 
-                                    return (
-                                        <tr key={empleado.id_empleado} className="hover:bg-zinc-50 transition-colors">
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="flex items-center">
-                                                    <div className="h-10 w-10 flex-shrink-0 rounded-full bg-zinc-200 flex items-center justify-center text-zinc-600 font-bold border border-zinc-300">
-                                                        {empleado.nombre.charAt(0)}{empleado.apellido_paterno.charAt(0)}
-                                                    </div>
-                                                    <div className="ml-4">
-                                                        <div className="text-sm font-medium text-zinc-900">
-                                                            {empleado.nombre} {empleado.apellido_paterno} {empleado.apellido_materno}
-                                                        </div>
-                                                        <div className="text-xs text-zinc-500">
-                                                            #{empleado.numero_empleado}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                {activeRole ? (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                                        {activeRole.cat_tipos_rol.tipo_rol} ({activeRole.cat_tipos_rol.dias_trabajo}x{activeRole.cat_tipos_rol.dias_descanso})
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-xs text-zinc-400 italic">Sin Asignar</span>
-                                                )}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="text-sm text-zinc-900">{empleado.correo_electronico}</div>
-                                                <div className="text-sm text-zinc-500">{empleado.telefono}</div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${empleado.estado_empleado === 'Activo'
-                                                    ? 'bg-green-100 text-green-800'
-                                                    : 'bg-red-100 text-red-800'
-                                                    }`}>
-                                                    {empleado.estado_empleado}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                <div className="flex items-center space-x-4">
-                                                    <Link href={`/empleados/${empleado.id_empleado}`} className="text-amber-600 hover:text-amber-900">
-                                                        Ver Perfil
-                                                    </Link>
-                                                    <button
-                                                        onClick={() => handleSync(empleado.id_empleado)}
-                                                        className="text-zinc-400 hover:text-blue-600 p-1 rounded-full hover:bg-blue-50 transition-colors"
-                                                        title="Sincronizar Vacaciones"
-                                                    >
-                                                        <RefreshCw className="h-4 w-4" />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )
-                                })
+        <button
+          type="button"
+          onClick={() => setRegimenFilter('SEMANAL_SINDICATO')}
+          className={`card-interactive p-4 rounded-2xl border-2 text-left cursor-pointer transition-all ${
+            regimenFilter === 'SEMANAL_SINDICATO'
+              ? 'bg-zinc-900 text-white border-amber-500 shadow-md'
+              : 'bg-white text-zinc-900 border-zinc-200 hover:border-amber-300'
+          }`}
+        >
+          <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 block">
+            2. Nómina Semanal (Raya)
+          </span>
+          <div className="text-2xl font-black mt-1">{regimenSummaryCounts.semanal}</div>
+          <span className="text-[11px] font-semibold opacity-75">🗓️ Sindicato Secc. 45 / Operativos</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setRegimenFilter('QUINCENAL_CONFIANZA')}
+          className={`card-interactive p-4 rounded-2xl border-2 text-left cursor-pointer transition-all ${
+            regimenFilter === 'QUINCENAL_CONFIANZA'
+              ? 'bg-zinc-900 text-white border-indigo-500 shadow-md'
+              : 'bg-white text-zinc-900 border-zinc-200 hover:border-indigo-300'
+          }`}
+        >
+          <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 block">
+            3. Nómina Quincenal
+          </span>
+          <div className="text-2xl font-black mt-1">{regimenSummaryCounts.quincenal}</div>
+          <span className="text-[11px] font-semibold opacity-75">📆 Confianza / Supervisores / Staff</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setRegimenFilter('CON_BENEFICIARIOS')}
+          className={`card-interactive p-4 rounded-2xl border-2 text-left cursor-pointer transition-all ${
+            regimenFilter === 'CON_BENEFICIARIOS'
+              ? 'bg-zinc-900 text-white border-rose-500 shadow-md'
+              : 'bg-white text-zinc-900 border-zinc-200 hover:border-rose-300'
+          }`}
+        >
+          <span className="text-[10px] font-black uppercase tracking-wider text-rose-500 block">
+            4. Sindicato + Beneficiarios
+          </span>
+          <div className="text-2xl font-black mt-1">{regimenSummaryCounts.conBeneficiarios}</div>
+          <span className="text-[11px] font-semibold opacity-75">👨‍👩‍👧‍👦 Con Familiares en Clínica ({pacientes.length})</span>
+        </button>
+      </div>
+
+      {/* BARRA DE BÚSQUEDA INTELIGENTE (ENCUENTRA NOMBRES INVERTIDOS) Y FILTROS */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-white p-4 rounded-2xl border border-zinc-200 shadow-xs">
+        <div className="md:col-span-6 relative">
+          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+            <Search className="h-4 w-4 text-zinc-400" />
+          </div>
+          <input
+            type="text"
+            className="block w-full pl-10 pr-3 py-2 text-xs font-bold border border-zinc-300 rounded-xl focus:ring-amber-500 focus:border-amber-500"
+            placeholder="Buscar por nombre o apellido en cualquier orden (ej. Jose Arana o Arana Jose), ficha, CURP..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        <div className="md:col-span-4">
+          <select
+            className="block w-full px-3 py-2 text-xs font-bold border border-zinc-300 rounded-xl"
+            value={deptFilter}
+            onChange={(e) => setDeptFilter(e.target.value)}
+          >
+            <option value="TODOS">🏢 Todos los Departamentos (Unificados)</option>
+            {availableCanonicalDepts.map((d) => (
+              <option key={d.key} value={d.key}>
+                {d.name} ({d.count})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="md:col-span-2">
+          <select
+            className="block w-full px-3 py-2 text-xs font-bold border border-zinc-300 rounded-xl"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="Activo">🟢 Activos</option>
+            <option value="Baja">🔴 Bajas</option>
+            <option value="Todos">📋 Todos ({empleados.length})</option>
+          </select>
+        </div>
+      </div>
+
+      {/* TABLA RESPONSIVA DE EMPLEADOS */}
+      <div className="rounded-2xl bg-white shadow-xs border border-zinc-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-zinc-200">
+            <thead className="bg-zinc-50">
+              <tr>
+                <th
+                  scope="col"
+                  className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider text-zinc-500 cursor-pointer hover:bg-zinc-100"
+                  onClick={() => handleSort('nombre')}
+                >
+                  Trabajador {sortConfig?.key === 'nombre' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                </th>
+                <th
+                  scope="col"
+                  className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider text-zinc-500"
+                >
+                  Departamento / Puesto
+                </th>
+                <th
+                  scope="col"
+                  className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider text-zinc-500"
+                >
+                  Régimen &amp; Beneficiarios
+                </th>
+                <th
+                  scope="col"
+                  className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wider text-zinc-500"
+                >
+                  Estado
+                </th>
+                <th
+                  scope="col"
+                  className="px-4 py-3 text-right text-[11px] font-black uppercase tracking-wider text-zinc-500"
+                >
+                  Flujo Conectado &amp; Acciones
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-200 bg-white">
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-xs font-bold text-zinc-500">
+                    Cargando padrón de empleados...
+                  </td>
+                </tr>
+              ) : filteredEmpleados.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-xs font-bold text-zinc-500">
+                    No se encontraron empleados con los filtros seleccionados.
+                  </td>
+                </tr>
+              ) : (
+                filteredEmpleados.map((empleado) => {
+                  const roles = empleado.empleado_roles || []
+                  const activeRole = roles.sort(
+                    (a: any, b: any) =>
+                      new Date(b.fecha_inicio).getTime() - new Date(a.fecha_inicio).getTime()
+                  )[0]
+
+                  const deptInfo = getResolvedDepartment(empleado)
+                  const puestoName = getResolvedPuesto(empleado)
+                  const regimenInfo = getEmployeeRegimen(empleado)
+                  const empBeneficiarios = beneficiariosByEmpleado.get(String(empleado.id_empleado)) || []
+                  const nameStructure = analyzeSingleEmployeeNameStructure(empleado)
+                  const initial1 = (empleado.nombre || '?').charAt(0).toUpperCase()
+                  const initial2 = (empleado.apellido_paterno || '').charAt(0).toUpperCase()
+
+                  return (
+                    <tr key={empleado.id_empleado} className="hover:bg-zinc-50/80 transition-colors">
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="flex items-center gap-3">
+                          <div className="h-9 w-9 shrink-0 rounded-xl bg-zinc-900 text-amber-400 flex items-center justify-center font-black text-xs border border-zinc-700">
+                            {initial1}
+                            {initial2}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <Link
+                                href={`/empleados/${empleado.id_empleado}`}
+                                className="text-xs font-black text-zinc-900 hover:text-amber-600 uppercase"
+                              >
+                                {empleado.nombre} {empleado.apellido_paterno} {empleado.apellido_materno || ''}
+                              </Link>
+                              {nameStructure.isMalformed && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickInvertSingle(empleado)}
+                                  className="px-2 py-0.5 rounded-md bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-[10px] font-black flex items-center gap-1 cursor-pointer"
+                                  title={nameStructure.reason}
+                                >
+                                  <ArrowLeftRight className="w-3 h-3" />
+                                  <span>⇄ Invertir</span>
+                                </button>
+                              )}
+                            </div>
+                            <div className="text-[11px] font-mono text-zinc-500 font-bold">
+                              Ficha #{empleado.numero_empleado || 'S/N'}
+                              {empleado.telefono ? ` · 📞 ${empleado.telefono}` : ''}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="flex flex-col">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-black text-zinc-900 uppercase">
+                            <Building2 className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <span>{deptInfo.officialName}</span>
+                          </span>
+                          <span className="text-[11px] text-zinc-500 font-semibold">{puestoName}</span>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="flex flex-col gap-1 items-start">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black border ${regimenInfo.badgeClass}`}
+                            >
+                              {regimenInfo.label}
+                            </span>
+                            {activeRole?.cat_tipos_rol && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                                {activeRole.cat_tipos_rol.tipo_rol}
+                              </span>
                             )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            {/* BUTTON 4: Floating Action Button (Bottom Right) */}
-            <Link
-                href="/empleados/nuevo"
-                className="fixed bottom-8 right-8 h-16 w-16 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-2xl hover:bg-blue-700 transition-all z-50 animate-bounce"
-                title="Nuevo Empleado"
-            >
-                <Plus className="h-8 w-8" />
-            </Link>
-        </div >
-    )
+                          </div>
+                          <Link
+                            href="/medico/pacientes"
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md border transition-colors ${
+                              empBeneficiarios.length > 0
+                                ? 'bg-rose-50 text-rose-900 border-rose-200 hover:bg-rose-100'
+                                : 'bg-zinc-50 text-zinc-400 border-zinc-200 hover:text-zinc-700'
+                            }`}
+                            title={
+                              empBeneficiarios.length > 0
+                                ? empBeneficiarios
+                                    .map((b) => `${b.nombre_completo} (${b.parentesco || 'Familiar'})`)
+                                    .join(', ')
+                                : 'Vincular beneficiarios en Clínica Médica'
+                            }
+                          >
+                            👨‍👩‍👧‍👦 {empBeneficiarios.length} Beneficiario(s)
+                            {empBeneficiarios.length > 0
+                              ? `: ${empBeneficiarios[0].nombre_completo.split(' ').slice(0, 2).join(' ')}${
+                                  empBeneficiarios.length > 1 ? ` +${empBeneficiarios.length - 1}` : ''
+                                }`
+                              : ''}
+                          </Link>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase ${
+                            empleado.estado_empleado === 'Activo'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {empleado.estado_empleado || 'Activo'}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3.5 whitespace-nowrap text-right">
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          <Link
+                            href={`/empleados/${empleado.id_empleado}`}
+                            className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-black"
+                            title="Ver Expediente Completo"
+                          >
+                            Expediente
+                          </Link>
+                          <Link
+                            href={`/seguridad?emp=${empleado.id_empleado}`}
+                            className="p-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200"
+                            title="Enviar a Inducción de Seguridad Industrial"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                          </Link>
+                          <Link
+                            href={`/campamentos?emp=${empleado.id_empleado}`}
+                            className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200"
+                            title="Asignar Cama en Campamento"
+                          >
+                            <Home className="w-3.5 h-3.5" />
+                          </Link>
+                          <Link
+                            href={`/lockers?emp=${empleado.id_empleado}`}
+                            className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200"
+                            title="Asignar Casillero / Locker QR"
+                          >
+                            <FolderLock className="w-3.5 h-3.5" />
+                          </Link>
+                          <Link
+                            href={`/empleados/credenciales?emp=${empleado.id_empleado}`}
+                            className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300"
+                            title="Imprimir Credencial QR"
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
 }

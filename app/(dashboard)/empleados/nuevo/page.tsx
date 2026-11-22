@@ -1,10 +1,16 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Save, User, MapPin, Briefcase } from 'lucide-react'
+import { ArrowLeft, Save, User, MapPin, Briefcase, AlertTriangle, ArrowLeftRight } from 'lucide-react'
 import Link from 'next/link'
+import {
+    canonicalizeDepartment,
+    normalizeNameTokens,
+    invertEmployeeNameFields,
+    getEmployeeFullName,
+} from '@/utils/dataNormalization'
 
 export default function NuevoEmpleadoPage() {
     const router = useRouter()
@@ -15,6 +21,8 @@ export default function NuevoEmpleadoPage() {
     const [fotoPreview, setFotoPreview] = useState<string | null>(null)
     const [turnos, setTurnos] = useState<any[]>([])
     const [roles, setRoles] = useState<any[]>([])
+    const [departamentosCat, setDepartamentosCat] = useState<any[]>([])
+    const [existingEmployees, setExistingEmployees] = useState<any[]>([])
 
     // Estado único para todos los campos (expandir según necesidad)
     const [formData, setFormData] = useState({
@@ -22,6 +30,8 @@ export default function NuevoEmpleadoPage() {
         nombre: '',
         apellido_paterno: '',
         apellido_materno: '',
+        departamento: '',
+        puesto: '',
         sexo: 'Masculino',
         fecha_nacimiento: '',
         curp: '',
@@ -37,7 +47,7 @@ export default function NuevoEmpleadoPage() {
         municipio: '',
         ciudad: '',
         estado: '',
-        fecha_ingreso: '',
+        fecha_ingreso: new Date().toISOString().split('T')[0],
         salario_diario: '',
         sdi: '',
         banco: '',
@@ -64,13 +74,59 @@ export default function NuevoEmpleadoPage() {
 
     useEffect(() => {
         async function fetchTurnos() {
-            const { data } = await supabase.from('turnos').select('*').eq('activo', true)
-            if (data) setTurnos(data)
-            const { data: rolesData } = await supabase.from('cat_tipos_rol').select('*').eq('activo', true)
-            if (rolesData) setRoles(rolesData)
+            const [tRes, rRes, dRes, eRes] = await Promise.all([
+                supabase.from('turnos').select('*').eq('activo', true),
+                supabase.from('cat_tipos_rol').select('*').eq('activo', true),
+                supabase.from('cat_departamentos').select('*').eq('activo', true).order('departamento'),
+                supabase.from('empleados').select('id_empleado, numero_empleado, nombre, apellido_paterno, apellido_materno, curp, departamento, puesto')
+            ])
+            if (tRes.data) setTurnos(tRes.data)
+            if (rRes.data) setRoles(rRes.data)
+            if (dRes.data) {
+                const seen = new Map<string, any>()
+                dRes.data.forEach((d: any) => {
+                    const can = canonicalizeDepartment(d.departamento)
+                    if (!seen.has(can.canonicalKey)) {
+                        seen.set(can.canonicalKey, { ...d, departamento: can.officialName })
+                    }
+                })
+                setDepartamentosCat(Array.from(seen.values()))
+            }
+            if (eRes.data) setExistingEmployees(eRes.data)
         }
         fetchTurnos()
     }, [])
+
+    // Detector en tiempo real de posibles duplicados o nombres invertidos (Jose Arana Chavez <-> Arana Chavez Jose)
+    const liveDuplicateWarning = useMemo(() => {
+        const candidateFull = `${formData.nombre} ${formData.apellido_paterno} ${formData.apellido_materno}`.trim()
+        const candTokens = normalizeNameTokens(candidateFull)
+        const candKey = candTokens.join('|')
+        const num = formData.numero_empleado.trim()
+
+        if (candTokens.length < 2 && !num) return null
+
+        return existingEmployees.find((emp) => {
+            if (num && String(emp.numero_empleado) === num) return true
+            if (candTokens.length >= 2) {
+                const empKey = normalizeNameTokens(getEmployeeFullName(emp)).join('|')
+                if (empKey && empKey === candKey) return true
+            }
+            return false
+        })
+    }, [formData.nombre, formData.apellido_paterno, formData.apellido_materno, formData.numero_empleado, existingEmployees])
+
+    const handleInvertCurrentFormName = () => {
+        const swapped = invertEmployeeNameFields({
+            nombre: formData.nombre,
+            apellido_paterno: formData.apellido_paterno,
+            apellido_materno: formData.apellido_materno,
+        })
+        setFormData((prev) => ({
+            ...prev,
+            ...swapped,
+        }))
+    }
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         setFormData({ ...formData, [e.target.name]: e.target.value })
@@ -78,6 +134,16 @@ export default function NuevoEmpleadoPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+
+        if (liveDuplicateWarning) {
+            const proceed = confirm(
+                `⚠️ ATENCIÓN: Ya existe un trabajador registrado con coincidencia de nombre o ficha:\n\n` +
+                `#${liveDuplicateWarning.numero_empleado || 'S/N'} - ${getEmployeeFullName(liveDuplicateWarning)} (${liveDuplicateWarning.departamento || 'Sin Depto'})\n\n` +
+                `¿Estás seguro de que deseas crear un nuevo registro de todas formas?`
+            )
+            if (!proceed) return
+        }
+
         setLoading(true)
 
         try {
@@ -86,7 +152,7 @@ export default function NuevoEmpleadoPage() {
             if (fotoFile) {
                 const fileExt = fotoFile.name.split('.').pop()
                 const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
-                const { data: uploadData, error: uploadError } = await supabase.storage
+                const { error: uploadError } = await supabase.storage
                     .from('fotos_empleados')
                     .upload(fileName, fotoFile)
                 
@@ -101,19 +167,25 @@ export default function NuevoEmpleadoPage() {
                 fotoUrl = publicUrlData.publicUrl
             }
 
-            // 1. Insertar Empleado
+            const canonicalDept = formData.departamento
+                ? canonicalizeDepartment(formData.departamento).officialName
+                : null
+
+            // 1. Insertar Empleado (normalizando mayúsculas y departamento canónico)
             const { data: empData, error: empError } = await supabase
                 .from('empleados')
                 .insert([{
                     numero_empleado: parseInt(formData.numero_empleado),
-                    nombre: formData.nombre,
-                    apellido_paterno: formData.apellido_paterno,
-                    apellido_materno: formData.apellido_materno,
+                    nombre: formData.nombre.trim().toUpperCase(),
+                    apellido_paterno: formData.apellido_paterno.trim().toUpperCase(),
+                    apellido_materno: formData.apellido_materno.trim().toUpperCase() || null,
+                    departamento: canonicalDept,
+                    puesto: formData.puesto.trim().toUpperCase() || null,
                     sexo: formData.sexo,
-                    fecha_nacimiento: formData.fecha_nacimiento,
-                    curp: formData.curp,
-                    rfc: formData.rfc,
-                    nss: formData.nss,
+                    fecha_nacimiento: formData.fecha_nacimiento || null,
+                    curp: formData.curp ? formData.curp.trim().toUpperCase() : null,
+                    rfc: formData.rfc ? formData.rfc.trim().toUpperCase() : null,
+                    nss: formData.nss ? formData.nss.trim() : null,
                     telefono: formData.telefono,
                     correo_electronico: formData.correo_electronico,
                     estado_civil: formData.estado_civil,
@@ -137,7 +209,7 @@ export default function NuevoEmpleadoPage() {
                 municipio: formData.municipio,
                 estado: formData.estado
             }])
-            if (domError) throw new Error("Error al guardar domicilio: " + domError.message)
+            if (domError) console.warn("Aviso al guardar domicilio:", domError.message)
 
             // 3. Insertar Ingreso
             if (formData.fecha_ingreso) {
@@ -145,7 +217,7 @@ export default function NuevoEmpleadoPage() {
                     id_empleado: empId,
                     fecha_ingreso: formData.fecha_ingreso
                 }])
-                if (ingError) throw new Error("Error al guardar fecha ingreso: " + ingError.message)
+                if (ingError) console.warn("Aviso al guardar fecha ingreso:", ingError.message)
             }
 
             // 4. Insertar Salario Inicial
@@ -164,7 +236,7 @@ export default function NuevoEmpleadoPage() {
                 }
                 
                 const { error: salError } = await supabase.from('empleado_salarios').insert([payload])
-                if (salError) console.error("Error salario", salError) // No bloqueante
+                if (salError) console.error("Error salario", salError)
             }
 
             // 5. Insertar Datos Bancarios
@@ -195,10 +267,11 @@ export default function NuevoEmpleadoPage() {
                 if (rolError) console.error("Error rol", rolError)
             }
 
-            router.push('/empleados')
+            // Redirigir al expediente del nuevo trabajador para continuar con Inducción, Campamento, Locker o Credencial
+            router.push(`/empleados/${empId}`)
         } catch (error: any) {
             alert('Error al guardar: ' + error.message)
-            setLoading(false) // Reset loading state on error
+            setLoading(false)
         }
     }
 
@@ -308,28 +381,73 @@ export default function NuevoEmpleadoPage() {
                             <p className="text-xs text-zinc-500 mt-2">Formatos soportados: JPG, PNG, WEBP.</p>
                         </div>
 
-                        <div className="col-span-1 md:col-span-3">
-                            <h3 className="text-lg font-medium text-zinc-900 mb-4 border-b pb-2">Identidad</h3>
+                        <div className="col-span-1 md:col-span-3 flex flex-col sm:flex-row sm:items-center justify-between border-b pb-2 mb-2 gap-2">
+                            <h3 className="text-lg font-medium text-zinc-900">Identidad y Adscripción</h3>
+                            <button
+                                type="button"
+                                onClick={handleInvertCurrentFormName}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-black cursor-pointer self-start sm:self-auto"
+                            >
+                                <ArrowLeftRight className="w-3.5 h-3.5" />
+                                <span>⇄ Invertir Nombre ↔ Apellidos</span>
+                            </button>
                         </div>
 
+                        {liveDuplicateWarning && (
+                            <div className="col-span-1 md:col-span-3 p-4 rounded-xl bg-amber-50 border-2 border-amber-400 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="flex items-start gap-2.5 text-xs">
+                                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                                    <div>
+                                        <p className="font-black uppercase">
+                                            ⚠️ Posible Duplicado o Nombre Invertido Detectado
+                                        </p>
+                                        <p className="mt-0.5">
+                                            Ya existe: <strong>#{liveDuplicateWarning.numero_empleado || 'S/N'} — {getEmployeeFullName(liveDuplicateWarning)}</strong> ({liveDuplicateWarning.departamento || 'Sin Depto'} · {liveDuplicateWarning.puesto || 'General'})
+                                        </p>
+                                    </div>
+                                </div>
+                                <Link
+                                    href={`/empleados/${liveDuplicateWarning.id_empleado}`}
+                                    className="px-3.5 py-2 bg-zinc-900 text-amber-400 font-black text-xs rounded-lg shrink-0"
+                                >
+                                    Abrir Expediente Existente &rarr;
+                                </Link>
+                            </div>
+                        )}
+
                         <div>
-                            <label className="block text-sm font-medium text-zinc-700">No. Empleado *</label>
+                            <label className="block text-sm font-medium text-zinc-700">No. Empleado / Ficha *</label>
                             <input type="number" name="numero_empleado" value={formData.numero_empleado} onChange={handleChange} className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 sm:text-sm border p-2 text-zinc-900" required />
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium text-zinc-700">Nombre (s) *</label>
-                            <input type="text" name="nombre" value={formData.nombre} onChange={handleChange} className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 sm:text-sm border p-2 text-zinc-900" required />
+                            <input type="text" name="nombre" value={formData.nombre} onChange={handleChange} placeholder="Ej. JOSE" className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 sm:text-sm border p-2 text-zinc-900 uppercase" required />
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium text-zinc-700">Apellido Paterno *</label>
-                            <input type="text" name="apellido_paterno" value={formData.apellido_paterno} onChange={handleChange} className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 sm:text-sm border p-2 text-zinc-900" required />
+                            <input type="text" name="apellido_paterno" value={formData.apellido_paterno} onChange={handleChange} placeholder="Ej. ARANA" className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 sm:text-sm border p-2 text-zinc-900 uppercase" required />
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium text-zinc-700">Apellido Materno</label>
-                            <input type="text" name="apellido_materno" value={formData.apellido_materno} onChange={handleChange} className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 sm:text-sm border p-2 text-zinc-900" />
+                            <input type="text" name="apellido_materno" value={formData.apellido_materno} onChange={handleChange} placeholder="Ej. CHAVEZ" className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 sm:text-sm border p-2 text-zinc-900 uppercase" />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-bold text-zinc-800">Departamento Oficial</label>
+                            <select name="departamento" value={formData.departamento} onChange={handleChange} className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 sm:text-sm border p-2 text-zinc-900 font-semibold">
+                                <option value="">Seleccionar Departamento...</option>
+                                {departamentosCat.map((d: any) => (
+                                    <option key={d.id_departamento} value={d.departamento}>{d.departamento}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-bold text-zinc-800">Puesto / Categoría</label>
+                            <input type="text" name="puesto" value={formData.puesto} onChange={handleChange} placeholder="Ej. AYUDANTE DE PERFORISTA" className="mt-1 block w-full rounded-md border-zinc-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 sm:text-sm border p-2 text-zinc-900 uppercase" />
                         </div>
 
                         <div>

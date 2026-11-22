@@ -3,13 +3,14 @@
 import { useRef, useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/utils/supabase/client'
-import { ArrowLeft, User, Briefcase, FileText, AlertTriangle, Edit, X, MapPin, CreditCard } from 'lucide-react'
+import { ArrowLeft, User, Briefcase, FileText, AlertTriangle, Edit, X, MapPin, CreditCard, ShieldCheck, Home, FolderLock, QrCode, ArrowLeftRight } from 'lucide-react'
 import Link from 'next/link'
 import { AdscripcionesManager } from '@/components/AdscripcionesManager'
 import { TurnoRolManager } from '@/components/TurnoRolManager'
 import { IncidenciasManager } from '@/components/IncidenciasManager'
 import { VacationBalanceManager } from '@/components/VacationBalanceManager'
 import CapturaFotoEmpleado from '@/components/CapturaFotoEmpleado'
+import { canonicalizeDepartment, invertEmployeeNameFields } from '@/utils/dataNormalization'
 
 export default function EmpleadoDetallePage() {
     const params = useParams()
@@ -111,13 +112,37 @@ export default function EmpleadoDetallePage() {
                 .single()
 
             if (profile) {
-                const isAdmin = profile.rol === 'Administrativo'
+                const role = (profile.rol || '').toUpperCase()
+                const isAdminOrHR =
+                    role.includes('ADMIN') ||
+                    role.includes('SISTEMAS') ||
+                    role.includes('RECURSOS HUMANOS') ||
+                    role.includes('RH')
                 // @ts-ignore
                 const deptName = profile.cat_departamentos?.departamento || (Array.isArray(profile.cat_departamentos) ? profile.cat_departamentos[0]?.departamento : '')
-                const isHR = profile.rol === 'Jefe' && deptName === 'Recursos Humanos'
-                setCanManage(isAdmin || isHR)
+                const isHRDept = canonicalizeDepartment(deptName).canonicalKey === 'RECURSOS_HUMANOS'
+                setCanManage(isAdminOrHR || isHRDept)
             }
         }
+    }
+
+    async function handleQuickInvertProfileName() {
+        if (!empleado) return
+        const swapped = invertEmployeeNameFields({
+            nombre: empleado.nombre || '',
+            apellido_paterno: empleado.apellido_paterno || '',
+            apellido_materno: empleado.apellido_materno || '',
+        })
+        if (!confirm(`¿Invertir el nombre de este trabajador a:\n\nNombre(s): ${swapped.nombre}\nApellido Paterno: ${swapped.apellido_paterno}\nApellido Materno: ${swapped.apellido_materno}?`)) return
+        const { error } = await supabase
+            .from('empleados')
+            .update({
+                nombre: swapped.nombre.toUpperCase(),
+                apellido_paterno: swapped.apellido_paterno.toUpperCase(),
+                apellido_materno: swapped.apellido_materno ? swapped.apellido_materno.toUpperCase() : null,
+            })
+            .eq('id_empleado', id)
+        if (!error) fetchEmpleado()
     }
 
     async function fetchCatalogs() {
@@ -386,32 +411,55 @@ export default function EmpleadoDetallePage() {
     const isBaja = empleado.estado_empleado === 'Baja'
 
     return (
-        <div className="max-w-7xl mx-auto relative">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center space-x-4">
-                    <Link href="/empleados" className="p-2 rounded-full hover:bg-zinc-200 transition-colors">
-                        <ArrowLeft className="h-6 w-6 text-zinc-600" />
+        <div className="max-w-7xl mx-auto relative space-y-5">
+            {/* Header Responsivo */}
+            <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                    <Link href="/empleados" className="p-2 rounded-full hover:bg-zinc-100 transition-colors shrink-0">
+                        <ArrowLeft className="h-5 w-5 text-zinc-600" />
                     </Link>
                     {empleado.foto_url ? (
-                        <img src={empleado.foto_url} alt="Foto" className="h-16 w-16 rounded-full object-cover border border-zinc-200 shadow-sm" />
+                        <img src={empleado.foto_url} alt="Foto" className="h-14 w-14 sm:h-16 sm:w-16 rounded-2xl object-cover border border-zinc-200 shadow-sm shrink-0" />
                     ) : (
-                        <div className="h-16 w-16 rounded-full bg-zinc-200 flex items-center justify-center border border-zinc-300 shadow-sm">
-                            <User className="h-8 w-8 text-zinc-500" />
+                        <div className="h-14 w-14 sm:h-16 sm:w-16 rounded-2xl bg-zinc-900 text-amber-400 flex items-center justify-center border border-zinc-700 shadow-sm shrink-0">
+                            <User className="h-7 w-7" />
                         </div>
                     )}
                     <div>
-                        <h1 className="text-2xl font-bold text-zinc-900">{empleado.nombre} {empleado.apellido_paterno}</h1>
-                        <p className="text-sm text-zinc-500">#{empleado.numero_empleado} • <span className={isBaja ? "text-red-500 font-bold" : "text-green-600"}>{empleado.estado_empleado}</span></p>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <h1 className="text-xl sm:text-2xl font-black text-zinc-900 uppercase">
+                                {empleado.nombre} {empleado.apellido_paterno} {empleado.apellido_materno || ''}
+                            </h1>
+                            <button
+                                type="button"
+                                onClick={handleQuickInvertProfileName}
+                                className="px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-amber-100 text-zinc-700 hover:text-amber-900 text-[11px] font-black flex items-center gap-1 cursor-pointer border border-zinc-200"
+                                title="Invertir Nombre <-> Apellidos si fue capturado al revés"
+                            >
+                                <ArrowLeftRight className="w-3.5 h-3.5" />
+                                <span>⇄ Invertir Nombre</span>
+                            </button>
+                        </div>
+                        <p className="text-xs sm:text-sm text-zinc-500 font-semibold mt-0.5">
+                            Ficha #{empleado.numero_empleado} •{' '}
+                            <span className="font-bold text-zinc-800">
+                                {canonicalizeDepartment(empleado.departamento).officialName}
+                            </span>{' '}
+                            •{' '}
+                            <span className={isBaja ? 'text-rose-600 font-black' : 'text-emerald-600 font-black'}>
+                                {empleado.estado_empleado}
+                            </span>
+                        </p>
                     </div>
                 </div>
-                <div className="flex items-center space-x-3">
+
+                <div className="flex flex-wrap items-center gap-2">
                     {canManage && isBaja && (
                         <button
                             onClick={() => setIsRehireModalOpen(true)}
-                            className="flex items-center px-4 py-2 bg-green-50 border border-green-200 rounded-md text-sm font-medium text-green-700 hover:bg-green-100 transition-colors shadow-sm"
+                            className="flex items-center px-3.5 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-black text-emerald-700 hover:bg-emerald-100 transition-colors cursor-pointer"
                         >
-                            <User className="w-4 h-4 mr-2" />
+                            <User className="w-4 h-4 mr-1.5" />
                             Recontratar
                         </button>
                     )}
@@ -421,21 +469,63 @@ export default function EmpleadoDetallePage() {
                             {canManage && (
                                 <button
                                     onClick={() => setIsTerminationModalOpen(true)}
-                                    className="flex items-center px-4 py-2 bg-red-50 border border-red-200 rounded-md text-sm font-medium text-red-700 hover:bg-red-100 transition-colors"
+                                    className="flex items-center px-3.5 py-2 bg-rose-50 border border-rose-200 rounded-xl text-xs font-black text-rose-700 hover:bg-rose-100 transition-colors cursor-pointer"
                                 >
-                                    <AlertTriangle className="w-4 h-4 mr-2" />
+                                    <AlertTriangle className="w-4 h-4 mr-1.5" />
                                     Dar de Baja
                                 </button>
                             )}
                             <button
                                 onClick={() => setIsEditing(true)}
-                                className="flex items-center px-4 py-2 bg-white border border-zinc-300 rounded-md text-sm font-medium text-zinc-700 hover:bg-zinc-50 shadow-sm transition-colors"
+                                className="flex items-center px-4 py-2 bg-zinc-900 text-white rounded-xl text-xs font-black hover:bg-zinc-800 shadow-sm transition-colors cursor-pointer"
                             >
-                                <Edit className="w-4 h-4 mr-2" />
+                                <Edit className="w-4 h-4 mr-1.5 text-amber-400" />
                                 Editar Perfil
                             </button>
                         </>
                     )}
+                </div>
+            </div>
+
+            {/* Barra de Conexión Directa (Pasos siguientes del trabajador: Inducción -> Campamento -> Locker -> Credencial) */}
+            <div className="bg-zinc-950 text-white p-4 rounded-2xl border border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="text-xs">
+                    <span className="text-amber-400 font-black uppercase tracking-wider block">
+                        🔗 Flujo Operativo Conectado del Trabajador
+                    </span>
+                    <span className="text-zinc-400 text-[11px]">
+                        Envía o gestiona directamente a este trabajador en los módulos operativos de la unidad:
+                    </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                        href={`/seguridad?emp=${id}`}
+                        className="px-3 py-2 rounded-xl bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/40 text-orange-300 text-xs font-black flex items-center gap-1.5"
+                    >
+                        <ShieldCheck className="w-4 h-4 text-orange-400" />
+                        <span>1. Inducción Seguridad</span>
+                    </Link>
+                    <Link
+                        href={`/campamentos?emp=${id}`}
+                        className="px-3 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-black flex items-center gap-1.5"
+                    >
+                        <Home className="w-4 h-4 text-emerald-400" />
+                        <span>2. Campamento / Cama</span>
+                    </Link>
+                    <Link
+                        href={`/lockers?emp=${id}`}
+                        className="px-3 py-2 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/40 text-blue-300 text-xs font-black flex items-center gap-1.5"
+                    >
+                        <FolderLock className="w-4 h-4 text-blue-400" />
+                        <span>3. Casillero / Locker QR</span>
+                    </Link>
+                    <Link
+                        href={`/empleados/credenciales?emp=${id}`}
+                        className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-black flex items-center gap-1.5 shadow-md"
+                    >
+                        <QrCode className="w-4 h-4" />
+                        <span>4. Imprimir Credencial QR</span>
+                    </Link>
                 </div>
             </div>
 

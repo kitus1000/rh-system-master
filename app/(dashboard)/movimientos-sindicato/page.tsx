@@ -111,7 +111,7 @@ export default function MovimientosSindicatoPage() {
   const [schemaMissing, setSchemaMissing] = useState(false)
   const [activeTab, setActiveTab] = useState<
     'convocatorias' | 'inscripciones' | 'autorizaciones' | 'ajedrez' | 'reglas' | 'simulador' | 'historial'
-  >('convocatorias')
+  >('ajedrez')
 
   const [vacantes, setVacantes] = useState<any[]>([])
   const [postulantes, setPostulantes] = useState<any[]>([])
@@ -119,9 +119,27 @@ export default function MovimientosSindicatoPage() {
   const [encargados, setEncargados] = useState<any[]>(DEFAULT_ENCARGADOS)
   const [notificaciones, setNotificaciones] = useState<any[]>([])
   const [empleadosCatalog, setEmpleadosCatalog] = useState<any[]>([])
+  const [pacientesCatalog, setPacientesCatalog] = useState<any[]>([])
   const [reglas, setReglas] = useState<any>(DEFAULT_RULES)
   const [bandejaAlertas, setBandejaAlertas] = useState<any[]>([])
   const [perfilesCatalog, setPerfilesCatalog] = useState<any[]>([])
+
+  // Estados para Drag & Drop de Personas hacia Lugares Vacíos (Vacantes Escalafón C.C.T.)
+  const [draggedWorker, setDraggedWorker] = useState<any>(null)
+  const [hoveredSlotKey, setHoveredSlotKey] = useState<string | null>(null)
+  const [dropValidationModal, setDropValidationModal] = useState<{
+    vac: any
+    slotIndex: number
+    post?: any
+    emp?: any
+    rules: any
+    isDirectFromRoster: boolean
+  } | null>(null)
+  const [rosterFilterMode, setRosterFilterMode] = useState<
+    'POSTULANTES' | 'SEMANAL_SINDICATO' | 'QUINCENAL_CONFIANZA' | 'CON_BENEFICIARIOS'
+  >('POSTULANTES')
+  const [rosterSearch, setRosterSearch] = useState('')
+  const [executingDropMove, setExecutingDropMove] = useState(false)
 
   const [selectedVacanteId, setSelectedVacanteId] = useState<string>('')
   const [savingReglas, setSavingReglas] = useState(false)
@@ -236,18 +254,21 @@ export default function MovimientosSindicatoPage() {
   const fetchAllData = async () => {
     setLoading(true)
     try {
-      // Cargar catálogo de empleados para autocompletar en inscripción
-      const empRes = await supabase
-        .from('empleados')
-        .select(`
-          *,
-          empleado_adscripciones (
-            cat_departamentos (id_departamento, departamento),
-            cat_puestos (puesto)
-          )
-        `)
-        .order('nombre')
+      const [empRes, pacRes] = await Promise.all([
+        supabase
+          .from('empleados')
+          .select(`
+            *,
+            empleado_adscripciones (
+              cat_departamentos (id_departamento, departamento),
+              cat_puestos (puesto)
+            )
+          `)
+          .order('nombre'),
+        supabase.from('pacientes').select('id_paciente, id_empleado, nombre_completo, parentesco').order('nombre_completo'),
+      ])
       if (empRes.data) setEmpleadosCatalog(empRes.data)
+      if (pacRes.data) setPacientesCatalog(pacRes.data)
 
       const { data: vacData, error: vacErr } = await supabase
         .from('movimientos_vacantes')
@@ -1112,6 +1133,242 @@ export default function MovimientosSindicatoPage() {
     await fetchAllData()
   }
 
+  // ==========================================================================
+  // CLASIFICADOR DE NÓMINA SEMANAL (SINDICATO SECC. 45) VS QUINCENAL (CONFIANZA)
+  // Y CONEXIÓN CON BENEFICIARIOS (CLÍNICA MÉDICA)
+  // ==========================================================================
+  const classifyWorkerRegimen = (puestoRaw?: string | null, deptoRaw?: string | null) => {
+    const p = `${puestoRaw || ''} ${deptoRaw || ''}`.toUpperCase()
+    const isQuincenal =
+      p.includes('SUPERINTENDENTE') ||
+      p.includes('JEFE') ||
+      p.includes('SUPERVISOR') ||
+      p.includes('GERENTE') ||
+      p.includes('INGENIERO') ||
+      p.includes('CONTADOR') ||
+      p.includes('RECURSOS HUMANOS') ||
+      p.includes('ADMINISTRATIV') ||
+      p.includes('MEDICO') ||
+      p.includes('MÉDICO') ||
+      p.includes('SISTEMAS') ||
+      p.includes('COORDINADOR')
+    return isQuincenal
+      ? {
+          code: 'QUINCENAL_CONFIANZA' as const,
+          label: '📆 Quincenal · Confianza',
+          badgeClass: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+        }
+      : {
+          code: 'SEMANAL_SINDICATO' as const,
+          label: '🗓️ Semanal · Sindicato Secc. 45',
+          badgeClass: 'bg-amber-100 text-amber-950 border-amber-300',
+        }
+  }
+
+  const beneficiariosByEmpId = useMemo(() => {
+    const map = new Map<string, any[]>()
+    pacientesCatalog.forEach((pac) => {
+      if (!pac.id_empleado) return
+      const key = String(pac.id_empleado)
+      const list = map.get(key) || []
+      list.push(pac)
+      map.set(key, list)
+    })
+    return map
+  }, [pacientesCatalog])
+
+  const getWorkerBeneficiarios = (idEmpleado?: string | null) => {
+    if (!idEmpleado) return []
+    return beneficiariosByEmpId.get(String(idEmpleado)) || []
+  }
+
+  // Handler cuando el usuario ARRASTRA a un trabajador y lo SUELTA en un Lugar Vacío (Drop Zone)
+  const handleDropWorkerOnSlot = async (vac: any, slotIndex: number, isOccupiedSlot: boolean, customDragged?: any) => {
+    const item = customDragged || draggedWorker
+    setHoveredSlotKey(null)
+    setDraggedWorker(null)
+    if (!item || !vac) return
+
+    if (isOccupiedSlot) {
+      alert(
+        `🛑 LUGAR OCUPADO (REGLA RH / ART. 116 C.C.T.):\n\nNo puedes colocar a "${item.displayName}" en la Plaza #${slotIndex + 1} de ${vac.puesto_vacante} porque ya está ocupada.\n\nArrástralo a un LUGAR VACÍO disponible o libera primero la plaza.`
+      )
+      return
+    }
+
+    // Verificar si ya está inscrito como postulante en esta vacante
+    const existingPost = postulantes.find(
+      (p) =>
+        p.id_vacante === vac.id_vacante &&
+        ((item.id_empleado && String(p.id_empleado) === String(item.id_empleado)) ||
+          (p.nombre_completo || '').trim().toUpperCase() === (item.displayName || '').trim().toUpperCase())
+    )
+
+    if (existingPost) {
+      const rules = evaluateChessRules(existingPost, vac)
+      if (rules.canMove) {
+        await handleExecuteChessMove(existingPost)
+      } else {
+        setDropValidationModal({
+          vac,
+          slotIndex,
+          post: existingPost,
+          rules,
+          isDirectFromRoster: false,
+        })
+      }
+      return
+    }
+
+    // Si fue arrastrado directo desde el Padrón (Semanal / Quincenal) hacia el lugar vacío:
+    const syntheticPost = {
+      id_vacante: vac.id_vacante,
+      id_empleado: item.id_empleado || null,
+      nombre_completo: item.displayName,
+      numero_empleado: item.numero_empleado || '',
+      departamento_actual: item.deptoActual || 'Planta de Beneficio',
+      sub_departamento_actual: item.deptoActual || 'General',
+      puesto_actual: item.puestoActual || 'Operativo General',
+      puesto_postulado: vac.puesto_vacante,
+      anos_antiguedad: item.anos_antiguedad || 2.5,
+      autorizado_rh_local: false,
+      autorizado_rh_corporativo: false,
+      seleccionado_por_destino: false,
+      fecha_presentacion: new Date().toISOString().split('T')[0],
+      respuesta_depto_origen: 'Pendiente de Respuesta',
+    }
+    const rules = evaluateChessRules(syntheticPost, vac)
+    setDropValidationModal({
+      vac,
+      slotIndex,
+      post: syntheticPost,
+      emp: item.emp,
+      rules,
+      isDirectFromRoster: true,
+    })
+  }
+
+  // Opción 1 en Modal de Drop: Inscribir formalmente en la vacante y enviar a flujo de firmas
+  const handleEnrollFromDropModal = async () => {
+    if (!dropValidationModal) return
+    setExecutingDropMove(true)
+    try {
+      const { vac, post } = dropValidationModal
+      const encOrigen = resolveEncargadoForDept(post.departamento_actual, post.sub_departamento_actual)
+      const todayStr = new Date().toISOString().split('T')[0]
+
+      const { error } = await supabase.from('movimientos_postulantes').insert([
+        {
+          id_vacante: vac.id_vacante,
+          id_empleado: post.id_empleado || null,
+          nombre_completo: post.nombre_completo,
+          numero_empleado: post.numero_empleado || '',
+          fecha_inscripcion: todayStr,
+          departamento_actual: post.departamento_actual,
+          sub_departamento_actual: post.sub_departamento_actual,
+          puesto_actual: post.puesto_actual,
+          puesto_postulado: vac.puesto_vacante,
+          anos_antiguedad: Number(post.anos_antiguedad || 2),
+          tiene_anos_experiencia: true,
+          tiene_experiencia_puesto: true,
+          requiere_capacitacion_previa: false,
+          encargado_origen_nombre: encOrigen.nombre_encargado,
+          encargado_origen_correo: encOrigen.correo_encargado,
+          respuesta_depto_origen: 'Pendiente de Respuesta',
+          estatus_movimiento: 'Inscrito en Convocatoria',
+        },
+      ])
+      if (error) throw error
+
+      setDropValidationModal(null)
+      setSelectedVacanteId(vac.id_vacante)
+      await fetchAllData()
+      alert(
+        `✅ "${post.nombre_completo}" quedó inscrito en la vacante "${vac.puesto_vacante}" y se solicitaron los permisos necesarios de RH y Jefatura.`
+      )
+    } catch (e: any) {
+      alert('Error inscribiendo trabajador: ' + e.message)
+    } finally {
+      setExecutingDropMove(false)
+    }
+  }
+
+  // Opción 2 en Modal de Drop: Otorgar permisos faltantes (Autorización Ejecutiva RH) y colocar en el lugar vacío inmediatamente
+  const handleFastTrackAuthorizeAndPlace = async () => {
+    if (!dropValidationModal) return
+    setExecutingDropMove(true)
+    try {
+      const { vac, post, isDirectFromRoster } = dropValidationModal
+      const todayStr = new Date().toISOString().split('T')[0]
+      const encOrigen = resolveEncargadoForDept(post.departamento_actual, post.sub_departamento_actual)
+
+      let targetPost = post
+
+      if (isDirectFromRoster || !post.id_postulacion) {
+        const { data: inserted, error: insErr } = await supabase
+          .from('movimientos_postulantes')
+          .insert([
+            {
+              id_vacante: vac.id_vacante,
+              id_empleado: post.id_empleado || null,
+              nombre_completo: post.nombre_completo,
+              numero_empleado: post.numero_empleado || '',
+              fecha_inscripcion: todayStr,
+              departamento_actual: post.departamento_actual,
+              sub_departamento_actual: post.sub_departamento_actual,
+              puesto_actual: post.puesto_actual,
+              puesto_postulado: vac.puesto_vacante,
+              anos_antiguedad: Number(post.anos_antiguedad || 2),
+              tiene_anos_experiencia: true,
+              tiene_experiencia_puesto: true,
+              requiere_capacitacion_previa: false,
+              encargado_origen_nombre: encOrigen.nombre_encargado,
+              encargado_origen_correo: encOrigen.correo_encargado,
+              autorizado_rh_local: true,
+              autorizado_rh_local_por: actorName,
+              autorizado_rh_corporativo: true,
+              autorizado_rh_corporativo_por: actorName,
+              seleccionado_por_destino: true,
+              seleccionado_por_usuario: actorName,
+              fecha_presentacion: todayStr,
+              respuesta_depto_origen: 'Autorizado (Sí)',
+              estatus_movimiento: 'Autorizado para Movimiento',
+            },
+          ])
+          .select()
+          .single()
+        if (insErr) throw insErr
+        targetPost = inserted
+      } else {
+        const { data: updated, error: updErr } = await supabase
+          .from('movimientos_postulantes')
+          .update({
+            autorizado_rh_local: true,
+            autorizado_rh_local_por: actorName,
+            autorizado_rh_corporativo: true,
+            autorizado_rh_corporativo_por: actorName,
+            seleccionado_por_destino: true,
+            seleccionado_por_usuario: actorName,
+            fecha_presentacion: post.fecha_presentacion || todayStr,
+            respuesta_depto_origen: 'Autorizado (Sí)',
+            estatus_movimiento: 'Autorizado para Movimiento',
+          })
+          .eq('id_postulacion', post.id_postulacion)
+          .select()
+          .single()
+        if (updErr) throw updErr
+        targetPost = updated
+      }
+
+      setDropValidationModal(null)
+      await handleExecuteChessMove(targetPost)
+    } catch (e: any) {
+      alert('Error al autorizar y colocar en lugar vacío: ' + e.message)
+    } finally {
+      setExecutingDropMove(false)
+    }
+  }
+
   // 8. GUARDAR CALIFICACIÓN Y DÍAS DE ESTANCIA DEL DEPARTAMENTO ASIGNADO
   const handleSaveEvaluation = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1228,13 +1485,13 @@ export default function MovimientosSindicatoPage() {
           </div>
           <div>
             <span className="text-[10px] font-mono font-black uppercase tracking-widest text-amber-400">
-              Sindicato • RH Unidad • RH Corporativo • Departamentos y Sub-departamentos
+              Sindicato Secc. 45 • Nómina Semanal y Quincenal • Beneficiarios • Reglas RH &amp; Art. 116 C.C.T.
             </span>
             <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tight">
-              Centro Maestro de Vacantes, Escalafón y Ajedrez de Movimientos
+              Centro Maestro de Escalafón, Vacantes y Movimientos (Arrastrar a Lugar Vacío)
             </h1>
             <p className="text-xs text-zinc-400 mt-1">
-              Convocatorias de 10 días, inscripción de postulantes, plan de avance, correos automáticos a encargados multi-subdepartamento, tablero de ajedrez con reglas e historial con calificación.
+              Arrastra a cualquier trabajador del escalafón y colócalo en un lugar vacío disponible, validando permisos de RH, Departamentos y liberación automática de plaza en cadena.
             </p>
           </div>
         </div>
@@ -1484,11 +1741,11 @@ export default function MovimientosSindicatoPage() {
       {/* BARRA DE 7 PESTAÑAS */}
       <div className="flex flex-wrap gap-2 bg-white p-2 rounded-2xl border border-zinc-200 shadow-sm">
         {[
-          { id: 'convocatorias', label: `1. Convocatorias (${vacantes.length})`, icon: FileText },
-          { id: 'inscripciones', label: `2. Inscripción (${postulantes.length})`, icon: Users },
-          { id: 'autorizaciones', label: '3. Autorizaciones por Usuario', icon: Mail },
-          { id: 'ajedrez', label: '4. ♟️ Tablero Ajedrez', icon: Layers },
-          { id: 'reglas', label: '5. ⚙️ Reglas y Autorizadores', icon: Settings },
+          { id: 'ajedrez', label: '1. 🔀 Mover Personal (Arrastrar a Lugar Vacío)', icon: Layers },
+          { id: 'convocatorias', label: `2. Convocatorias (${vacantes.length})`, icon: FileText },
+          { id: 'inscripciones', label: `3. Escalafón Inscritos (${postulantes.length})`, icon: Users },
+          { id: 'autorizaciones', label: '4. Permisos y Firmas RH / Jefes', icon: Mail },
+          { id: 'reglas', label: '5. ⚙️ Reglas C.C.T. y Autorizadores', icon: Settings },
           { id: 'simulador', label: '6. 🧪 Simulador y Reporte', icon: Sliders },
           { id: 'historial', label: `7. Historial y Encargados (${historial.length})`, icon: Award },
         ].map((t) => {
@@ -1499,7 +1756,7 @@ export default function MovimientosSindicatoPage() {
               key={t.id}
               type="button"
               onClick={() => setActiveTab(t.id as any)}
-              className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black transition-all ${
+              className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                 active ? 'bg-zinc-900 text-white shadow' : 'text-zinc-600 hover:bg-zinc-100'
               }`}
             >
@@ -2158,202 +2415,821 @@ export default function MovimientosSindicatoPage() {
       )}
 
       {/* =====================================================================
-          PESTAÑA 4: TABLERO DE AJEDREZ DE MOVIMIENTOS (CON REGLAS ESTRICTAS)
+          PESTAÑA 1 (PRINCIPAL): TABLERO INTERACTIVO DRAG & DROP DE ESCALAFÓN Y LUGARES VACÍOS
+          (ARRASTRAR AL TRABAJADOR Y SOLTARLO EN EL LUGAR VACÍO CON REGLAS RH Y C.C.T.)
          ===================================================================== */}
       {activeTab === 'ajedrez' && (
-        <div className="space-y-6">
-          {/* Banner de Reglas del Tablero de Ajedrez */}
-          <div className="bg-zinc-900 text-white rounded-2xl p-5 border border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-amber-400 font-black text-xs uppercase">
-                <Sparkles className="w-4 h-4" />
-                <span>Motor de Reglas del Tablero de Ajedrez Minero</span>
+        <div className="space-y-6 animate-in fade-in duration-300">
+          {/* Banner Superior de Instrucciones de Arrastrar y Soltar con Reglas RH & Art. 116 C.C.T. */}
+          <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 text-white rounded-3xl p-5 sm:p-6 border border-amber-500/30 shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-black text-[10px] uppercase tracking-wider">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Tablero Interactivo de Escalafón, Vacantes y Permisos RH (Art. 116 C.C.T.)</span>
               </div>
-              <p className="text-xs text-zinc-300">
-                Ninguna pieza (trabajador) puede moverse si: <strong>1) No hay vacante libre</strong>,{' '}
-                <strong>2) Falta autorización de RH/Corporativo</strong>, <strong>3) Falta plan y fecha del área destino</strong>, o{' '}
-                <strong>4) El Encargado de su departamento de origen no ha autorizado su salida (SÍ)</strong>. Al mover una pieza, su puesto anterior se libera automáticamente (Efecto Dominó).
+              <h2 className="text-lg sm:text-xl font-black tracking-tight text-white">
+                Arrastra al Trabajador de la Izquierda y Colócalo en un Lugar Vacío (Derecha)
+              </h2>
+              <p className="text-xs text-zinc-300 max-w-4xl leading-relaxed">
+                Cada movimiento valida en tiempo real las <strong>4 Reglas Oficiales de RH y C.C.T.</strong>:{' '}
+                <span className="text-amber-300 font-bold">1) Que exista el lugar vacío (vacante libre)</span>,{' '}
+                <span className="text-amber-300 font-bold">2) Autorización de RH Unidad y Corporativo</span>,{' '}
+                <span className="text-amber-300 font-bold">3) Plan y fecha del Departamento de la vacante</span>, y{' '}
+                <span className="text-amber-300 font-bold">4) Permiso de liberación de su Jefe actual</span>. Al colocar a una persona en un lugar vacío, su puesto anterior se libera automáticamente como nueva vacante.
               </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowVacanteModal(true)}
+                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs rounded-xl shadow-lg flex items-center gap-1.5 cursor-pointer transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Abrir Nuevo Lugar Vacío (Vacante)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowInscribirModal(true)}
+                className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-black text-xs rounded-xl border border-zinc-700 flex items-center gap-1.5 cursor-pointer transition-all"
+              >
+                <Users className="w-4 h-4 text-amber-400" />
+                <span>+ Inscribir Trabajador</span>
+              </button>
             </div>
           </div>
 
-          {/* Casillas de Vacantes del Tablero */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {vacantes.map((v) => {
-              const libres = Math.max(0, (v.plazas_totales || 1) - (v.plazas_ocupadas || 0))
-              return (
-                <div
-                  key={v.id_vacante}
-                  onClick={() => setSelectedVacanteId(v.id_vacante)}
-                  className={`cursor-pointer p-4 rounded-2xl border-2 transition-all ${
-                    selectedVacanteId === v.id_vacante
-                      ? 'border-amber-500 bg-amber-50/40'
-                      : 'border-zinc-200 bg-white hover:border-zinc-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[10px] font-black bg-zinc-900 text-amber-400 px-2 py-0.5 rounded">
-                      {v.folio_convocatoria}
-                    </span>
-                    <span
-                      className={`text-[10px] font-black px-2 py-0.5 rounded ${
-                        libres > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                      }`}
-                    >
-                      {libres > 0 ? `🟢 ${libres} Plaza(s) Libre(s)` : '🛑 Sin Vacante Libre (0)'}
-                    </span>
+          {/* ÁREA PRINCIPAL DIVIDIDA EN 2 COLUMNAS: PERSONAL ARRASTRABLE (IZQ) -> LUGARES VACÍOS POR DEPARTAMENTO (DER) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* ===============================================================
+                COLUMNA IZQUIERDA (5 COLS): TRABAJADORES PARA ARRASTRAR
+                (CONECTADO CON SEMANALES / SINDICATO, QUINCENALES Y BENEFICIARIOS)
+               =============================================================== */}
+            <div className="lg:col-span-5 bg-white rounded-3xl border border-zinc-200 shadow-sm p-4 sm:p-5 space-y-4">
+              <div className="border-b border-zinc-100 pb-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-600">
+                    PASO 1 • SELECCIONA O ARRASTRA AL TRABAJADOR
+                  </span>
+                  <span className="text-[10px] font-mono font-bold text-zinc-400">
+                    ✋ Arrastrable (Drag &amp; Drop)
+                  </span>
+                </div>
+                <h3 className="text-sm font-black text-zinc-900 uppercase">
+                  Padrón de Escalafón: Semanales, Quincenales y Beneficiarios
+                </h3>
+
+                {/* Píldoras de Filtro: Postulantes | Semanales (Sindicato) | Quincenales (Confianza) | Con Beneficiarios */}
+                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setRosterFilterMode('POSTULANTES')}
+                    className={`px-2.5 py-2 rounded-xl text-[11px] font-black text-left transition-all cursor-pointer border ${
+                      rosterFilterMode === 'POSTULANTES'
+                        ? 'bg-zinc-900 text-white border-zinc-900 shadow-xs'
+                        : 'bg-zinc-50 text-zinc-700 border-zinc-200 hover:bg-zinc-100'
+                    }`}
+                  >
+                    📋 Postulados a Vacante ({currentPostulantes.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRosterFilterMode('SEMANAL_SINDICATO')}
+                    className={`px-2.5 py-2 rounded-xl text-[11px] font-black text-left transition-all cursor-pointer border ${
+                      rosterFilterMode === 'SEMANAL_SINDICATO'
+                        ? 'bg-amber-500 text-zinc-950 border-amber-500 shadow-xs'
+                        : 'bg-amber-50/60 text-amber-950 border-amber-200 hover:bg-amber-100/70'
+                    }`}
+                  >
+                    🗓️ Semanales · Sindicato Secc. 45
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRosterFilterMode('QUINCENAL_CONFIANZA')}
+                    className={`px-2.5 py-2 rounded-xl text-[11px] font-black text-left transition-all cursor-pointer border ${
+                      rosterFilterMode === 'QUINCENAL_CONFIANZA'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                        : 'bg-indigo-50/60 text-indigo-950 border-indigo-200 hover:bg-indigo-100/70'
+                    }`}
+                  >
+                    📆 Quincenales · Confianza
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRosterFilterMode('CON_BENEFICIARIOS')}
+                    className={`px-2.5 py-2 rounded-xl text-[11px] font-black text-left transition-all cursor-pointer border ${
+                      rosterFilterMode === 'CON_BENEFICIARIOS'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-emerald-50/60 text-emerald-950 border-emerald-200 hover:bg-emerald-100/70'
+                    }`}
+                  >
+                    👨‍👩‍👧‍👦 Con Beneficiarios ({beneficiariosByEmpId.size})
+                  </button>
+                </div>
+
+                {/* Buscador Rápido */}
+                <div className="pt-1">
+                  <input
+                    type="text"
+                    value={rosterSearch}
+                    onChange={(e) => setRosterSearch(e.target.value)}
+                    placeholder="Buscar por nombre, puesto, departamento o ficha..."
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-300 text-xs font-bold"
+                  />
+                </div>
+              </div>
+
+              {/* LISTA DE TARJETAS ARRASTRABLES DE TRABAJADORES */}
+              <div className="space-y-3 max-h-[680px] overflow-y-auto pr-1 custom-scrollbar">
+                {rosterFilterMode === 'POSTULANTES' ? (
+                  currentPostulantes
+                    .filter((p) => {
+                      if (!rosterSearch.trim()) return true
+                      const q = rosterSearch.toLowerCase()
+                      return (
+                        (p.nombre_completo || '').toLowerCase().includes(q) ||
+                        (p.puesto_actual || '').toLowerCase().includes(q) ||
+                        (p.departamento_actual || '').toLowerCase().includes(q)
+                      )
+                    })
+                    .map((post, idx) => {
+                      const rules = evaluateChessRules(post, currentVacante)
+                      const alreadyMoved = post.estatus_movimiento === 'Movimiento Ejecutado (En Puesto)'
+                      const regimen = classifyWorkerRegimen(post.puesto_actual, post.departamento_actual)
+                      const beneficiarios = getWorkerBeneficiarios(post.id_empleado)
+
+                      const dragPayload = {
+                        type: 'POSTULANTE',
+                        id_postulacion: post.id_postulacion,
+                        id_empleado: post.id_empleado,
+                        displayName: post.nombre_completo,
+                        numero_empleado: post.numero_empleado,
+                        puestoActual: post.puesto_actual,
+                        deptoActual: post.departamento_actual,
+                        anos_antiguedad: post.anos_antiguedad,
+                        post,
+                      }
+
+                      return (
+                        <div
+                          key={post.id_postulacion}
+                          draggable={!alreadyMoved}
+                          onDragStart={(e) => {
+                            setDraggedWorker(dragPayload)
+                            e.dataTransfer.setData('text/plain', JSON.stringify({ id: post.id_postulacion }))
+                          }}
+                          onDragEnd={() => {
+                            setDraggedWorker(null)
+                            setHoveredSlotKey(null)
+                          }}
+                          className={`card-interactive rounded-2xl border-2 p-4 space-y-3 transition-all select-none ${
+                            alreadyMoved
+                              ? 'border-blue-300 bg-blue-50/30 opacity-85'
+                              : rules.canMove
+                              ? 'border-emerald-400 bg-white cursor-grab active:cursor-grabbing shadow-sm'
+                              : 'border-amber-300 bg-white cursor-grab active:cursor-grabbing shadow-xs'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2.5">
+                              <span className="w-7 h-7 rounded-xl bg-zinc-900 text-amber-400 font-mono font-black text-xs flex items-center justify-center shrink-0">
+                                #{idx + 1}
+                              </span>
+                              <div>
+                                <div className="font-black text-sm text-zinc-900 uppercase leading-tight">
+                                  {post.nombre_completo}
+                                </div>
+                                <div className="text-[11px] font-bold text-zinc-500">
+                                  {post.puesto_actual} • <strong>{post.departamento_actual}</strong>
+                                </div>
+                              </div>
+                            </div>
+
+                            <span
+                              className={`text-[10px] font-black uppercase px-2 py-1 rounded-lg border shrink-0 ${
+                                alreadyMoved
+                                  ? 'bg-blue-100 text-blue-900 border-blue-300'
+                                  : rules.canMove
+                                  ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                  : 'bg-amber-100 text-amber-900 border-amber-300'
+                              }`}
+                            >
+                              {alreadyMoved
+                                ? '✅ Colocado en Vacante'
+                                : rules.canMove
+                                ? '🟢 4/4 Permisos OK'
+                                : '⏳ Pendiente Permisos'}
+                            </span>
+                          </div>
+
+                          {/* Píldoras de Régimen (Semanal / Quincenal), Antigüedad y Beneficiarios */}
+                          <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                            <span className={`px-2 py-0.5 rounded-md font-black border ${regimen.badgeClass}`}>
+                              {regimen.label}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md font-black bg-zinc-100 text-zinc-800 border border-zinc-200">
+                              ⏱️ Escalafón: {post.anos_antiguedad} años
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-md font-black border ${
+                                beneficiarios.length > 0
+                                  ? 'bg-rose-50 text-rose-900 border-rose-200'
+                                  : 'bg-zinc-50 text-zinc-400 border-zinc-200'
+                              }`}
+                            >
+                              👨‍👩‍👧‍👦 {beneficiarios.length} Beneficiario(s)
+                            </span>
+                          </div>
+
+                          {beneficiarios.length > 0 && (
+                            <div className="text-[10px] bg-rose-50/60 border border-rose-200/80 rounded-xl px-2.5 py-1.5 text-rose-950 font-semibold">
+                              <strong className="uppercase text-[9px] text-rose-700 block">
+                                Familiares / Beneficiarios Registrados:
+                              </strong>
+                              {beneficiarios
+                                .map((b) => `${b.nombre_completo} (${b.parentesco || 'Familiar'})`)
+                                .join(' • ')}
+                            </div>
+                          )}
+
+                          {/* Semáforo Compacto de los 4 Permisos RH / C.C.T. */}
+                          <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                            <div
+                              className={`px-2 py-1 rounded-lg border font-bold flex items-center gap-1 ${
+                                rules.rule1VacanteLibre
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                  : 'bg-rose-50 border-rose-200 text-rose-800'
+                              }`}
+                            >
+                              {rules.rule1VacanteLibre ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                              <span>1. Lugar Vacío ({rules.plazasLibres})</span>
+                            </div>
+                            <div
+                              className={`px-2 py-1 rounded-lg border font-bold flex items-center gap-1 ${
+                                rules.rule2RHApproved
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                  : 'bg-rose-50 border-rose-200 text-rose-800'
+                              }`}
+                            >
+                              {rules.rule2RHApproved ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                              <span>2. Permiso RH</span>
+                            </div>
+                            <div
+                              className={`px-2 py-1 rounded-lg border font-bold flex items-center gap-1 ${
+                                rules.rule3DestinoPlan
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                  : 'bg-rose-50 border-rose-200 text-rose-800'
+                              }`}
+                            >
+                              {rules.rule3DestinoPlan ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                              <span>3. Plan Destino</span>
+                            </div>
+                            <div
+                              className={`px-2 py-1 rounded-lg border font-bold flex items-center gap-1 ${
+                                rules.rule4OrigenLiberado
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                  : 'bg-rose-50 border-rose-200 text-rose-800'
+                              }`}
+                            >
+                              {rules.rule4OrigenLiberado ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                              <span>4. Salida Origen</span>
+                            </div>
+                          </div>
+
+                          {!alreadyMoved && (
+                            <div className="pt-1 flex items-center justify-between gap-2 border-t border-zinc-100">
+                              <span className="text-[10px] font-bold text-amber-700">
+                                ⠿ Arrástralo a un lugar vacío a la derecha
+                              </span>
+                              {currentVacante && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleDropWorkerOnSlot(
+                                      currentVacante,
+                                      currentVacante.plazas_ocupadas || 0,
+                                      (currentVacante.plazas_ocupadas || 0) >= (currentVacante.plazas_totales || 1),
+                                      dragPayload
+                                    )
+                                  }
+                                  className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-400 font-black text-[10px] cursor-pointer"
+                                >
+                                  Colocar en Lugar Vacío &rarr;
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })
+                ) : (
+                  /* MODO PADRÓN GENERAL: SEMANALES (SINDICATO), QUINCENALES (CONFIANZA) O CON BENEFICIARIOS */
+                  empleadosCatalog
+                    .filter((emp) => {
+                      const fullName = `${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.trim()
+                      const depto =
+                        emp.empleado_adscripciones?.[0]?.cat_departamentos?.departamento ||
+                        emp.departamento ||
+                        'General'
+                      const puesto =
+                        emp.empleado_adscripciones?.[0]?.cat_puestos?.puesto || emp.puesto || 'Operativo'
+                      const regimen = classifyWorkerRegimen(puesto, depto)
+                      const bens = getWorkerBeneficiarios(emp.id_empleado)
+
+                      if (rosterFilterMode === 'SEMANAL_SINDICATO' && regimen.code !== 'SEMANAL_SINDICATO') {
+                        return false
+                      }
+                      if (rosterFilterMode === 'QUINCENAL_CONFIANZA' && regimen.code !== 'QUINCENAL_CONFIANZA') {
+                        return false
+                      }
+                      if (rosterFilterMode === 'CON_BENEFICIARIOS' && bens.length === 0) {
+                        return false
+                      }
+
+                      if (!rosterSearch.trim()) return true
+                      const q = rosterSearch.toLowerCase()
+                      return (
+                        fullName.toLowerCase().includes(q) ||
+                        puesto.toLowerCase().includes(q) ||
+                        depto.toLowerCase().includes(q) ||
+                        String(emp.numero_empleado || '').includes(q)
+                      )
+                    })
+                    .slice(0, 50)
+                    .map((emp) => {
+                      const fullName = `${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.trim()
+                      const depto =
+                        emp.empleado_adscripciones?.[0]?.cat_departamentos?.departamento ||
+                        emp.departamento ||
+                        'Operación General'
+                      const puesto =
+                        emp.empleado_adscripciones?.[0]?.cat_puestos?.puesto || emp.puesto || 'Operativo'
+                      const regimen = classifyWorkerRegimen(puesto, depto)
+                      const beneficiarios = getWorkerBeneficiarios(emp.id_empleado)
+
+                      const dragPayload = {
+                        type: 'EMPLEADO',
+                        id_empleado: emp.id_empleado,
+                        displayName: fullName,
+                        numero_empleado: emp.numero_empleado,
+                        puestoActual: puesto,
+                        deptoActual: depto,
+                        anos_antiguedad: 3.0,
+                        emp,
+                      }
+
+                      return (
+                        <div
+                          key={emp.id_empleado}
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggedWorker(dragPayload)
+                            e.dataTransfer.setData('text/plain', JSON.stringify({ id: emp.id_empleado }))
+                          }}
+                          onDragEnd={() => {
+                            setDraggedWorker(null)
+                            setHoveredSlotKey(null)
+                          }}
+                          className="card-interactive rounded-2xl border-2 border-zinc-200 hover:border-amber-400 bg-white p-3.5 space-y-2.5 cursor-grab active:cursor-grabbing select-none"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="font-black text-xs text-zinc-900 uppercase">
+                                #{emp.numero_empleado || 'S/N'} — {fullName}
+                              </div>
+                              <div className="text-[11px] font-bold text-zinc-500">
+                                {puesto} • <strong>{depto}</strong>
+                              </div>
+                            </div>
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-md border shrink-0 ${regimen.badgeClass}`}>
+                              {regimen.label}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-[10px]">
+                            <span
+                              className={`px-2 py-0.5 rounded-md font-bold border ${
+                                beneficiarios.length > 0
+                                  ? 'bg-rose-50 text-rose-900 border-rose-200'
+                                  : 'bg-zinc-50 text-zinc-400 border-zinc-200'
+                              }`}
+                            >
+                              👨‍👩‍👧‍👦 {beneficiarios.length} Beneficiario(s)
+                              {beneficiarios.length > 0
+                                ? `: ${beneficiarios
+                                    .slice(0, 2)
+                                    .map((b) => b.nombre_completo)
+                                    .join(', ')}`
+                                : ''}
+                            </span>
+
+                            {currentVacante && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleDropWorkerOnSlot(
+                                    currentVacante,
+                                    currentVacante.plazas_ocupadas || 0,
+                                    (currentVacante.plazas_ocupadas || 0) >= (currentVacante.plazas_totales || 1),
+                                    dragPayload
+                                  )
+                                }
+                                className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-[10px] cursor-pointer"
+                              >
+                                Colocar en Lugar Vacío &rarr;
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })
+                )}
+
+                {rosterFilterMode === 'POSTULANTES' && currentPostulantes.length === 0 && (
+                  <div className="p-6 text-center bg-zinc-50 rounded-2xl border border-dashed border-zinc-300 space-y-2">
+                    <p className="text-xs font-bold text-zinc-600">
+                      Aún no hay postulantes inscritos en esta vacante.
+                    </p>
+                    <p className="text-[11px] text-zinc-500">
+                      Puedes cambiar arriba al filtro <strong>&quot;🗓️ Semanales · Sindicato Secc. 45&quot;</strong> o{' '}
+                      <strong>&quot;📆 Quincenales&quot;</strong> para arrastrar directamente a cualquier trabajador del padrón hacia el lugar vacío.
+                    </p>
                   </div>
-                  <p className="font-black text-sm text-zinc-900 mt-2 uppercase">{v.puesto_vacante}</p>
-                  <p className="text-xs text-zinc-500">
-                    {v.departamento_destino} {v.sub_departamento_destino ? `• ${v.sub_departamento_destino}` : ''}
-                  </p>
-                  {libres === 0 && (
+                )}
+              </div>
+            </div>
+
+            {/* ===============================================================
+                COLUMNA DERECHA (7 COLS): LUGARES VACÍOS Y PLAZAS DE VACANTES
+                (ZONAS DE DESTINO PARA SOLTAR AL TRABAJADOR ARRASTRADO)
+               =============================================================== */}
+            <div className="lg:col-span-7 space-y-4">
+              <div className="bg-white rounded-3xl border border-zinc-200 shadow-sm p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-100 pb-3">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600">
+                      PASO 2 • SUELTA AL TRABAJADOR EN UN LUGAR VACÍO DISPONIBLE
+                    </span>
+                    <h3 className="text-base font-black text-zinc-900 uppercase">
+                      Mapa de Departamentos, Plazas y Lugares Vacíos ({vacantes.length} Convocatorias)
+                    </h3>
+                  </div>
+
+                  {draggedWorker && (
+                    <span className="px-3 py-1.5 rounded-xl bg-amber-500 text-zinc-950 font-black text-xs animate-pulse">
+                      ✋ Arrastrando a: {draggedWorker.displayName}
+                    </span>
+                  )}
+                </div>
+
+                {vacantes.length === 0 ? (
+                  <div className="p-10 text-center border-2 border-dashed border-zinc-300 rounded-2xl space-y-3">
+                    <HardHat className="w-10 h-10 text-amber-500 mx-auto" />
+                    <h4 className="text-sm font-black text-zinc-900 uppercase">
+                      No hay lugares vacíos (vacantes) abiertos en este momento
+                    </h4>
+                    <p className="text-xs text-zinc-500 max-w-md mx-auto">
+                      Por regla de Recursos Humanos y Escalafón C.C.T., para mover a un trabajador primero debe existir una vacante libre.
+                    </p>
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleLiberarPlazaVacante(v)
-                      }}
-                      className="mt-2 w-full py-1.5 bg-zinc-900 text-amber-400 text-[10px] font-black rounded-lg"
+                      onClick={() => setShowVacanteModal(true)}
+                      className="px-5 py-2.5 bg-amber-500 text-zinc-950 font-black text-xs rounded-xl"
                     >
-                      🔓 Liberar 1 Plaza en esta Casilla
+                      + Abrir Primer Lugar Vacío (Vacante)
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {vacantes.map((vac) => {
+                      const totalSlots = Math.max(1, Number(vac.plazas_totales || 1))
+                      const occupiedCount = Math.min(totalSlots, Number(vac.plazas_ocupadas || 0))
+                      const freeCount = Math.max(0, totalSlots - occupiedCount)
+                      const isSelectedVac = selectedVacanteId === vac.id_vacante
+
+                      // Encontrar quiénes ya ocuparon plazas en esta vacante
+                      const placedWorkers = postulantes.filter(
+                        (p) =>
+                          p.id_vacante === vac.id_vacante &&
+                          p.estatus_movimiento === 'Movimiento Ejecutado (En Puesto)'
+                      )
+
+                      return (
+                        <div
+                          key={vac.id_vacante}
+                          onClick={() => setSelectedVacanteId(vac.id_vacante)}
+                          className={`rounded-3xl border-2 p-5 transition-all space-y-4 ${
+                            isSelectedVac
+                              ? 'border-amber-500 bg-amber-50/20 shadow-md'
+                              : 'border-zinc-200 bg-white hover:border-zinc-300'
+                          }`}
+                        >
+                          {/* Cabecera del Departamento y Categoría de la Vacante */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-[10px] font-black bg-zinc-900 text-amber-400 px-2.5 py-0.5 rounded-md">
+                                  {vac.folio_convocatoria}
+                                </span>
+                                <span className="text-xs font-black uppercase text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-md">
+                                  🏢 {vac.departamento_destino}
+                                  {vac.sub_departamento_destino ? ` • ${vac.sub_departamento_destino}` : ''}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-black px-2.5 py-0.5 rounded-md ${
+                                    freeCount > 0
+                                      ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                                      : 'bg-rose-100 text-rose-900 border border-rose-300'
+                                  }`}
+                                >
+                                  {freeCount > 0
+                                    ? `🟢 ${freeCount} Lugar(es) Vacío(s) Disponible(s)`
+                                    : '🔒 0 Lugares Vacíos (Plazas Cubiertas)'}
+                                </span>
+                              </div>
+                              <h4 className="text-lg font-black text-zinc-900 uppercase mt-1">
+                                Categoría: {vac.puesto_vacante}
+                              </h4>
+                              {vac.liberada_por_nombre && (
+                                <p className="text-xs font-bold text-amber-700">
+                                  🔄 Lugar dejado libre por ascenso de: <strong>{vac.liberada_por_nombre}</strong>
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 self-start sm:self-center">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  generateConvocatoriaSindicatoPDF(vac)
+                                }}
+                                className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-amber-400 text-[11px] font-black rounded-xl flex items-center gap-1 cursor-pointer"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Oficio PDF</span>
+                              </button>
+                              {occupiedCount > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleLiberarPlazaVacante(vac)
+                                  }}
+                                  className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-[11px] font-black rounded-xl cursor-pointer"
+                                  title="Liberar 1 lugar para permitir colocar otro trabajador"
+                                >
+                                  🔓 Liberar 1 Lugar
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* CUADRÍCULA DE LUGARES (SLOTS DE DROP ZONE: OCUPADOS VS LUGARES VACÍOS) */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {Array.from({ length: totalSlots }).map((_, slotIdx) => {
+                              const isOccupiedSlot = slotIdx < occupiedCount
+                              const placedPerson = placedWorkers[slotIdx]
+                              const slotKey = `vac_${vac.id_vacante}_slot_${slotIdx}`
+                              const isHovered = hoveredSlotKey === slotKey
+
+                              return (
+                                <div
+                                  key={slotKey}
+                                  onDragOver={(e) => {
+                                    e.preventDefault()
+                                    if (hoveredSlotKey !== slotKey) setHoveredSlotKey(slotKey)
+                                  }}
+                                  onDragEnter={(e) => {
+                                    e.preventDefault()
+                                    setHoveredSlotKey(slotKey)
+                                  }}
+                                  onDragLeave={() => {
+                                    if (hoveredSlotKey === slotKey) setHoveredSlotKey(null)
+                                  }}
+                                  onDrop={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    handleDropWorkerOnSlot(vac, slotIdx, isOccupiedSlot)
+                                  }}
+                                  className={`rounded-2xl p-4 transition-all duration-200 flex flex-col justify-between min-h-[125px] ${
+                                    isOccupiedSlot
+                                      ? 'border-2 border-zinc-300 bg-zinc-100/80 text-zinc-700'
+                                      : isHovered
+                                      ? 'border-2 border-amber-500 bg-amber-100/70 scale-[1.02] shadow-lg dropzone-active'
+                                      : draggedWorker
+                                      ? 'border-2 border-dashed border-amber-500 bg-amber-50/50 dropzone-active'
+                                      : 'border-2 border-dashed border-emerald-400 bg-emerald-50/30 hover:border-emerald-500 hover:bg-emerald-50/60'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-mono text-[10px] font-black uppercase px-2 py-0.5 rounded bg-zinc-900 text-white">
+                                      PLAZA #{slotIdx + 1} DE {totalSlots}
+                                    </span>
+                                    {isOccupiedSlot ? (
+                                      <span className="text-[10px] font-black uppercase text-rose-700 bg-rose-100 px-2 py-0.5 rounded flex items-center gap-1">
+                                        <Lock className="w-3 h-3" /> LUGAR OCUPADO
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] font-black uppercase text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded flex items-center gap-1">
+                                        <Unlock className="w-3 h-3" /> LUGAR VACÍO DISPONIBLE
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {isOccupiedSlot ? (
+                                    <div className="my-2">
+                                      <div className="text-xs font-black text-zinc-900 uppercase">
+                                        👷 {placedPerson ? placedPerson.nombre_completo : 'Plaza Cubierta por Ascenso'}
+                                      </div>
+                                      <div className="text-[11px] text-zinc-500">
+                                        {placedPerson
+                                          ? `Ascendió desde: ${placedPerson.puesto_actual} (${placedPerson.departamento_actual})`
+                                          : `Ocupada en ${vac.departamento_destino}`}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="my-2 text-center py-2">
+                                      <div className="text-xs font-black text-emerald-950 uppercase">
+                                        {isHovered && draggedWorker
+                                          ? `📥 Soltar aquí a ${draggedWorker.displayName}`
+                                          : '📥 Lugar Vacío — Arrastra y Suelta Aquí al Trabajador'}
+                                      </div>
+                                      <p className="text-[10px] text-zinc-500 mt-0.5">
+                                        {vac.puesto_vacante} • {vac.departamento_destino}
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  <div className="text-[10px] font-bold flex items-center justify-between pt-2 border-t border-zinc-200/60">
+                                    <span className="text-zinc-500">
+                                      Regla Art. 116 C.C.T.
+                                    </span>
+                                    {!isOccupiedSlot && (
+                                      <span className="text-emerald-700 font-black">
+                                        Listo para recibir personal
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* =================================================================
+              MODAL INTERACTIVO DE VALIDACIÓN DE REGLAS RH Y C.C.T. AL SOLTAR EN LUGAR VACÍO
+             ================================================================= */}
+          {dropValidationModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in">
+              <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full p-6 border-2 border-amber-400 space-y-4 max-h-[90vh] overflow-y-auto">
+                <div className="flex items-start justify-between gap-3 border-b border-zinc-100 pb-3">
+                  <div>
+                    <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900">
+                      Validación de Reglas RH &amp; Art. 116 C.C.T. al Colocar en Lugar Vacío
+                    </span>
+                    <h3 className="text-base font-black text-zinc-900 uppercase mt-1">
+                      Colocar a {dropValidationModal.post?.nombre_completo} en {dropValidationModal.vac?.puesto_vacante}
+                    </h3>
+                    <p className="text-xs text-zinc-500">
+                      Plaza #{dropValidationModal.slotIndex + 1} en{' '}
+                      <strong>{dropValidationModal.vac?.departamento_destino}</strong> • Puesto actual:{' '}
+                      <strong>
+                        {dropValidationModal.post?.puesto_actual} ({dropValidationModal.post?.departamento_actual})
+                      </strong>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDropValidationModal(null)}
+                    className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-800 font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Estado de los 4 Permisos Necesarios */}
+                <div className="space-y-2">
+                  <span className="text-[11px] font-black uppercase text-zinc-700 block">
+                    Verificación de Permisos Requeridos para Ocupar el Lugar Vacío:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <div
+                      className={`p-3 rounded-xl border font-bold flex items-center gap-2 ${
+                        dropValidationModal.rules.rule1VacanteLibre
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                          : 'bg-rose-50 border-rose-300 text-rose-900'
+                      }`}
+                    >
+                      {dropValidationModal.rules.rule1VacanteLibre ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      )}
+                      <span>1. Lugar Vacío Disponible ({dropValidationModal.rules.plazasLibres} libre)</span>
+                    </div>
+
+                    <div
+                      className={`p-3 rounded-xl border font-bold flex items-center gap-2 ${
+                        dropValidationModal.rules.rule2RHApproved
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                          : 'bg-amber-50 border-amber-300 text-amber-900'
+                      }`}
+                    >
+                      {dropValidationModal.rules.rule2RHApproved ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : (
+                        <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                      )}
+                      <span>2. Autorización RH Unidad y Corp.</span>
+                    </div>
+
+                    <div
+                      className={`p-3 rounded-xl border font-bold flex items-center gap-2 ${
+                        dropValidationModal.rules.rule3DestinoPlan
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                          : 'bg-amber-50 border-amber-300 text-amber-900'
+                      }`}
+                    >
+                      {dropValidationModal.rules.rule3DestinoPlan ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : (
+                        <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                      )}
+                      <span>3. Plan y Fecha de {dropValidationModal.vac?.departamento_destino}</span>
+                    </div>
+
+                    <div
+                      className={`p-3 rounded-xl border font-bold flex items-center gap-2 ${
+                        dropValidationModal.rules.rule4OrigenLiberado
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                          : 'bg-amber-50 border-amber-300 text-amber-900'
+                      }`}
+                    >
+                      {dropValidationModal.rules.rule4OrigenLiberado ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : (
+                        <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                      )}
+                      <span>4. Permiso Salida de {dropValidationModal.post?.departamento_actual}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {dropValidationModal.rules.blockers.length > 0 && (
+                  <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-1">
+                    <strong className="font-black uppercase block text-[11px]">
+                      📋 Permisos pendientes detectados por el motor de reglas:
+                    </strong>
+                    {dropValidationModal.rules.blockers.map((b: string, i: number) => (
+                      <div key={i}>• {b}</div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="pt-3 border-t border-zinc-100 flex flex-col sm:flex-row justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setDropValidationModal(null)}
+                    className="px-4 py-2.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold text-xs cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+
+                  {dropValidationModal.isDirectFromRoster && (
+                    <button
+                      type="button"
+                      disabled={executingDropMove}
+                      onClick={handleEnrollFromDropModal}
+                      className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-400 font-black text-xs cursor-pointer"
+                    >
+                      📝 Inscribir en Vacante y Solicitar Firmas
+                    </button>
+                  )}
+
+                  {dropValidationModal.rules.rule1VacanteLibre && (
+                    <button
+                      type="button"
+                      disabled={executingDropMove}
+                      onClick={handleFastTrackAuthorizeAndPlace}
+                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg cursor-pointer"
+                    >
+                      {executingDropMove
+                        ? 'Colocando...'
+                        : '⚡ Otorgar Permisos RH y Colocar en Lugar Vacío Ahora'}
                     </button>
                   )}
                 </div>
-              )
-            })}
-          </div>
-
-          {/* Piezas (Trabajadores) y Validador de las 4 Reglas */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {currentPostulantes.map((post) => {
-              const rules = evaluateChessRules(post, currentVacante)
-              const alreadyMoved = post.estatus_movimiento === 'Movimiento Ejecutado (En Puesto)'
-
-              return (
-                <div
-                  key={post.id_postulacion}
-                  className={`bg-white rounded-2xl border-2 p-5 shadow-sm space-y-4 ${
-                    alreadyMoved
-                      ? 'border-blue-300 bg-blue-50/20'
-                      : rules.canMove
-                      ? 'border-emerald-400'
-                      : 'border-zinc-200'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <span className="text-[10px] font-mono font-black uppercase text-zinc-400">
-                        PIEZA EN TABLERO • ANTIGÜEDAD: {post.anos_antiguedad} AÑOS
-                      </span>
-                      <h3 className="text-base font-black text-zinc-900">{post.nombre_completo}</h3>
-                    </div>
-                    <span
-                      className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border ${
-                        alreadyMoved
-                          ? 'bg-blue-100 text-blue-900 border-blue-300'
-                          : rules.canMove
-                          ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
-                          : 'bg-rose-100 text-rose-900 border-rose-300'
-                      }`}
-                    >
-                      {alreadyMoved ? '♟️ YA EN NUEVO PUESTO' : rules.canMove ? '🟢 JUGADA VÁLIDA (4/4)' : '🛑 MOVIMIENTO BLOQUEADO'}
-                    </span>
-                  </div>
-
-                  {/* Trayectoria Origen -> Destino */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-zinc-50 p-3 rounded-xl border border-zinc-200 text-xs">
-                    <div>
-                      <span className="text-[10px] font-black text-zinc-400 block">CASILLA ACTUAL (ORIGEN)</span>
-                      <strong className="text-zinc-900 block">{post.puesto_actual}</strong>
-                      <span className="text-[11px] text-zinc-500">
-                        {post.departamento_actual} {post.sub_departamento_actual ? `(${post.sub_departamento_actual})` : ''}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-black text-amber-600 block">CASILLA DESTINO (VACANTE)</span>
-                      <strong className="text-zinc-900 block">{currentVacante?.puesto_vacante}</strong>
-                      <span className="text-[11px] text-zinc-500">
-                        {currentVacante?.departamento_destino} • Cita: {formatShortDate(post.fecha_presentacion)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Checklist de las 4 Reglas del Ajedrez */}
-                  <div className="grid grid-cols-2 gap-2 text-[11px]">
-                    <div
-                      className={`p-2 rounded-lg border font-bold flex items-center gap-1.5 ${
-                        rules.rule1VacanteLibre
-                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                          : 'bg-rose-50 border-rose-200 text-rose-800'
-                      }`}
-                    >
-                      {rules.rule1VacanteLibre ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                      <span>1. Vacante Libre ({rules.plazasLibres})</span>
-                    </div>
-
-                    <div
-                      className={`p-2 rounded-lg border font-bold flex items-center gap-1.5 ${
-                        rules.rule2RHApproved
-                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                          : 'bg-rose-50 border-rose-200 text-rose-800'
-                      }`}
-                    >
-                      {rules.rule2RHApproved ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                      <span>2. Vo.Bo. RH &amp; Corp.</span>
-                    </div>
-
-                    <div
-                      className={`p-2 rounded-lg border font-bold flex items-center gap-1.5 ${
-                        rules.rule3DestinoPlan
-                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                          : 'bg-rose-50 border-rose-200 text-rose-800'
-                      }`}
-                    >
-                      {rules.rule3DestinoPlan ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                      <span>3. Plan y Fecha {currentVacante?.departamento_destino}</span>
-                    </div>
-
-                    <div
-                      className={`p-2 rounded-lg border font-bold flex items-center gap-1.5 ${
-                        rules.rule4OrigenLiberado
-                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                          : 'bg-rose-50 border-rose-200 text-rose-800'
-                      }`}
-                    >
-                      {rules.rule4OrigenLiberado ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                      <span>4. Liberación {post.departamento_actual}</span>
-                    </div>
-                  </div>
-
-                  {!alreadyMoved && !rules.canMove && (
-                    <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-[11px] text-rose-900 space-y-1">
-                      <strong className="block uppercase text-[10px]">Motivo de bloqueo:</strong>
-                      {rules.blockers.map((b, i) => (
-                        <div key={i}>• {b}</div>
-                      ))}
-                    </div>
-                  )}
-
-                  {!alreadyMoved && (
-                    <button
-                      type="button"
-                      onClick={() => handleExecuteChessMove(post)}
-                      className={`w-full py-3 rounded-xl font-black text-xs shadow transition-all ${
-                        rules.canMove
-                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                          : 'bg-zinc-200 text-zinc-500 hover:bg-zinc-300'
-                      }`}
-                    >
-                      {rules.canMove
-                        ? `♟️ Ejecutar Movimiento a ${currentVacante?.puesto_vacante} y Liberar ${post.puesto_actual}`
-                        : '🛑 Movimiento Bloqueado (Ver Reglas Faltantes)'}
-                    </button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
