@@ -4,7 +4,15 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { Plus, Save, X } from 'lucide-react'
 
-export function AdscripcionesManager({ idEmpleado, isReadOnly = false }: { idEmpleado: string, isReadOnly?: boolean }) {
+export function AdscripcionesManager({
+    idEmpleado,
+    isReadOnly = false,
+    onSaved,
+}: {
+    idEmpleado: string
+    isReadOnly?: boolean
+    onSaved?: () => void
+}) {
     const [history, setHistory] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [isCreating, setIsCreating] = useState(false)
@@ -71,6 +79,16 @@ export function AdscripcionesManager({ idEmpleado, isReadOnly = false }: { idEmp
             }])
             if (adsError) throw adsError
 
+            // Sincronizar departamento y puesto actual en empleados
+            const selectedDepto = deptos.find((d) => String(d.id_departamento) === String(formData.id_departamento))?.departamento
+            const selectedPuesto = puestos.find((p) => String(p.id_puesto) === String(formData.id_puesto))?.puesto
+            if (selectedDepto || selectedPuesto) {
+                const empUpdate: Record<string, string> = {}
+                if (selectedDepto) empUpdate.departamento = selectedDepto
+                if (selectedPuesto) empUpdate.puesto = selectedPuesto
+                await supabase.from('empleados').update(empUpdate).eq('id_empleado', idEmpleado)
+            }
+
             // 3. Insert Salary if provided
             if (formData.salario_diario) {
                 const { error: salError } = await supabase.from('empleado_salarios').insert([{
@@ -84,6 +102,7 @@ export function AdscripcionesManager({ idEmpleado, isReadOnly = false }: { idEmp
 
             setIsCreating(false)
             fetchHistory()
+            onSaved?.()
         } catch (e: any) {
             console.error(e)
             if (e.code === '23505') {

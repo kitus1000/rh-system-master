@@ -1042,7 +1042,30 @@ export default function MovimientosSindicatoPage() {
         })
         .eq('id_vacante', vac.id_vacante)
 
-      // 3. Crear registro en el Historial de Estancia (donde se cuentan los días y se califica)
+      const moveStartDate = post.fecha_presentacion || new Date().toISOString().split('T')[0]
+
+      // 3. Cerrar etapas activas previas ANTES de insertar el nuevo puesto en el historial
+      if (post.id_empleado) {
+        await supabase
+          .from('movimientos_historial_estancia')
+          .update({
+            activo_en_puesto: false,
+            fecha_fin: moveStartDate,
+          })
+          .eq('id_empleado', post.id_empleado)
+          .eq('activo_en_puesto', true)
+      } else if (post.numero_empleado) {
+        await supabase
+          .from('movimientos_historial_estancia')
+          .update({
+            activo_en_puesto: false,
+            fecha_fin: moveStartDate,
+          })
+          .eq('numero_empleado', String(post.numero_empleado))
+          .eq('activo_en_puesto', true)
+      }
+
+      // 3.1 Crear registro en el Historial de Estancia (donde se cuentan los días y se califica)
       await supabase.from('movimientos_historial_estancia').insert([
         {
           id_postulacion: post.id_postulacion,
@@ -1056,12 +1079,31 @@ export default function MovimientosSindicatoPage() {
           departamento_asignado: vac.departamento_destino,
           sub_departamento_asignado: vac.sub_departamento_destino,
           puesto_asignado: vac.puesto_vacante,
-          fecha_inicio: post.fecha_presentacion || new Date().toISOString().split('T')[0],
+          fecha_inicio: moveStartDate,
           dias_acumulados: 1,
           dictamen: 'En Periodo de Prueba / Capacitación',
           activo_en_puesto: true,
         },
       ])
+
+      // 3.2 Actualizar PUESTO y DEPARTAMENTO oficial en la tabla empleados para reflejo inmediato en perfil
+      if (post.id_empleado) {
+        await supabase
+          .from('empleados')
+          .update({
+            puesto: vac.puesto_vacante,
+            departamento: vac.departamento_destino,
+          })
+          .eq('id_empleado', post.id_empleado)
+      } else if (post.numero_empleado) {
+        await supabase
+          .from('empleados')
+          .update({
+            puesto: vac.puesto_vacante,
+            departamento: vac.departamento_destino,
+          })
+          .eq('numero_empleado', String(post.numero_empleado))
+      }
 
       // 4. EFECTO DOMINÓ DE AJEDREZ (según regla configurada)
       let dominoFolio = ''

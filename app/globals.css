@@ -212,7 +212,11 @@ main :not(.hoja-carta):not(.hoja-carta *):not(.hoja-impresion):not(.hoja-impresi
   [data-sidebar],
   .print\:hidden,
   [class*="print:hidden"],
-  .no-print {
+  [class*="print:!hidden"],
+  .no-print,
+  .app-shell-header,
+  button[aria-label*="menú"],
+  button[aria-label*="menu"] {
     display: none !important;
     height: 0 !important;
     min-height: 0 !important;
@@ -223,6 +227,8 @@ main :not(.hoja-carta):not(.hoja-carta *):not(.hoja-impresion):not(.hoja-impresi
     overflow: hidden !important;
     visibility: hidden !important;
     opacity: 0 !important;
+    position: absolute !important;
+    left: -9999px !important;
   }
 
   html, body {

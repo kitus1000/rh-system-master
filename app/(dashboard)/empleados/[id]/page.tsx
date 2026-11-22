@@ -3,18 +3,21 @@
 import { useRef, useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/utils/supabase/client'
-import { ArrowLeft, User, Briefcase, FileText, AlertTriangle, Edit, X, MapPin, CreditCard, ShieldCheck, Home, FolderLock, QrCode, ArrowLeftRight } from 'lucide-react'
+import { ArrowLeft, User, Briefcase, FileText, AlertTriangle, Edit, X, MapPin, CreditCard, ShieldCheck, Home, FolderLock, QrCode, ArrowLeftRight, HardHat } from 'lucide-react'
 import Link from 'next/link'
+import { useAuth } from '@/components/AuthProvider'
 import { AdscripcionesManager } from '@/components/AdscripcionesManager'
 import { TurnoRolManager } from '@/components/TurnoRolManager'
 import { IncidenciasManager } from '@/components/IncidenciasManager'
 import { VacationBalanceManager } from '@/components/VacationBalanceManager'
 import CapturaFotoEmpleado from '@/components/CapturaFotoEmpleado'
 import { canonicalizeDepartment, invertEmployeeNameFields } from '@/utils/dataNormalization'
+import { TrayectoriaMinaHistorial } from '@/components/TrayectoriaMinaHistorial'
 
 export default function EmpleadoDetallePage() {
     const params = useParams()
     const id = params.id as string
+    const { profile: authProfile } = useAuth()
     const [empleado, setEmpleado] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [activeTab, setActiveTab] = useState('perfil')
@@ -67,6 +70,15 @@ export default function EmpleadoDetallePage() {
         comedor: any[]
         viajes: any[]
     }>({ pases: [], consultas: [], camas: [], comedor: [], viajes: [] })
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const tabParam = new URLSearchParams(window.location.search).get('tab')
+            if (tabParam && ['perfil', 'trayectoria', 'historial', 'incidencias', 'vacaciones', 'actividad_externa', 'documentos'].includes(tabParam)) {
+                setActiveTab(tabParam)
+            }
+        }
+    }, [])
 
     useEffect(() => {
         checkPermissions()
@@ -164,7 +176,7 @@ export default function EmpleadoDetallePage() {
     async function fetchEmpleado() {
         if (!id) return
 
-        const { data, error } = await supabase
+        let res = await supabase
             .from('empleados')
             .select(`
             *,
@@ -172,10 +184,34 @@ export default function EmpleadoDetallePage() {
             empleado_ingreso(*),
             empleado_banco(*),
             empleado_salarios(*),
+            empleado_adscripciones(
+                fecha_inicio,
+                fecha_fin,
+                es_jefe,
+                cat_departamentos(departamento),
+                cat_puestos(puesto)
+            ),
             turnos(nombre)
         `)
             .eq('id_empleado', id)
             .single()
+
+        if (res.error) {
+            res = await supabase
+                .from('empleados')
+                .select(`
+                *,
+                empleado_domicilio(*),
+                empleado_ingreso(*),
+                empleado_banco(*),
+                empleado_salarios(*),
+                turnos(nombre)
+            `)
+                .eq('id_empleado', id)
+                .single()
+        }
+
+        const { data, error } = res
 
         if (!error && data) {
             setEmpleado(data)
@@ -208,7 +244,10 @@ export default function EmpleadoDetallePage() {
                 numero_cuenta: banco?.numero_cuenta || '',
                 clabe: banco?.clabe || '',
                 // Turno
-                id_turno: data.id_turno || ''
+                id_turno: data.id_turno || '',
+                // Puesto y Departamento resueltos
+                puesto: data.puesto || data.empleado_adscripciones?.[0]?.cat_puestos?.puesto || '',
+                departamento: data.departamento || data.empleado_adscripciones?.[0]?.cat_departamentos?.departamento || ''
             })
             if (data.foto_url) {
                 setFotoPreview(data.foto_url)
@@ -328,6 +367,8 @@ export default function EmpleadoDetallePage() {
                     rfc: editForm.rfc,
                     curp: editForm.curp,
                     nss: editForm.nss,
+                    puesto: editForm.puesto || null,
+                    departamento: editForm.departamento || null,
                     foto_url: newFotoUrl,
                     id_turno: editForm.id_turno || null
                 })
@@ -410,6 +451,27 @@ export default function EmpleadoDetallePage() {
     const banco = Array.isArray(empleado.empleado_banco) ? empleado.empleado_banco[0] : empleado.empleado_banco
     const isBaja = empleado.estado_empleado === 'Baja'
 
+    const adsArray = Array.isArray(empleado.empleado_adscripciones)
+        ? [...empleado.empleado_adscripciones].sort(
+              (a: any, b: any) => new Date(b.fecha_inicio || 0).getTime() - new Date(a.fecha_inicio || 0).getTime()
+          )
+        : []
+    const latestAdscripcion = adsArray[0]
+    const rawDepto = empleado.departamento || latestAdscripcion?.cat_departamentos?.departamento || ''
+    const resolvedDepartamento = canonicalizeDepartment(rawDepto).officialName
+    const resolvedPuesto = empleado.puesto || latestAdscripcion?.cat_puestos?.puesto || 'Sin puesto asignado'
+
+    const authRolUpper = (authProfile?.rol || '').toUpperCase()
+    const canEvaluateTrayectoria =
+        canManage ||
+        authRolUpper.includes('JEFE') ||
+        authRolUpper.includes('SUPERINTENDENTE') ||
+        authRolUpper.includes('SUPERVISOR') ||
+        authRolUpper.includes('ADMIN') ||
+        authRolUpper.includes('RECURSOS') ||
+        authRolUpper.includes('RH') ||
+        authRolUpper.includes('SISTEMAS')
+
     return (
         <div className="max-w-7xl mx-auto relative space-y-5">
             {/* Header Responsivo */}
@@ -443,7 +505,11 @@ export default function EmpleadoDetallePage() {
                         <p className="text-xs sm:text-sm text-zinc-500 font-semibold mt-0.5">
                             Ficha #{empleado.numero_empleado} •{' '}
                             <span className="font-bold text-zinc-800">
-                                {canonicalizeDepartment(empleado.departamento).officialName}
+                                {resolvedDepartamento}
+                            </span>{' '}
+                            •{' '}
+                            <span className="font-bold text-amber-700">
+                                {resolvedPuesto}
                             </span>{' '}
                             •{' '}
                             <span className={isBaja ? 'text-rose-600 font-black' : 'text-emerald-600 font-black'}>
@@ -526,6 +592,14 @@ export default function EmpleadoDetallePage() {
                         <QrCode className="w-4 h-4" />
                         <span>4. Imprimir Credencial QR</span>
                     </Link>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('trayectoria')}
+                        className="px-3.5 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/50 text-indigo-200 text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                    >
+                        <HardHat className="w-4 h-4 text-amber-400" />
+                        <span>5. ♟️ Trayectoria en Mina</span>
+                    </button>
                 </div>
             </div>
 
@@ -569,6 +643,7 @@ export default function EmpleadoDetallePage() {
                 <nav className="-mb-px flex space-x-8 overflow-x-auto">
                     {[
                         { id: 'perfil', label: 'Perfil' },
+                        { id: 'trayectoria', label: '♟️ Trayectoria en Mina & Escalafón' },
                         { id: 'historial', label: 'Historial' },
                         { id: 'incidencias', label: 'Incidencias' },
                         { id: 'vacaciones', label: 'Vacaciones' },
@@ -718,7 +793,19 @@ export default function EmpleadoDetallePage() {
                                 <Briefcase className="w-5 h-5 mr-2" />
                                 Información Laboral
                             </h3>
-                            <dl className="space-y-4">
+                            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <dt className="text-xs font-medium text-zinc-500">Puesto Oficial Actual</dt>
+                                    <dd className="text-sm font-black text-zinc-900">
+                                        {resolvedPuesto}
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt className="text-xs font-medium text-zinc-500">Departamento Actual</dt>
+                                    <dd className="text-sm font-black text-zinc-900">
+                                        {resolvedDepartamento}
+                                    </dd>
+                                </div>
                                 <div>
                                     <dt className="text-xs font-medium text-zinc-500">Fecha de Ingreso Vigente</dt>
                                     <dd className="text-sm font-bold text-zinc-900">
@@ -734,13 +821,73 @@ export default function EmpleadoDetallePage() {
                             </dl>
                         </div>
                     </div>
+
+                    {/* Resumen de Trayectoria en Mina visible directo en la vista principal del Expediente */}
+                    <div className="md:col-span-2 pt-2">
+                        <TrayectoriaMinaHistorial
+                            compact={true}
+                            viewerMode="admin"
+                            idEmpleado={id}
+                            numeroEmpleado={empleado?.numero_empleado}
+                            nombreEmpleado={empleado ? `${empleado.nombre} ${empleado.apellido_paterno} ${empleado.apellido_materno || ''}`.trim() : ''}
+                            puestoActual={resolvedPuesto}
+                            departamentoActual={resolvedDepartamento}
+                            fechaIngreso={ingreso?.fecha_ingreso || empleado?.fecha_ingreso}
+                            canManage={canEvaluateTrayectoria}
+                            currentUserRole={authProfile?.rol || 'Recursos Humanos'}
+                            currentUserName={authProfile?.nombre_completo || 'Jefatura / RH'}
+                            onOpenFullView={() => setActiveTab('trayectoria')}
+                            onPuestoActualizado={(nuevoPuesto, nuevoDepto) => {
+                                setEmpleado((prev: any) => prev ? { ...prev, puesto: nuevoPuesto, departamento: nuevoDepto } : prev);
+                                fetchEmpleado();
+                            }}
+                        />
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'trayectoria' && (
+                <div className="space-y-8 animate-in fade-in duration-300">
+                    <TrayectoriaMinaHistorial
+                        viewerMode="admin"
+                        idEmpleado={id}
+                        numeroEmpleado={empleado?.numero_empleado}
+                        nombreEmpleado={empleado ? `${empleado.nombre} ${empleado.apellido_paterno} ${empleado.apellido_materno || ''}`.trim() : ''}
+                        puestoActual={resolvedPuesto}
+                        departamentoActual={resolvedDepartamento}
+                        fechaIngreso={ingreso?.fecha_ingreso || empleado?.fecha_ingreso}
+                        canManage={canEvaluateTrayectoria}
+                        currentUserRole={authProfile?.rol || 'Recursos Humanos'}
+                        currentUserName={authProfile?.nombre_completo || 'Jefatura / RH'}
+                        onPuestoActualizado={(nuevoPuesto, nuevoDepto) => {
+                            setEmpleado((prev: any) => prev ? { ...prev, puesto: nuevoPuesto, departamento: nuevoDepto } : prev);
+                            fetchEmpleado();
+                        }}
+                    />
                 </div>
             )}
 
             {activeTab === 'historial' && (
                 <div className="space-y-8 animate-in fade-in duration-300">
+                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                            <h4 className="text-sm font-black text-zinc-900">
+                                ♟️ Historial de Escalafón, Calificaciones y Trayectoria en Mina
+                            </h4>
+                            <p className="text-xs text-zinc-600">
+                                Consulta la línea de tiempo completa de ascensos sindicales, días acumulados y evaluaciones por departamento.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('trayectoria')}
+                            className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-400 text-xs font-black shrink-0 cursor-pointer"
+                        >
+                            Ir a ♟️ Trayectoria en Mina y Calificaciones &rarr;
+                        </button>
+                    </div>
                     <TurnoRolManager idEmpleado={id} isReadOnly={isBaja} />
-                    <AdscripcionesManager idEmpleado={id} isReadOnly={isBaja} />
+                    <AdscripcionesManager idEmpleado={id} isReadOnly={isBaja} onSaved={() => fetchEmpleado()} />
                 </div>
             )}
 
@@ -1015,6 +1162,14 @@ export default function EmpleadoDetallePage() {
 
                                 {editTab === 'laboral' && (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in">
+                                        <div>
+                                            <label className="block text-xs font-medium text-zinc-500 mb-1">Puesto Oficial Actual</label>
+                                            <input type="text" className="w-full text-sm border-zinc-300 rounded-md text-black bg-white uppercase" value={editForm.puesto || ''} onChange={e => setEditForm({ ...editForm, puesto: e.target.value })} placeholder="Ej. PERFORISTA 1RA" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-zinc-500 mb-1">Departamento Actual</label>
+                                            <input type="text" className="w-full text-sm border-zinc-300 rounded-md text-black bg-white uppercase" value={editForm.departamento || ''} onChange={e => setEditForm({ ...editForm, departamento: e.target.value })} placeholder="Ej. MINA" />
+                                        </div>
                                         <div>
                                             <label className="block text-xs font-medium text-zinc-500 mb-1">Fecha Ingreso</label>
                                             <input type="date" className="w-full text-sm border-zinc-300 rounded-md text-black bg-white" value={editForm.fecha_ingreso} onChange={e => setEditForm({ ...editForm, fecha_ingreso: e.target.value })} />

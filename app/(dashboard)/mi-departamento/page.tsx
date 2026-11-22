@@ -1275,6 +1275,7 @@ export default function MiDepartamentoPage() {
                   <th className="px-5 py-3.5 text-left">Puesto</th>
                   <th className="px-5 py-3.5 text-left">Estado Operativo Hoy</th>
                   <th className="px-5 py-3.5 text-left">Detalle Médico / Acompañante</th>
+                  <th className="px-5 py-3.5 text-right">Expediente &amp; Trayectoria</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
@@ -1300,9 +1301,12 @@ export default function MiDepartamentoPage() {
                     return (
                       <tr key={emp.id_empleado} className="hover:bg-zinc-50">
                         <td className="px-5 py-3.5">
-                          <div className="font-black text-zinc-900">
+                          <Link
+                            href={`/empleados/${emp.id_empleado}`}
+                            className="font-black text-zinc-900 hover:text-amber-600 transition-colors"
+                          >
                             {emp.nombre} {emp.apellido_paterno} {emp.apellido_materno || ''}
-                          </div>
+                          </Link>
                           <div className="text-[11px] font-mono text-zinc-400">
                             Nómina #{emp.numero_empleado || 'S/N'}
                           </div>
@@ -1340,6 +1344,22 @@ export default function MiDepartamentoPage() {
                           ) : (
                             <span className="text-zinc-400">—</span>
                           )}
+                        </td>
+                        <td className="px-5 py-3.5 text-right">
+                          <div className="inline-flex items-center gap-1.5">
+                            <Link
+                              href={`/empleados/${emp.id_empleado}`}
+                              className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-black"
+                            >
+                              Expediente
+                            </Link>
+                            <Link
+                              href={`/empleados/${emp.id_empleado}?tab=trayectoria`}
+                              className="px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-zinc-950 text-[11px] font-black"
+                            >
+                              ♟️ Trayectoria
+                            </Link>
+                          </div>
                         </td>
                       </tr>
                     )

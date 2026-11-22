@@ -16,9 +16,15 @@ import {
   Building2,
   AlertTriangle,
   UserCheck,
+  HardHat,
+  X,
+  ExternalLink,
+  Award,
 } from 'lucide-react'
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
+import { useAuth } from '@/components/AuthProvider'
+import { TrayectoriaMinaHistorial } from '@/components/TrayectoriaMinaHistorial'
 import {
   canonicalizeDepartment,
   matchesFlexiblePersonSearch,
@@ -29,8 +35,12 @@ import {
 } from '@/utils/dataNormalization'
 
 export default function EmpleadosPage() {
+  const { profile: authProfile } = useAuth()
   const [empleados, setEmpleados] = useState<any[]>([])
   const [pacientes, setPacientes] = useState<any[]>([])
+  const [trayectoriaItems, setTrayectoriaItems] = useState<any[]>([])
+  const [postulacionesTrayectoria, setPostulacionesTrayectoria] = useState<any[]>([])
+  const [trayectoriaModalEmp, setTrayectoriaModalEmp] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('Activo') // 'Todos', 'Activo', 'Baja'
@@ -40,6 +50,19 @@ export default function EmpleadosPage() {
   const [canManage, setCanManage] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
+
+  const canEvaluateTrayectoria = useMemo(() => {
+    const rolUpper = (authProfile?.rol || '').toUpperCase()
+    const isLeaderOrRh =
+      rolUpper.includes('JEFE') ||
+      rolUpper.includes('SUPERINTENDENTE') ||
+      rolUpper.includes('SUPERVISOR') ||
+      rolUpper.includes('ADMIN') ||
+      rolUpper.includes('RECURSOS') ||
+      rolUpper.includes('RH') ||
+      rolUpper.includes('SISTEMAS')
+    return canManage || isLeaderOrRh
+  }, [canManage, authProfile?.rol])
 
   useEffect(() => {
     checkPermissions()
@@ -84,7 +107,7 @@ export default function EmpleadosPage() {
     setLoading(true)
     try {
       let empList: any[] = []
-      const [fullRes, pacRes] = await Promise.all([
+      const [fullRes, pacRes, trayRes, postRes] = await Promise.all([
         supabase
           .from('empleados')
           .select(`
@@ -104,9 +127,18 @@ export default function EmpleadosPage() {
           .from('pacientes')
           .select('id_paciente, id_empleado, nombre_completo, parentesco')
           .order('nombre_completo', { ascending: true }),
+        supabase
+          .from('movimientos_historial_estancia')
+          .select('id_historial, id_empleado, numero_empleado, nombre_completo, puesto_asignado, departamento_asignado, calificacion, dictamen, activo_en_puesto, fecha_inicio')
+          .order('fecha_inicio', { ascending: false }),
+        supabase
+          .from('movimientos_postulantes')
+          .select('id_postulacion, id_empleado, numero_empleado, nombre_completo, puesto_postulado, estatus_movimiento, autorizado_rh_local, autorizado_rh_corporativo, respuesta_depto_origen, movimientos_vacantes:id_vacante(puesto_vacante, departamento_destino)'),
       ])
 
       if (pacRes.data) setPacientes(pacRes.data)
+      if (!trayRes.error && trayRes.data) setTrayectoriaItems(trayRes.data)
+      if (!postRes.error && postRes.data) setPostulacionesTrayectoria(postRes.data)
 
       if (fullRes.error) {
         const baseRes = await supabase
@@ -205,6 +237,122 @@ export default function EmpleadosPage() {
     })
     return map
   }, [pacientes])
+
+  // Cruzar historial de trayectoria y movimientos autorizados por trabajador
+  const trayectoriaByEmpleado = useMemo(() => {
+    const map = new Map<
+      string,
+      { count: number; latestScore: number | null; hasPendingAuth: boolean; pendingPuesto: string }
+    >()
+
+    const histByEmpId = new Map<string, any[]>()
+    const histByNum = new Map<string, any[]>()
+    const histByNameKey = new Map<string, any[]>()
+
+    trayectoriaItems.forEach((h) => {
+      if (h.id_empleado) {
+        const k = String(h.id_empleado)
+        const arr = histByEmpId.get(k) || []
+        arr.push(h)
+        histByEmpId.set(k, arr)
+      }
+      if (h.numero_empleado) {
+        const k = String(h.numero_empleado).trim()
+        if (k) {
+          const arr = histByNum.get(k) || []
+          arr.push(h)
+          histByNum.set(k, arr)
+        }
+      }
+      if (h.nombre_completo) {
+        const k = normalizeNameTokens(h.nombre_completo).join('|')
+        if (k) {
+          const arr = histByNameKey.get(k) || []
+          arr.push(h)
+          histByNameKey.set(k, arr)
+        }
+      }
+    })
+
+    const postByEmpId = new Map<string, any[]>()
+    const postByNum = new Map<string, any[]>()
+    const postByNameKey = new Map<string, any[]>()
+
+    postulacionesTrayectoria.forEach((p) => {
+      if (p.id_empleado) {
+        const k = String(p.id_empleado)
+        const arr = postByEmpId.get(k) || []
+        arr.push(p)
+        postByEmpId.set(k, arr)
+      }
+      if (p.numero_empleado) {
+        const k = String(p.numero_empleado).trim()
+        if (k) {
+          const arr = postByNum.get(k) || []
+          arr.push(p)
+          postByNum.set(k, arr)
+        }
+      }
+      if (p.nombre_completo) {
+        const k = normalizeNameTokens(p.nombre_completo).join('|')
+        if (k) {
+          const arr = postByNameKey.get(k) || []
+          arr.push(p)
+          postByNameKey.set(k, arr)
+        }
+      }
+    })
+
+    empleados.forEach((emp) => {
+      const empId = String(emp.id_empleado)
+      const num = emp.numero_empleado ? String(emp.numero_empleado).trim() : ''
+      const nameKey = normalizeNameTokens(getEmployeeFullName(emp)).join('|')
+
+      const hMatchesMap = new Map<string, any>()
+      const addH = (arr?: any[]) => {
+        ;(arr || []).forEach((item) => hMatchesMap.set(String(item.id_historial), item))
+      }
+      addH(histByEmpId.get(empId))
+      if (num) addH(histByNum.get(num))
+      if (nameKey) addH(histByNameKey.get(nameKey))
+
+      const matchedHist = Array.from(hMatchesMap.values())
+      const scored = matchedHist.find((m) => m.calificacion !== null && m.calificacion !== undefined)
+
+      const pMatchesMap = new Map<string, any>()
+      const addP = (arr?: any[]) => {
+        ;(arr || []).forEach((item) => pMatchesMap.set(String(item.id_postulacion), item))
+      }
+      addP(postByEmpId.get(empId))
+      if (num) addP(postByNum.get(num))
+      if (nameKey) addP(postByNameKey.get(nameKey))
+
+      const currentPuestoNorm = getResolvedPuesto(emp).trim().toLowerCase()
+      let pendingAuthItem: any = null
+      for (const p of Array.from(pMatchesMap.values())) {
+        const isAuth =
+          p.estatus_movimiento === 'Confirmado para Mover (SÍ)' ||
+          p.estatus_movimiento === 'Autorizado para Movimiento' ||
+          (p.autorizado_rh_local && p.autorizado_rh_corporativo && p.respuesta_depto_origen === 'Autorizado (Sí)')
+        const vacRaw: any = p.movimientos_vacantes
+        const vac: any = Array.isArray(vacRaw) ? vacRaw[0] || {} : vacRaw || {}
+        const vacPuesto = vac.puesto_vacante || p.puesto_postulado || ''
+        if (isAuth && vacPuesto && vacPuesto.trim().toLowerCase() !== currentPuestoNorm) {
+          pendingAuthItem = { ...p, vacPuesto }
+          break
+        }
+      }
+
+      map.set(empId, {
+        count: matchedHist.length,
+        latestScore: scored ? Number(scored.calificacion) : null,
+        hasPendingAuth: Boolean(pendingAuthItem),
+        pendingPuesto: pendingAuthItem ? pendingAuthItem.vacPuesto : '',
+      })
+    })
+
+    return map
+  }, [empleados, trayectoriaItems, postulacionesTrayectoria])
 
   // Lista única de departamentos canónicos para el filtro
   const availableCanonicalDepts = useMemo(() => {
@@ -523,7 +671,7 @@ export default function EmpleadosPage() {
             Directorio General de Empleados
           </h1>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Padrón conectado con Inducción, Campamentos, Lockers QR, Credenciales y Depuración de Duplicados.
+            Padrón conectado con Trayectoria en Mina y Escalafón, Inducción, Campamentos, Lockers QR, Credenciales y Depuración de Duplicados.
           </p>
         </div>
 
@@ -840,12 +988,46 @@ export default function EmpleadosPage() {
                       </td>
 
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        <div className="flex flex-col">
+                        <div className="flex flex-col items-start gap-1">
                           <span className="inline-flex items-center gap-1 text-[11px] font-black text-zinc-900 uppercase">
                             <Building2 className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                             <span>{deptInfo.officialName}</span>
                           </span>
                           <span className="text-[11px] text-zinc-500 font-semibold">{puestoName}</span>
+                          {(() => {
+                            const tInfo = trayectoriaByEmpleado.get(String(empleado.id_empleado))
+                            if (!tInfo) return null
+                            if (tInfo.hasPendingAuth) {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setTrayectoriaModalEmp(empleado)}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300 cursor-pointer"
+                                  title="Movimiento autorizado pendiente de aplicar al expediente"
+                                >
+                                  <span>🎉 Ascenso Autorizado: {tInfo.pendingPuesto}</span>
+                                </button>
+                              )
+                            }
+                            if (tInfo.count > 0) {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setTrayectoriaModalEmp(empleado)}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 cursor-pointer"
+                                  title="Ver trayectoria en mina y evaluaciones"
+                                >
+                                  <span>
+                                    ♟️ {tInfo.count} {tInfo.count === 1 ? 'etapa' : 'etapas'}
+                                  </span>
+                                  {tInfo.latestScore !== null && (
+                                    <span>· ⭐ {tInfo.latestScore.toFixed(1)}</span>
+                                  )}
+                                </button>
+                              )
+                            }
+                            return null
+                          })()}
                         </div>
                       </td>
 
@@ -909,6 +1091,14 @@ export default function EmpleadosPage() {
                           >
                             Expediente
                           </Link>
+                          <button
+                            type="button"
+                            onClick={() => setTrayectoriaModalEmp(empleado)}
+                            className="px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-zinc-950 text-[11px] font-black inline-flex items-center gap-1 cursor-pointer shadow-xs"
+                            title="Ver o evaluar Trayectoria en Mina, Puestos y Escalafón"
+                          >
+                            <span>♟️ Trayectoria</span>
+                          </button>
                           <Link
                             href={`/seguridad?emp=${empleado.id_empleado}`}
                             className="p-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200"
@@ -947,6 +1137,74 @@ export default function EmpleadosPage() {
           </table>
         </div>
       </div>
+
+      {/* ===================================================================== */}
+      {/* MODAL DE TRAYECTORIA EN MINA DESDE DIRECTORIO DE EMPLEADOS            */}
+      {/* ===================================================================== */}
+      {trayectoriaModalEmp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white w-full max-w-5xl rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="px-6 py-4 bg-zinc-950 text-white border-b border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-500 text-zinc-950 shadow-sm">
+                  <HardHat className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-amber-400 block">
+                    Directorio de Empleados · Historial y Escalafón
+                  </span>
+                  <h3 className="font-black text-base sm:text-lg uppercase">
+                    {trayectoriaModalEmp.nombre} {trayectoriaModalEmp.apellido_paterno}{' '}
+                    {trayectoriaModalEmp.apellido_materno || ''}
+                  </h3>
+                  <p className="text-xs text-zinc-400 font-semibold">
+                    Ficha #{trayectoriaModalEmp.numero_empleado || 'S/N'} ·{' '}
+                    {getResolvedDepartment(trayectoriaModalEmp).officialName} ·{' '}
+                    {getResolvedPuesto(trayectoriaModalEmp)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <Link
+                  href={`/empleados/${trayectoriaModalEmp.id_empleado}?tab=trayectoria`}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs inline-flex items-center gap-1.5"
+                >
+                  <span>Abrir Expediente Completo</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setTrayectoriaModalEmp(null)}
+                  className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 cursor-pointer"
+                  aria-label="Cerrar modal de trayectoria"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1">
+              <TrayectoriaMinaHistorial
+                viewerMode="admin"
+                idEmpleado={trayectoriaModalEmp.id_empleado}
+                numeroEmpleado={trayectoriaModalEmp.numero_empleado}
+                nombreEmpleado={`${trayectoriaModalEmp.nombre} ${trayectoriaModalEmp.apellido_paterno} ${trayectoriaModalEmp.apellido_materno || ''}`.trim()}
+                puestoActual={getResolvedPuesto(trayectoriaModalEmp)}
+                departamentoActual={getResolvedDepartment(trayectoriaModalEmp).officialName}
+                fechaIngreso={trayectoriaModalEmp.fecha_ingreso}
+                canManage={canEvaluateTrayectoria}
+                currentUserRole={authProfile?.rol || 'Recursos Humanos'}
+                currentUserName={authProfile?.nombre_completo || 'Recursos Humanos'}
+                onPuestoActualizado={(np, nd) => {
+                  setTrayectoriaModalEmp((prev: any) => (prev ? { ...prev, puesto: np, departamento: nd } : prev))
+                  fetchEmpleados()
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

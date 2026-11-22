@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '@/utils/supabase/client'
 import { useAuth } from '@/components/AuthProvider'
+import { TrayectoriaMinaHistorial } from '@/components/TrayectoriaMinaHistorial'
 import {
   COFEPRIS_EMISORES_AUTORIZADOS,
   COFEPRIS_FIELD_CATALOG,
@@ -34,6 +35,14 @@ import {
   CheckCircle2,
   Eye,
   ShieldCheck,
+  Briefcase,
+  History,
+  HardHat,
+  Sparkles,
+  Building2,
+  KeyRound,
+  Stethoscope,
+  RefreshCw,
 } from 'lucide-react'
 
 export default function MiPerfilPage() {
@@ -43,6 +52,20 @@ export default function MiPerfilPage() {
   const [password, setPassword] = useState('')
   const [clinicas, setClinicas] = useState<any[]>([])
   const [idClinica, setIdClinica] = useState('')
+
+  // Pestaña activa del perfil: 'trayectoria' | 'cuenta' | 'medico'
+  const [activeTab, setActiveTab] = useState<'trayectoria' | 'cuenta' | 'medico'>('trayectoria')
+
+  // Datos vinculados del empleado (nómina y puesto oficial)
+  const [empleadoData, setEmpleadoData] = useState<{
+    id_empleado: string | null
+    numero_empleado: string | number | null
+    nombre: string
+    puesto: string
+    departamento: string
+    fecha_ingreso: string
+  } | null>(null)
+  const [loadingEmpleado, setLoadingEmpleado] = useState(true)
 
   // Perfiles de Doctores + Firma Digital Individual
   const [doctorProfiles, setDoctorProfiles] = useState<DoctorCofeprisProfile[]>([])
@@ -80,6 +103,86 @@ export default function MiPerfilPage() {
 
   const sessionProfile = realProfile || profile
 
+  const activeRoleLower = ((sessionProfile?.rol || profile?.rol || '') as string).toLowerCase()
+  const isMedico =
+    activeRoleLower.includes('médic') ||
+    activeRoleLower.includes('medic') ||
+    activeRoleLower.includes('admin') ||
+    activeRoleLower.includes('sistemas') ||
+    activeRoleLower.includes('recursos humanos')
+  const isDrPrincipal =
+    activeRoleLower.includes('jefe médico') ||
+    activeRoleLower.includes('jefe medico') ||
+    activeRoleLower.includes('admin') ||
+    activeRoleLower.includes('sistemas') ||
+    Boolean(docForm.es_dr_principal)
+
+  // Cargar datos de empleado vinculado
+  const fetchEmpleadoVinculado = async () => {
+    if (!sessionProfile) return
+    setLoadingEmpleado(true)
+    try {
+      const email = ((sessionProfile as any).email || profile?.email || '').toLowerCase().trim()
+      const nombreUsuario = (sessionProfile.nombre_completo || profile?.nombre_completo || '').trim()
+      let foundEmp: any = null
+
+      if (email) {
+        const { data: byMail } = await supabase
+          .from('empleados')
+          .select('id_empleado, numero_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, fecha_ingreso, estatus')
+          .ilike('correo_electronico', email)
+          .limit(1)
+        if (byMail && byMail[0]) {
+          foundEmp = byMail[0]
+        }
+      }
+
+      if (!foundEmp && nombreUsuario) {
+        const tokens = nombreUsuario.split(/\s+/).filter(Boolean)
+        const firstName = tokens[0] || ''
+        const { data: byName } = await supabase
+          .from('empleados')
+          .select('id_empleado, numero_empleado, nombre, apellido_paterno, apellido_materno, puesto, departamento, fecha_ingreso, estatus')
+          .ilike('nombre', `%${firstName}%`)
+          .limit(10)
+
+        if (byName && byName.length > 0) {
+          const exact = byName.find((e: any) => {
+            const comp = `${e.nombre} ${e.apellido_paterno} ${e.apellido_materno || ''}`.toLowerCase()
+            return tokens.some((t) => t.length > 2 && comp.includes(t.toLowerCase()))
+          })
+          foundEmp = exact || byName[0]
+        }
+      }
+
+      if (foundEmp) {
+        const fullName = `${foundEmp.nombre} ${foundEmp.apellido_paterno} ${foundEmp.apellido_materno || ''}`.trim()
+        setEmpleadoData({
+          id_empleado: foundEmp.id_empleado,
+          numero_empleado: foundEmp.numero_empleado,
+          nombre: fullName,
+          puesto: foundEmp.puesto || 'Puesto Operativo',
+          departamento: foundEmp.departamento || 'Operaciones',
+          fecha_ingreso: foundEmp.fecha_ingreso || new Date().toISOString().split('T')[0],
+        })
+      } else {
+        // Asignación con datos del perfil
+        setEmpleadoData({
+          id_empleado: null,
+          numero_empleado: (sessionProfile as any).numero_empleado || 'S/N',
+          nombre: nombreUsuario,
+          puesto: (sessionProfile as any).puesto || sessionProfile.rol || 'Trabajador Oficial',
+          departamento: (sessionProfile as any).departamento_simulado || (sessionProfile as any).departamento || 'Unidad El Herrero',
+          fecha_ingreso: (sessionProfile as any).creado_el?.split('T')[0] || new Date().toISOString().split('T')[0],
+        })
+      }
+    } catch (e) {
+      console.warn('Error fetching empleado vinculado:', e)
+    } finally {
+      setLoadingEmpleado(false)
+    }
+  }
+
   useEffect(() => {
     if (sessionProfile) {
       setApodo((sessionProfile as any).apodo || '')
@@ -101,6 +204,7 @@ export default function MiPerfilPage() {
     }
     setRecetaConfig(loadCofeprisRecetaConfig())
     fetchClinicas()
+    fetchEmpleadoVinculado()
   }, [sessionProfile?.id])
 
   const fetchClinicas = async () => {
@@ -192,7 +296,7 @@ export default function MiPerfilPage() {
     reader.readAsDataURL(file)
   }
 
-  // Canvas Signature Functions (escalado exacto pantalla <-> lienzo)
+  // Canvas Signature Functions
   const getPos = (e: any) => {
     const canvas = canvasRef.current
     if (!canvas) return { x: 0, y: 0 }
@@ -237,55 +341,50 @@ export default function MiPerfilPage() {
   }
 
   const stopDrawing = () => {
+    if (!isDrawing) return
     setIsDrawing(false)
+    const canvas = canvasRef.current
+    if (canvas) {
+      const dataUrl = canvas.toDataURL('image/png')
+      setDocForm((prev) => ({ ...prev, firma_base64: dataUrl }))
+    }
   }
 
   const clearCanvas = () => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    if (ctx) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+    }
     setHasFirmaDraft(false)
   }
 
-  const handleSave = async () => {
+  const handleSaveDocProfile = async (e: React.FormEvent) => {
+    e.preventDefault()
     setSaving(true)
     setMsg({ type: '', text: '' })
+
     try {
-      let finalFirma = docForm.firma_base64
-      if (hasFirmaDraft && canvasRef.current) {
-        finalFirma = canvasRef.current.toDataURL('image/png')
-      }
-
-      const updatedDoc: DoctorCofeprisProfile = {
+      const updatedDoc = {
         ...docForm,
-        firma_base64: finalFirma,
+        es_dr_principal: docForm.es_dr_principal || isDrPrincipal,
       }
-
-      // 1. Guardar en catálogo multi-médico local (soporta múltiples doctores cada uno con su firma)
       const updatedList = saveDoctorProfile(updatedDoc)
       setDoctorProfiles(updatedList)
-      setDocForm(updatedDoc)
-      setActiveDoctorId(updatedDoc.id)
 
-      // 2. Si corresponde al usuario logueado actual, sincronizar columnas oficiales en Supabase `perfiles`
       if (sessionProfile?.id && updatedDoc.id === sessionProfile.id) {
-        const { error: profileError } = await supabase
+        await supabase
           .from('perfiles')
           .update({
             apodo,
             id_clinica: idClinica || null,
-            cedula_profesional: updatedDoc.cedula_profesional,
-            universidad: updatedDoc.institucion_titulo,
-            especialidad: updatedDoc.especialidad,
-            domicilio_consultorio: updatedDoc.domicilio_consultorio,
-            telefono_consultorio: updatedDoc.telefono_consultorio,
-            firma: finalFirma || null,
+            firma: updatedDoc.firma_base64 || null,
+            cedula_profesional: updatedDoc.cedula_profesional || null,
+            institucion_titulo: updatedDoc.institucion_titulo || null,
+            especialidad: updatedDoc.especialidad || null,
           })
           .eq('id', sessionProfile.id)
-
-        if (profileError) throw profileError
       } else if (sessionProfile?.id) {
         await supabase
           .from('perfiles')
@@ -296,8 +395,7 @@ export default function MiPerfilPage() {
           .eq('id', sessionProfile.id)
       }
 
-      if (password.trim() !== '') {
-        if (password.length < 6) throw new Error('La contraseña debe tener al menos 6 caracteres')
+      if (password) {
         const { error: authError } = await supabase.auth.updateUser({ password })
         if (authError) throw authError
       }
@@ -306,7 +404,7 @@ export default function MiPerfilPage() {
       clearCanvas()
       setMsg({
         type: 'success',
-        text: `Perfil y firma digital de "${updatedDoc.nombre_completo}" guardados correctamente.`,
+        text: `Perfil y credenciales guardados correctamente.`,
       })
       setPassword('')
     } catch (error: any) {
@@ -388,30 +486,65 @@ export default function MiPerfilPage() {
 
   if (!profile) return null
 
-  const activeRoleLower = (profile.rol || '').toLowerCase()
-  const isMedico =
-    activeRoleLower.includes('médic') ||
-    activeRoleLower.includes('medic') ||
-    activeRoleLower.includes('admin') ||
-    activeRoleLower.includes('sistemas') ||
-    activeRoleLower.includes('recursos')
-  const isDrPrincipal =
-    activeRoleLower.includes('jefe médico') ||
-    activeRoleLower.includes('jefe medico') ||
-    activeRoleLower.includes('admin') ||
-    activeRoleLower.includes('sistemas') ||
-    Boolean(docForm.es_dr_principal)
-
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
+      {/* ===================================================================== */}
+      {/* ENCABEZADO PRINCIPAL DE MI PERFIL                                     */}
+      {/* ===================================================================== */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-black text-zinc-900 uppercase tracking-wide">
-            Mi Perfil Profesional y Configuración Médica COFEPRIS
-          </h2>
-          <p className="text-sm text-zinc-500">
-            Cada doctor configura sus credenciales COFEPRIS y su firma digital autógrafa. El Dr. Principal personaliza el formato abierto de receta.
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl font-black text-zinc-900 dark:text-white uppercase tracking-wide">
+              Mi Perfil Oficial · Unidad El Herrero
+            </h2>
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500 text-zinc-950">
+              {profile.rol}
+            </span>
+          </div>
+          <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
+            Consulta y actualiza tu categoría laboral autorizada, trayectoria en mina y credenciales de acceso.
           </p>
+        </div>
+
+        {/* Pestañas de Navegación del Perfil */}
+        <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 self-start sm:self-auto overflow-x-auto no-scrollbar">
+          <button
+            onClick={() => setActiveTab('trayectoria')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'trayectoria'
+                ? 'bg-amber-500 text-zinc-950 shadow-sm'
+                : 'text-zinc-600 dark:text-zinc-300 hover:text-zinc-900'
+            }`}
+          >
+            <HardHat className="w-3.5 h-3.5" />
+            <span>♟️ Trayectoria en Mina & Escalafón</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('cuenta')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'cuenta'
+                ? 'bg-zinc-900 text-white shadow-sm'
+                : 'text-zinc-600 dark:text-zinc-300 hover:text-zinc-900'
+            }`}
+          >
+            <User className="w-3.5 h-3.5" />
+            <span>👤 Datos de Cuenta & Clave</span>
+          </button>
+
+          {isMedico && (
+            <button
+              onClick={() => setActiveTab('medico')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === 'medico'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-zinc-600 dark:text-zinc-300 hover:text-zinc-900'
+              }`}
+            >
+              <Stethoscope className="w-3.5 h-3.5" />
+              <span>🩺 Receta Médica COFEPRIS</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -428,617 +561,616 @@ export default function MiPerfilPage() {
         </div>
       )}
 
-      {/* TARJETA PRINCIPAL DE PERFIL Y FIRMA DEL DOCTOR */}
-      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-zinc-200 shadow-sm">
-        <div className="flex flex-col lg:flex-row items-start gap-8">
-          {/* Foto */}
-          <div className="flex flex-col items-center space-y-3 shrink-0 self-center lg:self-start">
-            <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-              <div className="w-28 h-28 rounded-full border-4 border-white shadow-lg overflow-hidden bg-zinc-100 flex items-center justify-center">
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                ) : (
-                  <User className="w-12 h-12 text-zinc-400" />
+      {/* ===================================================================== */}
+      {/* VISTA 1: TRAYECTORIA EN MINA & ESCALAFÓN (PUESTO, HISTORIAL Y CAMBIO) */}
+      {/* ===================================================================== */}
+      {activeTab === 'trayectoria' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <TrayectoriaMinaHistorial
+            idEmpleado={empleadoData?.id_empleado}
+            numeroEmpleado={empleadoData?.numero_empleado}
+            nombreEmpleado={empleadoData?.nombre || sessionProfile?.nombre_completo || profile.nombre_completo}
+            puestoActual={empleadoData?.puesto}
+            departamentoActual={empleadoData?.departamento}
+            fechaIngreso={empleadoData?.fecha_ingreso}
+            canManage={isDrPrincipal || activeRoleLower.includes('admin') || activeRoleLower.includes('recursos') || activeRoleLower.includes('jefe') || activeRoleLower.includes('superintendente')}
+            currentUserRole={sessionProfile?.rol || profile.rol}
+            currentUserName={sessionProfile?.nombre_completo || profile.nombre_completo}
+            onPuestoActualizado={(nuevoPuesto, nuevoDepto) => {
+              setEmpleadoData((prev) =>
+                prev ? { ...prev, puesto: nuevoPuesto, departamento: nuevoDepto } : prev
+              )
+              setMsg({
+                type: 'success',
+                text: `¡Tu puesto oficial ha sido actualizado a "${nuevoPuesto}" en "${nuevoDepto}"!`,
+              })
+            }}
+          />
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* VISTA 2: DATOS DE CUENTA Y CLAVE (FOTO, ALIAS, CONTRASEÑA)            */}
+      {/* ===================================================================== */}
+      {activeTab === 'cuenta' && (
+        <div className="bg-white dark:bg-zinc-900 p-6 sm:p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-6 animate-in fade-in duration-300">
+          <div className="flex flex-col lg:flex-row items-start gap-8">
+            {/* Foto */}
+            <div className="flex flex-col items-center space-y-3 shrink-0 self-center lg:self-start">
+              <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                <div className="w-28 h-28 rounded-full border-4 border-white dark:border-zinc-800 shadow-lg overflow-hidden bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-12 h-12 text-zinc-400" />
+                  )}
+                </div>
+                <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <Camera className="w-7 h-7 text-white" />
+                </div>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  accept="image/*"
+                  className="hidden"
+                />
+              </div>
+              <p className="text-xs text-zinc-500 font-bold uppercase tracking-wider">Cambiar Foto</p>
+              <div className="text-center px-3 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[11px] font-black text-zinc-700 dark:text-zinc-300">
+                {profile.rol}
+              </div>
+            </div>
+
+            {/* Formulario */}
+            <form onSubmit={handleSaveDocProfile} className="flex-1 space-y-6 w-full">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase mb-1.5">
+                    Usuario de Sesión Oficial
+                  </label>
+                  <input
+                    type="text"
+                    disabled
+                    value={sessionProfile?.nombre_completo || profile.nombre_completo}
+                    className="w-full border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 rounded-xl p-3 text-sm text-zinc-500 font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-900 dark:text-white uppercase mb-1.5">
+                    Apodo / Alias (Para Chat)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Minero Juan..."
+                    value={apodo}
+                    onChange={(e) => setApodo(e.target.value)}
+                    className="w-full border border-zinc-300 dark:border-zinc-700 rounded-xl p-3 text-sm bg-white dark:bg-zinc-800 focus:ring-amber-500 focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-900 dark:text-white uppercase mb-1.5">
+                    Cambiar Contraseña de Acceso
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="password"
+                      placeholder="Escribe para cambiar la contraseña..."
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full border border-zinc-300 dark:border-zinc-700 rounded-xl p-3 text-sm bg-white dark:bg-zinc-800 pr-10 focus:ring-amber-500 focus:border-amber-500"
+                    />
+                    <Lock className="w-4 h-4 text-zinc-400 absolute right-3 top-3.5" />
+                  </div>
+                </div>
+
+                {isMedico && (
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-900 dark:text-white uppercase mb-1.5">
+                      Clínica Activa de Consulta
+                    </label>
+                    <select
+                      value={idClinica}
+                      onChange={(e) => setIdClinica(e.target.value)}
+                      className="w-full border border-zinc-300 dark:border-zinc-700 rounded-xl p-3 text-sm bg-white dark:bg-zinc-800 font-semibold"
+                    >
+                      <option value="">Seleccione clínica activa...</option>
+                      {clinicas.map((c) => (
+                        <option key={c.id_clinica} value={c.id_clinica}>
+                          {c.nombre} ({c.tipo})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 )}
               </div>
-              <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <Camera className="w-7 h-7 text-white" />
+
+              <div className="flex justify-end pt-4 border-t border-zinc-200 dark:border-zinc-800">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-sm flex items-center gap-2 shadow-lg shadow-amber-500/20 cursor-pointer"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Guardar Datos de Cuenta</span>
+                    </>
+                  )}
+                </button>
               </div>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                accept="image/*"
-                className="hidden"
-              />
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* VISTA 3: CONFIGURACIÓN MÉDICA COFEPRIS Y FIRMA (MÉDICOS Y ADMINS)     */}
+      {/* ===================================================================== */}
+      {activeTab === 'medico' && isMedico && (
+        <div className="bg-white dark:bg-zinc-900 p-6 sm:p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-6 animate-in fade-in duration-300">
+          <div className="bg-zinc-50/80 dark:bg-zinc-800/50 p-5 sm:p-6 rounded-2xl border border-zinc-200 dark:border-zinc-700 space-y-5">
+            {/* Selector de Perfiles de Doctores */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-200 dark:border-zinc-700 pb-4">
+              <div>
+                <h3 className="text-sm font-black text-amber-700 dark:text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                  <Edit3 className="w-4 h-4" /> Perfil Profesional COFEPRIS y Firma Propia por Doctor
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                  Selecciona tu perfil o crea perfiles individuales para cada médico/profesional autorizado para que cada quien tenga su propia firma.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={selectedDocId}
+                  onChange={(e) => handleSelectDoctor(e.target.value)}
+                  className="border border-zinc-300 dark:border-zinc-600 rounded-xl px-3 py-2 text-xs font-black bg-white dark:bg-zinc-800"
+                >
+                  {doctorProfiles.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nombre_completo} ({d.es_dr_principal ? 'Dr. Principal' : d.categoria_emisor})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleCreateNewDoctorProfile}
+                  className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-black text-amber-400 text-xs font-black flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Nuevo Doctor</span>
+                </button>
+                {doctorProfiles.length > 1 && docForm.id !== sessionProfile?.id && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = deleteDoctorProfile(docForm.id)
+                      setDoctorProfiles(next)
+                      if (next[0]) handleSelectDoctor(next[0].id)
+                    }}
+                    className="p-2 rounded-xl bg-rose-100 text-rose-700 hover:bg-rose-200 cursor-pointer"
+                    title="Eliminar este perfil médico adicional"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
-            <p className="text-xs text-zinc-500 font-bold uppercase tracking-wider">Cambiar Foto</p>
-            <div className="text-center px-3 py-1 rounded-full bg-zinc-100 text-[11px] font-black text-zinc-700">
-              {profile.rol}
+
+            {/* Datos Obligatorios COFEPRIS del Profesional */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase mb-1">
+                  Nombre Completo del Profesional *
+                </label>
+                <input
+                  type="text"
+                  value={docForm.nombre_completo}
+                  onChange={(e) => setDocForm({ ...docForm, nombre_completo: e.target.value })}
+                  placeholder="Ej. Dr. Juan Antonio Ramírez López"
+                  className="w-full border border-zinc-300 dark:border-zinc-600 rounded-xl p-2.5 text-xs font-bold bg-white dark:bg-zinc-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase mb-1">
+                  Emisor Autorizado COFEPRIS (Art. 28 Bis LGS) *
+                </label>
+                <select
+                  value={docForm.categoria_emisor}
+                  onChange={(e) =>
+                    setDocForm({ ...docForm, categoria_emisor: e.target.value as CofeprisEmisorCategoriaId })
+                  }
+                  className="w-full border border-zinc-300 dark:border-zinc-600 rounded-xl p-2.5 text-xs font-semibold bg-white dark:bg-zinc-800"
+                >
+                  {COFEPRIS_EMISORES_AUTORIZADOS.map((em) => (
+                    <option key={em.id} value={em.id}>
+                      {em.codigo} — {em.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase mb-1">
+                  Número de Cédula Profesional *
+                </label>
+                <input
+                  type="text"
+                  value={docForm.cedula_profesional}
+                  onChange={(e) => setDocForm({ ...docForm, cedula_profesional: e.target.value })}
+                  placeholder="Ej. 12345678"
+                  className="w-full border border-zinc-300 dark:border-zinc-600 rounded-xl p-2.5 text-xs font-mono font-bold bg-white dark:bg-zinc-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase mb-1">
+                  Institución que Emite el Título *
+                </label>
+                <input
+                  type="text"
+                  value={docForm.institucion_titulo}
+                  onChange={(e) => setDocForm({ ...docForm, institucion_titulo: e.target.value })}
+                  placeholder="Ej. UNAM / UJED / IPN"
+                  className="w-full border border-zinc-300 dark:border-zinc-600 rounded-xl p-2.5 text-xs bg-white dark:bg-zinc-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase mb-1">
+                  Especialidad / Título
+                </label>
+                <input
+                  type="text"
+                  value={docForm.especialidad}
+                  onChange={(e) => setDocForm({ ...docForm, especialidad: e.target.value })}
+                  placeholder="Ej. Medicina del Trabajo / Médico Cirujano"
+                  className="w-full border border-zinc-300 dark:border-zinc-600 rounded-xl p-2.5 text-xs bg-white dark:bg-zinc-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase mb-1">
+                  Teléfono del Consultorio *
+                </label>
+                <input
+                  type="text"
+                  value={docForm.telefono_consultorio}
+                  onChange={(e) => setDocForm({ ...docForm, telefono_consultorio: e.target.value })}
+                  placeholder="Ej. (618) 123-4567"
+                  className="w-full border border-zinc-300 dark:border-zinc-600 rounded-xl p-2.5 text-xs bg-white dark:bg-zinc-800"
+                />
+              </div>
+
+              <div className="md:col-span-2 lg:col-span-3">
+                <label className="block text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase mb-1">
+                  Domicilio Completo del Consultorio *
+                </label>
+                <input
+                  type="text"
+                  value={docForm.domicilio_consultorio}
+                  onChange={(e) => setDocForm({ ...docForm, domicilio_consultorio: e.target.value })}
+                  placeholder="Ej. Unidad Minera El Herrero, Campamento Principal, Bacís, Dgo."
+                  className="w-full border border-zinc-300 dark:border-zinc-600 rounded-xl p-2.5 text-xs bg-white dark:bg-zinc-800"
+                />
+              </div>
+            </div>
+
+            {/* SECCIÓN DE CAPTURA DE FIRMA INDIVIDUAL */}
+            <div className="border-t border-zinc-200 dark:border-zinc-700 pt-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                <div>
+                  <h4 className="text-xs font-black uppercase text-zinc-900 dark:text-white flex items-center gap-1.5">
+                    <Edit3 className="w-4 h-4 text-amber-500" />
+                    Firma Digital Autógrafa de {docForm.nombre_completo}
+                  </h4>
+                  <p className="text-[11px] text-zinc-500">
+                    Dibuja en el recuadro con el mouse/pantalla táctil o sube una imagen PNG/JPG limpia de tu firma.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setInkColor('#0f172a')}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
+                      inkColor === '#0f172a' ? 'bg-zinc-900 text-white' : 'bg-white text-zinc-700'
+                    }`}
+                  >
+                    Tinta Negra
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInkColor('#1d4ed8')}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
+                      inkColor === '#1d4ed8' ? 'bg-blue-700 text-white' : 'bg-white text-zinc-700'
+                    }`}
+                  >
+                    Tinta Azul
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => signatureUploadRef.current?.click()}
+                    className="px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Upload className="w-3 h-3" />
+                    <span>Subir Imagen</span>
+                  </button>
+                  <input
+                    type="file"
+                    ref={signatureUploadRef}
+                    onChange={handleUploadSignatureImage}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  {docForm.firma_base64 && (
+                    <button
+                      type="button"
+                      onClick={clearSavedFirma}
+                      className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Borrar Firma</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                <div className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-2xl p-2 bg-white flex flex-col items-center justify-center relative">
+                  <canvas
+                    ref={canvasRef}
+                    width={500}
+                    height={160}
+                    onMouseDown={startDrawing}
+                    onMouseMove={draw}
+                    onMouseUp={stopDrawing}
+                    onMouseLeave={stopDrawing}
+                    onTouchStart={startDrawing}
+                    onTouchMove={draw}
+                    onTouchEnd={stopDrawing}
+                    className="w-full h-36 touch-none cursor-crosshair rounded-xl"
+                  />
+                  <div className="w-full flex items-center justify-between pt-1 px-1 border-t border-zinc-100 text-[10px] text-zinc-400">
+                    <span>Lienzo de dibujo táctil / mouse</span>
+                    <button
+                      type="button"
+                      onClick={clearCanvas}
+                      className="text-amber-600 font-bold hover:underline"
+                    >
+                      Limpiar trazo
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex flex-col items-center justify-center min-h-[140px]">
+                  <span className="text-[10px] font-bold uppercase text-zinc-400 mb-2">
+                    Vista Previa de la Firma Activa
+                  </span>
+                  {docForm.firma_base64 ? (
+                    <img
+                      src={docForm.firma_base64}
+                      alt="Firma Activa"
+                      className="max-h-24 max-w-full object-contain filter contrast-125"
+                    />
+                  ) : (
+                    <span className="text-xs text-zinc-400 italic">
+                      Aún no hay firma capturada para este profesional.
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-3">
+              <button
+                type="button"
+                onClick={handleSaveDocProfile}
+                disabled={saving}
+                className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs flex items-center gap-2 shadow-md cursor-pointer"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Guardando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Guardar Perfil y Firma del Doctor</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
-          {/* Formulario */}
-          <div className="flex-1 space-y-6 w-full">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-zinc-500 uppercase mb-1.5">
-                  Usuario de Sesión
-                </label>
-                <input
-                  type="text"
-                  disabled
-                  value={sessionProfile?.nombre_completo || profile.nombre_completo}
-                  className="w-full border border-zinc-200 bg-zinc-50 rounded-xl p-3 text-sm text-zinc-500 font-bold"
-                />
+          {/* ===================================================================== */}
+          {/* PANEL EXCLUSIVO DEL DR. PRINCIPAL / JEFE MÉDICO                       */}
+          {/* ===================================================================== */}
+          <div className="p-6 rounded-3xl bg-zinc-900 text-white space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="w-5 h-5 text-amber-400" />
+                  <h3 className="font-black text-base uppercase tracking-wide">
+                    Panel del Dr. Principal · Personalizador Abierto de Receta COFEPRIS
+                  </h3>
+                </div>
+                <p className="text-xs text-zinc-400">
+                  Bacís no extiende recetas comerciales. Marca o desmarca qué elementos deben aparecer. La receta se adapta automáticamente y uniforme.
+                </p>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-zinc-900 uppercase mb-1.5">
-                  Apodo / Alias (Para Chat)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej: Dr. Martinez..."
-                  value={apodo}
-                  onChange={(e) => setApodo(e.target.value)}
-                  className="w-full border border-zinc-300 rounded-xl p-3 text-sm focus:ring-black focus:border-black"
-                />
-              </div>
-
-              {isMedico && (
-                <div>
-                  <label className="block text-xs font-bold text-zinc-900 uppercase mb-1.5">
-                    Clínica Activa de Consulta
-                  </label>
-                  <select
-                    value={idClinica}
-                    onChange={(e) => setIdClinica(e.target.value)}
-                    className="w-full border border-zinc-300 rounded-xl p-3 text-sm bg-white font-semibold"
-                  >
-                    <option value="">Seleccione clínica activa...</option>
-                    {clinicas.map((c) => (
-                      <option key={c.id_clinica} value={c.id_clinica}>
-                        {c.nombre} ({c.tipo})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            {isMedico && (
-              <div className="bg-zinc-50/80 p-5 sm:p-6 rounded-2xl border border-zinc-200 space-y-5">
-                {/* Selector de Perfiles de Doctores */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-200 pb-4">
-                  <div>
-                    <h3 className="text-sm font-black text-amber-700 uppercase tracking-wider flex items-center gap-2">
-                      <Edit3 className="w-4 h-4" /> Perfil Profesional COFEPRIS y Firma Propia por Doctor
-                    </h3>
-                    <p className="text-xs text-zinc-500 mt-0.5">
-                      Selecciona tu perfil o crea perfiles individuales para cada médico/profesional autorizado para que cada quien tenga su propia firma.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      value={selectedDocId}
-                      onChange={(e) => handleSelectDoctor(e.target.value)}
-                      className="border border-zinc-300 rounded-xl px-3 py-2 text-xs font-black bg-white"
-                    >
-                      {doctorProfiles.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.nombre_completo} ({d.es_dr_principal ? 'Dr. Principal' : d.categoria_emisor})
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={handleCreateNewDoctorProfile}
-                      className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-black text-amber-400 text-xs font-black flex items-center gap-1 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Nuevo Doctor</span>
-                    </button>
-                    {doctorProfiles.length > 1 && docForm.id !== sessionProfile?.id && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = deleteDoctorProfile(docForm.id)
-                          setDoctorProfiles(next)
-                          if (next[0]) handleSelectDoctor(next[0].id)
-                        }}
-                        className="p-2 rounded-xl bg-rose-100 text-rose-700 hover:bg-rose-200 cursor-pointer"
-                        title="Eliminar este perfil médico adicional"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Datos Obligatorios COFEPRIS del Profesional */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-800 uppercase mb-1">
-                      Nombre Completo del Profesional *
-                    </label>
-                    <input
-                      type="text"
-                      value={docForm.nombre_completo}
-                      onChange={(e) => setDocForm({ ...docForm, nombre_completo: e.target.value })}
-                      placeholder="Ej. Dr. Juan Antonio Ramírez López"
-                      className="w-full border border-zinc-300 rounded-xl p-2.5 text-xs font-bold bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-800 uppercase mb-1">
-                      Emisor Autorizado COFEPRIS (Art. 28 Bis LGS) *
-                    </label>
-                    <select
-                      value={docForm.categoria_emisor}
-                      onChange={(e) =>
-                        setDocForm({
-                          ...docForm,
-                          categoria_emisor: e.target.value as CofeprisEmisorCategoriaId,
-                        })
-                      }
-                      className="w-full border border-zinc-300 rounded-xl p-2.5 text-xs font-bold bg-white"
-                    >
-                      {COFEPRIS_EMISORES_AUTORIZADOS.map((em) => (
-                        <option key={em.id} value={em.id}>
-                          {em.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-800 uppercase mb-1">
-                      Número de Cédula Profesional *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ej. 12204901"
-                      value={docForm.cedula_profesional}
-                      onChange={(e) =>
-                        setDocForm({ ...docForm, cedula_profesional: e.target.value })
-                      }
-                      className="w-full border border-zinc-300 rounded-xl p-2.5 text-xs font-bold bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-800 uppercase mb-1">
-                      Institución que Emite el Título *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ej. Universidad Juárez del Estado de Durango"
-                      value={docForm.institucion_titulo}
-                      onChange={(e) =>
-                        setDocForm({ ...docForm, institucion_titulo: e.target.value })
-                      }
-                      className="w-full border border-zinc-300 rounded-xl p-2.5 text-xs font-semibold bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-800 uppercase mb-1">
-                      Especialidad / Área de Competencia
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ej. Medicina General, Odontología, Homeopatía..."
-                      value={docForm.especialidad}
-                      onChange={(e) => setDocForm({ ...docForm, especialidad: e.target.value })}
-                      className="w-full border border-zinc-300 rounded-xl p-2.5 text-xs font-semibold bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-800 uppercase mb-1">
-                      Teléfono del Consultorio *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ej. 618-123-4567"
-                      value={docForm.telefono_consultorio}
-                      onChange={(e) =>
-                        setDocForm({ ...docForm, telefono_consultorio: e.target.value })
-                      }
-                      className="w-full border border-zinc-300 rounded-xl p-2.5 text-xs font-semibold bg-white"
-                    />
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-zinc-800 uppercase mb-1">
-                      Domicilio Completo del Consultorio *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Calle, número, colonia, C.P., municipio y estado..."
-                      value={docForm.domicilio_consultorio}
-                      onChange={(e) =>
-                        setDocForm({ ...docForm, domicilio_consultorio: e.target.value })
-                      }
-                      className="w-full border border-zinc-300 rounded-xl p-2.5 text-xs font-semibold bg-white"
-                    />
-                  </div>
-
-                  <div className="flex items-end pb-1">
-                    <label className="flex items-center gap-2 text-xs font-black text-indigo-900 bg-indigo-50 border border-indigo-200 px-3 py-2.5 rounded-xl w-full cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(docForm.es_dr_principal)}
-                        onChange={(e) =>
-                          setDocForm({ ...docForm, es_dr_principal: e.target.checked })
-                        }
-                      />
-                      <span>Designar como Dr. Principal (Jefe Médico)</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Captura de Firma Autógrafa Individual */}
-                <div className="pt-2 border-t border-zinc-200">
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <label className="text-xs font-black text-zinc-800 uppercase">
-                      ✍️ Firma Digital Autógrafa de {docForm.nombre_completo || 'este Doctor'}
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setInkColor('#0f172a')}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black border cursor-pointer ${
-                          inkColor === '#0f172a'
-                            ? 'bg-zinc-900 text-white border-zinc-900'
-                            : 'bg-white text-zinc-700 border-zinc-300'
-                        }`}
-                      >
-                        Tinta Negra
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setInkColor('#1d4ed8')}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black border cursor-pointer ${
-                          inkColor === '#1d4ed8'
-                            ? 'bg-blue-700 text-white border-blue-700'
-                            : 'bg-white text-blue-700 border-blue-200'
-                        }`}
-                      >
-                        Tinta Azul
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => signatureUploadRef.current?.click()}
-                        className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 text-[10px] font-black flex items-center gap-1 cursor-pointer"
-                      >
-                        <Upload className="w-3 h-3" />
-                        <span>Subir Firma (PNG/JPG)</span>
-                      </button>
-                      <input
-                        ref={signatureUploadRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleUploadSignatureImage}
-                        className="hidden"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-                    <div className="space-y-2">
-                      <div className="border-2 border-dashed border-zinc-300 bg-white rounded-xl overflow-hidden touch-none relative shadow-inner">
-                        <canvas
-                          ref={canvasRef}
-                          width={460}
-                          height={160}
-                          onMouseDown={startDrawing}
-                          onMouseMove={draw}
-                          onMouseUp={stopDrawing}
-                          onMouseLeave={stopDrawing}
-                          onTouchStart={startDrawing}
-                          onTouchMove={draw}
-                          onTouchEnd={stopDrawing}
-                          className="w-full h-40 cursor-crosshair block"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={clearCanvas}
-                          className="px-3 py-1.5 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-[11px] font-black uppercase cursor-pointer"
-                        >
-                          Limpiar Lienzo
-                        </button>
-                        <span className="text-[11px] text-zinc-500 font-bold">
-                          Dibuja tu firma con mouse o pantalla táctil
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="border border-zinc-200 bg-white p-4 rounded-xl flex flex-col justify-center items-center text-center h-40">
-                      {docForm.firma_base64 ? (
-                        <div className="relative group w-full h-full flex flex-col justify-between items-center">
-                          <img
-                            src={docForm.firma_base64}
-                            alt="Firma digital"
-                            className="max-h-24 object-contain bg-white border rounded p-2"
-                          />
-                          <button
-                            type="button"
-                            onClick={clearSavedFirma}
-                            className="text-xs text-rose-600 font-black hover:text-rose-700 flex items-center gap-1 cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" /> Eliminar Firma Guardada
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="text-zinc-400 text-xs font-bold">
-                          Sin firma digital guardada para este médico.
-                          <br />
-                          <span className="font-normal text-[11px] text-zinc-500">
-                            Dibuja tu firma en el recuadro izquierdo o sube una imagen y presiona &quot;Guardar Cambios&quot;.
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="pt-3 border-t border-zinc-100 grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-              <div>
-                <label className="block text-xs font-bold text-zinc-900 uppercase mb-1.5 flex items-center">
-                  <Lock className="w-4 h-4 mr-2" />
-                  Cambiar Contraseña (Opcional)
-                </label>
-                <input
-                  type="password"
-                  placeholder="Dejar en blanco para no cambiar..."
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full border border-zinc-300 rounded-xl p-3 text-sm"
-                />
-              </div>
-
-              <div className="flex justify-end">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="flex items-center space-x-2 bg-zinc-950 hover:bg-black text-amber-400 px-6 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-colors shadow-lg disabled:opacity-50 cursor-pointer"
+                  type="button"
+                  onClick={() => {
+                    const preset = applyCofeprisPreset(recetaConfig, 'COFEPRIS_COMPLETA')
+                    handleSaveTemplateConfig(preset)
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-xs font-bold"
                 >
-                  {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                  <span>{saving ? 'Guardando...' : 'Guardar Perfil y Firma'}</span>
+                  Preset: Oficial COFEPRIS Completa
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const preset = applyCofeprisPreset(recetaConfig, 'COMPACTA')
+                    handleSaveTemplateConfig(preset)
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold"
+                >
+                  Preset: Consulta Breve Mina
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTemplatePreview(!showTemplatePreview)}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500 text-zinc-950 text-xs font-black flex items-center gap-1"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>{showTemplatePreview ? 'Ocultar Preview' : 'Ver Preview'}</span>
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
 
-      {/* PANEL DEL DR. PRINCIPAL: CONFIGURADOR DE CAMPOS Y FORMATO ABIERTO COFEPRIS */}
-      {isMedico && (
-        <div className="bg-white p-6 sm:p-8 rounded-3xl border-2 border-amber-300/80 shadow-sm space-y-6">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-zinc-100 pb-4">
-            <div>
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black uppercase mb-1">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Panel del Dr. Principal (Jefe Médico) · Normativa Mexicana &amp; COFEPRIS</span>
-              </div>
-              <h3 className="text-lg sm:text-xl font-black text-zinc-900 uppercase">
-                Personalización Abierta de Campos de Receta Médica
-              </h3>
-              <p className="text-xs text-zinc-500 mt-0.5">
-                Como Bacís no extiende recetas cerradas, el encabezado es totalmente abierto y el Dr. Principal puede apagar o activar cualquier campo. La receta se reacomoda uniformemente en automático.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() =>
-                  handleSaveTemplateConfig(applyCofeprisPreset(recetaConfig, 'COFEPRIS_COMPLETA'))
-                }
-                className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer"
-              >
-                ✓ Todos COFEPRIS
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  handleSaveTemplateConfig(applyCofeprisPreset(recetaConfig, 'SOLO_OBLIGATORIOS'))
-                }
-                className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-black cursor-pointer"
-              >
-                Solo 16 Obligatorios
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  handleSaveTemplateConfig(applyCofeprisPreset(recetaConfig, 'COMPACTA'))
-                }
-                className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-black text-white text-xs font-black cursor-pointer"
-              >
-                Formato Compacto
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowTemplatePreview(!showTemplatePreview)}
-                className="px-3 py-2 rounded-xl bg-indigo-50 text-indigo-800 border border-indigo-200 text-xs font-black flex items-center gap-1 cursor-pointer"
-              >
-                <Eye className="w-4 h-4" />
-                <span>{showTemplatePreview ? 'Ocultar Vista Previa' : 'Ver Vista Previa'}</span>
-              </button>
-            </div>
-          </div>
-
-          {!isDrPrincipal && (
-            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 font-semibold">
-              💡 Marca arriba &quot;Designar como Dr. Principal (Jefe Médico)&quot; o inicia con rol <strong>Jefe Médico</strong> para administrar el formato oficial del consultorio.
-            </div>
-          )}
-
-          {/* Encabezado Abierto Editable */}
-          <div className="bg-zinc-50 rounded-2xl border border-zinc-200 p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="text-xs font-black uppercase text-zinc-800 flex items-center gap-1.5">
-                <SlidersHorizontal className="w-4 h-4 text-amber-600" />
-                <span>Formato Abierto de Receta (Sin Membrete Institucional Cerrado)</span>
-              </h4>
-              <label className="flex items-center gap-2 text-xs font-black text-zinc-900 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={recetaConfig.modo_abierto_sin_membrete_empresa}
-                  onChange={(e) =>
-                    handleSaveTemplateConfig({
-                      ...recetaConfig,
-                      modo_abierto_sin_membrete_empresa: e.target.checked,
-                    })
-                  }
-                />
-                <span>Modo Abierto (Sin logo de empresa cerrado)</span>
-              </label>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Configuración de Encabezado Institucional de la Receta */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-900">
               <div>
-                <label className="block text-[10px] font-black uppercase text-zinc-500 mb-1">
-                  Encabezado Abierto del Consultorio
+                <label className="block text-[11px] font-bold text-zinc-400 uppercase mb-1">
+                  Razón Social / Título Superior
                 </label>
                 <input
                   type="text"
                   value={recetaConfig.titulo_consultorio_abierto}
                   onChange={(e) =>
-                    handleSaveTemplateConfig({
-                      ...recetaConfig,
-                      titulo_consultorio_abierto: e.target.value,
-                    })
+                    handleSaveTemplateConfig({ ...recetaConfig, titulo_consultorio_abierto: e.target.value })
                   }
-                  className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-bold bg-white"
+                  className="w-full border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold bg-zinc-900 text-white"
                 />
               </div>
+
               <div>
-                <label className="block text-[10px] font-black uppercase text-zinc-500 mb-1">
-                  Subtítulo / Etiqueta Superior
+                <label className="block text-[11px] font-bold text-zinc-400 uppercase mb-1">
+                  Subtítulo / Unidad Minera
                 </label>
                 <input
                   type="text"
                   value={recetaConfig.subtitulo_receta}
                   onChange={(e) =>
-                    handleSaveTemplateConfig({
-                      ...recetaConfig,
-                      subtitulo_receta: e.target.value,
-                    })
+                    handleSaveTemplateConfig({ ...recetaConfig, subtitulo_receta: e.target.value })
                   }
-                  className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-bold bg-white"
+                  className="w-full border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold bg-zinc-900 text-white"
                 />
               </div>
+
               <div>
-                <label className="block text-[10px] font-black uppercase text-zinc-500 mb-1">
-                  Leyenda / Pie Abierto
+                <label className="block text-[11px] font-bold text-zinc-400 uppercase mb-1">
+                  Texto al Pie / Advertencia Legal
                 </label>
                 <input
                   type="text"
                   value={recetaConfig.nota_abierta_pie}
                   onChange={(e) =>
-                    handleSaveTemplateConfig({
-                      ...recetaConfig,
-                      nota_abierta_pie: e.target.value,
-                    })
+                    handleSaveTemplateConfig({ ...recetaConfig, nota_abierta_pie: e.target.value })
                   }
-                  className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-bold bg-white"
+                  className="w-full border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold bg-zinc-900 text-white"
                 />
               </div>
             </div>
-          </div>
 
-          {/* 3 Columnas de Switches COFEPRIS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Grupo 1 */}
-            <div className="p-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 space-y-2.5">
-              <h4 className="text-xs font-black uppercase text-sky-900 border-b border-zinc-200 pb-2">
-                1. Obligatorios COFEPRIS — Médico
-              </h4>
-              {COFEPRIS_FIELD_CATALOG.filter((f) => f.grupo === 'OBLIGATORIOS_MEDICO').map((f) => (
-                <label key={f.key} className="flex items-center justify-between gap-2 text-xs font-bold text-zinc-800 cursor-pointer py-1">
-                  <span>{f.label}</span>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(recetaConfig[f.key])}
-                    onChange={(e) =>
-                      handleSaveTemplateConfig({ ...recetaConfig, [f.key]: e.target.checked })
-                    }
-                    className="w-4 h-4 accent-amber-500"
-                  />
-                </label>
-              ))}
-            </div>
-
-            {/* Grupo 2 */}
-            <div className="p-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 space-y-2.5">
-              <h4 className="text-xs font-black uppercase text-amber-900 border-b border-zinc-200 pb-2">
-                2. Obligatorios COFEPRIS — Tratamiento
-              </h4>
-              {COFEPRIS_FIELD_CATALOG.filter((f) => f.grupo === 'OBLIGATORIOS_TRATAMIENTO').map((f) => (
-                <label key={f.key} className="flex items-center justify-between gap-2 text-xs font-bold text-zinc-800 cursor-pointer py-1">
-                  <span>{f.label}</span>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(recetaConfig[f.key])}
-                    onChange={(e) =>
-                      handleSaveTemplateConfig({ ...recetaConfig, [f.key]: e.target.checked })
-                    }
-                    className="w-4 h-4 accent-amber-500"
-                  />
-                </label>
-              ))}
-            </div>
-
-            {/* Grupo 3 + Visuales */}
-            <div className="p-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 space-y-2.5">
-              <h4 className="text-xs font-black uppercase text-emerald-900 border-b border-zinc-200 pb-2">
-                3. Recomendados COFEPRIS — Paciente / Vitales
-              </h4>
-              {COFEPRIS_FIELD_CATALOG.filter(
-                (f) => f.grupo === 'RECOMENDADOS_PACIENTE' || f.grupo === 'VISUALES'
-              ).map((f) => (
-                <label key={f.key} className="flex items-center justify-between gap-2 text-xs font-bold text-zinc-800 cursor-pointer py-1">
-                  <span>{f.label}</span>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(recetaConfig[f.key])}
-                    onChange={(e) =>
-                      handleSaveTemplateConfig({ ...recetaConfig, [f.key]: e.target.checked })
-                    }
-                    className="w-4 h-4 accent-emerald-600"
-                  />
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Vista Previa Adaptable en Vivo */}
-          {showTemplatePreview && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black uppercase text-zinc-700 flex items-center gap-1.5">
-                  <FileText className="w-4 h-4 text-amber-600" />
-                  Vista Previa Dinámica (La receta se adapta uniformemente al instante según los campos activos)
-                </span>
+            {/* 3 Columnas de Switches COFEPRIS */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-zinc-900">
+              {/* Grupo 1 */}
+              <div className="p-4 rounded-2xl border border-zinc-800 bg-zinc-950 space-y-2.5">
+                <h4 className="text-xs font-black uppercase text-amber-400 border-b border-zinc-800 pb-2">
+                  1. Obligatorios COFEPRIS — Médico
+                </h4>
+                {COFEPRIS_FIELD_CATALOG.filter((f) => f.grupo === 'OBLIGATORIOS_MEDICO').map((f) => (
+                  <label key={f.key} className="flex items-center justify-between gap-2 text-xs font-bold text-zinc-300 cursor-pointer py-1">
+                    <span>{f.label}</span>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(recetaConfig[f.key])}
+                      onChange={(e) =>
+                        handleSaveTemplateConfig({ ...recetaConfig, [f.key]: e.target.checked })
+                      }
+                      className="w-4 h-4 accent-amber-500"
+                    />
+                  </label>
+                ))}
               </div>
-              <div className="rounded-2xl border-2 border-zinc-300 overflow-hidden bg-zinc-100">
-                <iframe
-                  title="Vista Previa Receta COFEPRIS"
-                  srcDoc={previewHtml}
-                  className="w-full h-[640px] border-0 bg-white"
-                />
+
+              {/* Grupo 2 */}
+              <div className="p-4 rounded-2xl border border-zinc-800 bg-zinc-950 space-y-2.5">
+                <h4 className="text-xs font-black uppercase text-amber-400 border-b border-zinc-800 pb-2">
+                  2. Obligatorios COFEPRIS — Tratamiento
+                </h4>
+                {COFEPRIS_FIELD_CATALOG.filter((f) => f.grupo === 'OBLIGATORIOS_TRATAMIENTO').map((f) => (
+                  <label key={f.key} className="flex items-center justify-between gap-2 text-xs font-bold text-zinc-300 cursor-pointer py-1">
+                    <span>{f.label}</span>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(recetaConfig[f.key])}
+                      onChange={(e) =>
+                        handleSaveTemplateConfig({ ...recetaConfig, [f.key]: e.target.checked })
+                      }
+                      className="w-4 h-4 accent-amber-500"
+                    />
+                  </label>
+                ))}
+              </div>
+
+              {/* Grupo 3 + Visuales */}
+              <div className="p-4 rounded-2xl border border-zinc-800 bg-zinc-950 space-y-2.5">
+                <h4 className="text-xs font-black uppercase text-emerald-400 border-b border-zinc-800 pb-2">
+                  3. Recomendados COFEPRIS — Paciente / Vitales
+                </h4>
+                {COFEPRIS_FIELD_CATALOG.filter(
+                  (f) => f.grupo === 'RECOMENDADOS_PACIENTE' || f.grupo === 'VISUALES'
+                ).map((f) => (
+                  <label key={f.key} className="flex items-center justify-between gap-2 text-xs font-bold text-zinc-300 cursor-pointer py-1">
+                    <span>{f.label}</span>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(recetaConfig[f.key])}
+                      onChange={(e) =>
+                        handleSaveTemplateConfig({ ...recetaConfig, [f.key]: e.target.checked })
+                      }
+                      className="w-4 h-4 accent-emerald-500"
+                    />
+                  </label>
+                ))}
               </div>
             </div>
-          )}
+
+            {/* Vista Previa Adaptable en Vivo */}
+            {showTemplatePreview && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase text-zinc-300 flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-amber-400" />
+                    Vista Previa Dinámica (La receta se adapta uniformemente al instante según los campos activos)
+                  </span>
+                </div>
+                <div className="rounded-2xl border-2 border-zinc-700 overflow-hidden bg-white">
+                  <iframe
+                    title="Vista Previa Receta COFEPRIS"
+                    srcDoc={previewHtml}
+                    className="w-full h-[640px] border-0 bg-white"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
