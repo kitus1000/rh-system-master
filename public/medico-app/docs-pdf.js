@@ -666,9 +666,10 @@
       <div class="grid">
         <div class="cell"><span>Paciente</span><strong>${esc(pase.paciente_nombre || pase.pacientes?.nombre_completo || '—')}</strong></div>
         <div class="cell"><span>Parentesco / Trabajador</span><strong>${esc(pase.parentesco || 'TITULAR')} — ${esc(pase.nombre_trabajador || '')}</strong></div>
+        <div class="cell"><span>Departamento / Puesto</span><strong>${esc(pase.departamento_pasajero || '—')}</strong></div>
         <div class="cell"><span>Se Refiere A (Clínica Destino)</span><strong>${esc(pase.unidad_se_refiere || '—')}</strong></div>
         <div class="cell"><span>Servicio / Especialidad</span><strong>${esc(pase.servicio_se_envia || 'VALORACIÓN MÉDICA')}</strong></div>
-        <div class="cell"><span>Fecha Salida / Cita</span><strong>${esc(pase.fecha_salida || '—')} ${pase.fecha_cita ? `| Cita: ${esc(pase.fecha_cita)}` : ''}</strong></div>
+        <div class="cell"><span>Fecha Salida / Retorno</span><strong>${esc(pase.fecha_salida || '—')} ${pase.fecha_retorno ? `| Retorno: ${esc(pase.fecha_retorno)}` : ''} ${pase.fecha_cita ? `| Cita: ${esc(pase.fecha_cita)}` : ''}</strong></div>
         <div class="cell"><span>Transporte / Hotel</span><strong>${esc(pase.medio_transporte || 'VIA TERRESTRE')} ${pase.requiere_hotel ? `· HOTEL: ${esc(pase.hotel_nombre || 'AUTORIZADO')}` : ''}</strong></div>
         <div class="cell full"><span>Signos Vitales</span><strong>TA: ${esc(pase.sv_ta || '—')} · Temp: ${esc(pase.sv_temp || '—')} · FC: ${esc(pase.sv_fc || '—')} · FR: ${esc(pase.sv_fr || '—')} · Peso: ${esc(pase.sv_peso || '—')} · Talla: ${esc(pase.sv_talla || '—')}</strong></div>
         <div class="cell full"><span>Padecimiento Actual</span><strong>${esc(pase.padecimiento_actual || pase.motivo || '—')}</strong></div>
@@ -710,6 +711,7 @@
     const rows = [
       ['Paciente', pase.paciente_nombre || (pase.pacientes && pase.pacientes.nombre_completo) || '—'],
       ['Trabajador / Parentesco', `${pase.nombre_trabajador || '—'} (${pase.parentesco || 'TITULAR'})`],
+      ['Departamento / Puesto', pase.departamento_pasajero || '—'],
       ['Edad / Acompañante', `${pase.edad || '—'}  |  Acompañante: ${pase.acompanante || 'NO REQUIERE'}`],
       ['Clínica Destino', pase.unidad_se_refiere || '—'],
       ['Servicio / Especialidad', pase.servicio_se_envia || 'VALORACIÓN MÉDICA'],

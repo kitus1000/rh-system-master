@@ -374,7 +374,7 @@ export default function MiPerfilPage() {
       setDoctorProfiles(updatedList)
 
       if (sessionProfile?.id && updatedDoc.id === sessionProfile.id) {
-        await supabase
+        const { error: fullUpdateErr } = await supabase
           .from('perfiles')
           .update({
             apodo,
@@ -385,14 +385,27 @@ export default function MiPerfilPage() {
             especialidad: updatedDoc.especialidad || null,
           })
           .eq('id', sessionProfile.id)
+
+        if (fullUpdateErr) {
+          console.warn('Aviso al actualizar perfiles médicos (posible falta de columnas):', fullUpdateErr.message)
+          const { error: basicUpdateErr } = await supabase
+            .from('perfiles')
+            .update({
+              apodo,
+              id_clinica: idClinica || null,
+            })
+            .eq('id', sessionProfile.id)
+          if (basicUpdateErr) throw basicUpdateErr
+        }
       } else if (sessionProfile?.id) {
-        await supabase
+        const { error: updateErr } = await supabase
           .from('perfiles')
           .update({
             apodo,
             id_clinica: idClinica || null,
           })
           .eq('id', sessionProfile.id)
+        if (updateErr) throw updateErr
       }
 
       if (password) {
@@ -423,7 +436,9 @@ export default function MiPerfilPage() {
       setDoctorProfiles(updatedList)
       setDocForm(updatedDoc)
       if (sessionProfile?.id && docForm.id === sessionProfile.id) {
-        await supabase.from('perfiles').update({ firma: null }).eq('id', sessionProfile.id)
+        try {
+          await supabase.from('perfiles').update({ firma: null }).eq('id', sessionProfile.id)
+        } catch (_) {}
       }
       clearCanvas()
       setMsg({ type: 'success', text: 'Firma eliminada correctamente.' })

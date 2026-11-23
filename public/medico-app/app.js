@@ -1180,12 +1180,19 @@
     const emp = pac.id_empleado ? (DB.state.cache.empleados || []).find((e) => String(e.id_empleado) === String(pac.id_empleado)) : null;
     if (emp) {
       $('paseTrabajador').value = getEmpFullName(emp).toUpperCase();
+      if ($('paseDepartamento')) {
+        $('paseDepartamento').value = (emp.departamento || (emp.departamento_id && emp.departamento_id.departamento) || emp.puesto || 'General').toUpperCase();
+      }
+      if ($('paseAntiguedad') && emp.fecha_ingreso) {
+        $('paseAntiguedad').value = calcAgeYears(emp.fecha_ingreso) + ' de servicio';
+      }
       if (isEmpBaja(emp)) {
         alertBox.textContent = `⚠️ TRABAJADOR EN BAJA: "${getEmpFullName(emp)}" tiene estatus BAJA. Atención médica y pases suspendidos.`;
         alertBox.classList.remove('hidden');
       }
     } else {
       $('paseTrabajador').value = pac.nombre_completo || '';
+      if ($('paseDepartamento')) $('paseDepartamento').value = 'PÚBLICO GENERAL';
     }
   }
 
@@ -1208,6 +1215,7 @@
     const doc = getActiveDoctor();
     const drJefe = doctorProfiles.find((d) => d.es_dr_principal) || doc;
     const reqHotel = $('paseRequiereHotel').value === 'SI';
+    const hotelNombre = reqHotel ? ($('paseHotelNombre').value.trim().toUpperCase() || 'HOTEL DEL CENTRO') : null;
 
     const paseRow = {
       id_paciente: pac.id_paciente,
@@ -1219,19 +1227,24 @@
       parentesco: $('paseParentesco').value.trim().toUpperCase(),
       nombre_trabajador: $('paseTrabajador').value.trim().toUpperCase(),
       edad: $('paseEdad').value.trim().toUpperCase(),
+      departamento_pasajero: ($('paseDepartamento') ? $('paseDepartamento').value.trim() : '').toUpperCase(),
+      antiguedad: ($('paseAntiguedad') ? $('paseAntiguedad').value.trim() : '').toUpperCase(),
       unidad_refiere: 'UNIDAD MEDICA BACIS',
       unidad_se_refiere: $('paseUnidadRefiere').value.trim().toUpperCase(),
       servicio_se_envia: $('paseServicio').value.trim().toUpperCase(),
       acompanante: $('paseAcompanante').value.trim().toUpperCase() || 'NO REQUIERE',
       medio_transporte: $('paseTransporte').value,
       fecha_salida: $('paseFechaSalida').value || null,
+      fecha_retorno: ($('paseFechaRetorno') ? $('paseFechaRetorno').value : null) || null,
       fecha_cita: $('paseFechaCita').value || null,
       requiere_hotel: reqHotel,
-      hotel_nombre: reqHotel ? $('paseHotelNombre').value.trim().toUpperCase() : null,
+      hotel_nombre: hotelNombre,
       sv_ta: $('paseTa').value.trim(),
       sv_temp: $('paseTemp').value.trim(),
       sv_fc: $('paseFc').value.trim(),
       sv_fr: $('paseFr').value.trim(),
+      sv_peso: $('pasePeso') ? $('pasePeso').value.trim() : '',
+      sv_talla: $('paseTalla') ? $('paseTalla').value.trim() : '',
       padecimiento_actual: $('pasePadecimiento').value.trim().toUpperCase(),
       motivo: $('pasePadecimiento').value.trim().toUpperCase(),
       impresion_diagnostica: $('paseDiagnostico').value.trim().toUpperCase(),
@@ -1241,8 +1254,21 @@
       cedula_refiere: doc.cedula_profesional || '',
       medico_responsable_unidad: drJefe.nombre_completo,
       cedula_responsable_unidad: drJefe.cedula_profesional || '',
-      compartido_departamentos: true,
+      compartido_departamentos: $('paseCompartidoDeptos') ? $('paseCompartidoDeptos').checked : true,
     };
+
+    if (reqHotel) {
+      DB.addHotelHistoryEntry({
+        pase_medico: `${pac.nombre_completo} (Folio ${paseRow.folio})`.toUpperCase(),
+        acompanante: paseRow.acompanante,
+        hotel_nombre: hotelNombre,
+        fecha_salida: paseRow.fecha_salida || new Date().toISOString().split('T')[0],
+        empresa: 'GRUPO MINERO BACIS S.A. DE C.V.',
+        unidad: 'UNIDAD "EL HERRERO"',
+        emitido_el: new Date().toISOString(),
+        medico: doc.nombre_completo,
+      });
+    }
 
     const previewObj = Object.assign({}, paseRow, { paciente_nombre: pac.nombre_completo });
     const res = await DB.submitOrQueue(
@@ -1284,17 +1310,36 @@
             <div class="record-name">${Docs.esc(p.folio || 'S/F')} — ${Docs.esc((p.pacientes && p.pacientes.nombre_completo) || p.nombre_trabajador || 'Paciente')}</div>
             <div class="record-meta" style="margin-top:3px;">
               <span>🏥 ${Docs.esc(p.unidad_se_refiere || 'Clínica Externa')}</span>
-              <span>📅 ${Docs.esc(p.fecha_salida || (p.creado_el ? p.creado_el.slice(0, 10) : ''))}</span>
+              <span>📅 Salida: ${Docs.esc(p.fecha_salida || (p.creado_el ? p.creado_el.slice(0, 10) : ''))}${p.fecha_retorno ? ` · Retorno: ${Docs.esc(p.fecha_retorno)}` : ''}</span>
+              ${p.departamento_pasajero ? `<span>🏢 ${Docs.esc(p.departamento_pasajero)}</span>` : ''}
               ${p.requiere_hotel ? `<span class="badge badge-purple">🏨 ${Docs.esc(p.hotel_nombre || 'Hotel')}</span>` : ''}
             </div>
           </div>
           <div class="btn-row">
             ${p.urgencia === 'SI' ? '<span class="badge badge-baja">URGENCIA</span>' : ''}
+            ${p.requiere_hotel ? `<button type="button" class="btn btn-purple btn-sm" onclick="MedicoApp.openHotelFromPase('${Docs.esc(p.id_pase)}')">🏨 Hotel</button>` : ''}
             <button type="button" class="btn btn-primary btn-sm" onclick="MedicoApp.openPaseFromHistory('${Docs.esc(p.id_pase)}')">📄 PDF</button>
           </div>
         </div>
         ${p.impresion_diagnostica ? `<div style="font-size:12.5px;color:var(--text-secondary);"><b>Dx:</b> ${Docs.esc(p.impresion_diagnostica)}</div>` : ''}
       </div>`).join('');
+  }
+
+  function openHotelFromPase(idPase) {
+    const p = (DB.state.cache.pases || []).find((x) => String(x.id_pase) === String(idPase));
+    if (!p) return;
+    const doc = getActiveDoctor();
+    const hotelData = {
+      pase_medico: ((p.pacientes && p.pacientes.nombre_completo) || p.nombre_trabajador || 'Paciente').toUpperCase(),
+      acompanante: (p.acompanante || 'NO REQUIERE').toUpperCase(),
+      hotel_nombre: (p.hotel_nombre || 'HOTEL DEL CENTRO').toUpperCase(),
+      fecha_salida: p.fecha_salida || (p.creado_el ? p.creado_el.slice(0, 10) : new Date().toISOString().split('T')[0]),
+      empresa: 'GRUPO MINERO BACIS S.A. DE C.V.',
+      unidad: 'UNIDAD "EL HERRERO"',
+      emitido_el: p.creado_el || new Date().toISOString(),
+      medico: doc.nombre_completo,
+    };
+    openDocPreview(`Pase de Hotel — ${hotelData.pase_medico}`, Docs.buildPaseHotelHtml(hotelData), () => Docs.downloadPaseHotelPDF(hotelData));
   }
 
   function openPaseFromHistory(idPase) {
@@ -2028,6 +2073,7 @@
     savePaseMedico,
     renderPases,
     openPaseFromHistory,
+    openHotelFromPase,
     populateHotelPatients,
     onHotelPatientChange,
     previewHotelPass,

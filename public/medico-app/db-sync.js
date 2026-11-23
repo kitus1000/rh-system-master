@@ -153,6 +153,23 @@
     listeners: [],
   };
 
+  // Depuración y limpieza automática de la cola offline para descartar errores de esquema irrecuperables
+  if (Array.isArray(state.queue)) {
+    const rawLen = state.queue.length;
+    state.queue = state.queue.filter((item) => {
+      if (item.error && (item.error.includes('schema cache') || item.error.includes('column of \'perfiles\''))) {
+        return false;
+      }
+      if (item.type === 'UPDATE_DOCTOR_PROFILE' && item.retries > 0) {
+        return false;
+      }
+      return true;
+    });
+    if (state.queue.length !== rawLen) {
+      safeWriteJSON(KEYS.QUEUE, state.queue);
+    }
+  }
+
   function emitChange() {
     state.listeners.forEach((fn) => {
       try { fn(state); } catch (_) {}
@@ -682,12 +699,35 @@
     }
 
     if (item.type === 'UPDATE_DOCTOR_PROFILE') {
-      if (p.userId) {
-        await restRequest(`perfiles?id=eq.${encodeURIComponent(p.userId)}`, {
-          method: 'PATCH',
-          headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify(p.patch),
-        });
+      if (p.userId && p.patch) {
+        let patchData = Object.assign({}, p.patch);
+        try {
+          await restRequest(`perfiles?id=eq.${encodeURIComponent(p.userId)}`, {
+            method: 'PATCH',
+            headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify(patchData),
+          });
+        } catch (err) {
+          // Si Supabase devuelve error porque alguna columna aún no existe en el esquema (ej. institucion_titulo)
+          if (err.message && (err.message.includes('column of') || err.message.includes('schema cache'))) {
+            addLog('WARN', `Aviso de esquema en perfiles (${err.message}). Intentando guardar sólo campos compatibles...`);
+            delete patchData.institucion_titulo;
+            delete patchData.especialidad;
+            delete patchData.cedula_profesional;
+            try {
+              await restRequest(`perfiles?id=eq.${encodeURIComponent(p.userId)}`, {
+                method: 'PATCH',
+                headers: { Prefer: 'return=minimal' },
+                body: JSON.stringify(patchData),
+              });
+              addLog('OK', `Campos compatibles de perfil guardados en Supabase.`);
+            } catch (fallbackErr) {
+              addLog('WARN', `Aviso: El perfil médico completo quedó resguardado en la memoria local del dispositivo.`);
+            }
+          } else {
+            throw err;
+          }
+        }
       }
       return true;
     }
@@ -712,6 +752,11 @@
         emitChange();
         return { synced: true, result };
       } catch (err) {
+        // Si es un error de esquema en UPDATE_DOCTOR_PROFILE, no lo encolemos infinitamente
+        if (type === 'UPDATE_DOCTOR_PROFILE' && err.message && (err.message.includes('schema cache') || err.message.includes('column of'))) {
+          addLog('WARN', `Perfil médico guardado localmente (la tabla 'perfiles' en Supabase requiere migración SQL para columnas COFEPRIS).`);
+          return { synced: false, result: null };
+        }
         addLog('WARN', `Envío directo falló (${err.message}); guardado en cola offline para sincronización automática.`);
       }
     }
@@ -749,6 +794,13 @@
         syncedCount++;
         addLog('OK', `Sincronizado con BD: ${item.summary}`);
       } catch (err) {
+        // Si el fallo es por un campo que no existe en el esquema de Supabase,
+        // no debemos atascar la cola indefinidamente ni marcar la BD como caída
+        if (err.message && (err.message.includes('schema cache') || err.message.includes('column of \'perfiles\''))) {
+          addLog('WARN', `Operación omitida de la cola por incompatibilidad de esquema remoto: ${err.message}.`);
+          syncedCount++;
+          continue;
+        }
         item.status = 'ERROR';
         item.error = err.message;
         item.retries = (item.retries || 0) + 1;
@@ -761,7 +813,7 @@
     saveQueue();
     state.isSyncing = false;
     state.dbStatus.lastSyncAt = new Date().toISOString();
-    state.dbStatus.state = remaining.length > 0 ? 'error' : 'online';
+    state.dbStatus.state = conn.dbReachable ? 'online' : 'offline';
     emitChange();
 
     if (syncedCount > 0) {

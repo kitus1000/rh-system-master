@@ -443,12 +443,20 @@
                 <input id="paseTrabajador" type="text" class="field-input" />
               </div>
               <div class="field-group">
+                <label class="field-label" for="paseDepartamento">Departamento</label>
+                <input id="paseDepartamento" type="text" class="field-input" placeholder="Mina, Planta, etc." />
+              </div>
+              <div class="field-group">
                 <label class="field-label" for="paseParentesco">Parentesco</label>
                 <input id="paseParentesco" type="text" class="field-input" placeholder="TITULAR / HIJO / ESPOSA" />
               </div>
               <div class="field-group">
-                <label class="field-label" for="paseEdad">Edad</label>
+                <label class="field-label" for="paseEdad">Edad Paciente</label>
                 <input id="paseEdad" type="text" class="field-input" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseAntiguedad">Antigüedad Trabajador</label>
+                <input id="paseAntiguedad" type="text" class="field-input" placeholder="Ej. 3 años" />
               </div>
               <div class="field-group">
                 <label class="field-label" for="paseClinicaOrigen">Clínica Origen</label>
@@ -471,6 +479,10 @@
                 <input id="paseFechaSalida" type="date" class="field-input" />
               </div>
               <div class="field-group">
+                <label class="field-label" for="paseFechaRetorno">Fecha de Retorno</label>
+                <input id="paseFechaRetorno" type="date" class="field-input" />
+              </div>
+              <div class="field-group">
                 <label class="field-label" for="paseFechaCita">Fecha Cita (opcional)</label>
                 <input id="paseFechaCita" type="date" class="field-input" />
               </div>
@@ -491,21 +503,29 @@
                 <label class="field-label" for="paseRequiereHotel">¿Requiere Hotel?</label>
                 <select id="paseRequiereHotel" class="field-select" onchange="MedicoApp.onPaseHotelToggle()">
                   <option value="NO">NO</option>
-                  <option value="SI">SÍ — Autorizar Hotel</option>
+                  <option value="SI">SÍ — Autorizar Hospedaje</option>
                 </select>
               </div>
               <div class="field-group hidden" id="paseHotelNombreGroup">
                 <label class="field-label" for="paseHotelNombre">Nombre del Hotel</label>
                 <input id="paseHotelNombre" type="text" class="field-input" value="HOTEL DEL CENTRO" />
               </div>
+              <div class="field-group span-full" style="display:flex;align-items:center;gap:10px;background:var(--surface);padding:10px 14px;border-radius:10px;border:1px solid var(--border);">
+                <input id="paseCompartidoDeptos" type="checkbox" checked style="width:20px;height:20px;cursor:pointer;accent-color:var(--primary);" />
+                <label for="paseCompartidoDeptos" style="font-size:12.5px;font-weight:700;color:var(--text);cursor:pointer;margin:0;">
+                  🤝 Compartir pase en Muro / Departamentos (Transporte, Choferes, RH)
+                </label>
+              </div>
             </div>
 
             <div style="margin-top:12px;font-size:12px;font-weight:900;color:var(--teal);text-transform:uppercase;">Signos Vitales y Resumen Clínico</div>
-            <div class="form-grid cols-4" style="margin-top:8px;">
+            <div class="form-grid cols-3" style="margin-top:8px;">
               <div class="field-group"><label class="field-label" for="paseTa">TA</label><input id="paseTa" type="text" class="field-input" placeholder="120/80" /></div>
               <div class="field-group"><label class="field-label" for="paseTemp">Temp</label><input id="paseTemp" type="text" class="field-input" placeholder="36.5" /></div>
               <div class="field-group"><label class="field-label" for="paseFc">FC</label><input id="paseFc" type="text" class="field-input" placeholder="72" /></div>
               <div class="field-group"><label class="field-label" for="paseFr">FR</label><input id="paseFr" type="text" class="field-input" placeholder="18" /></div>
+              <div class="field-group"><label class="field-label" for="pasePeso">Peso (kg)</label><input id="pasePeso" type="text" class="field-input" placeholder="70" /></div>
+              <div class="field-group"><label class="field-label" for="paseTalla">Talla (m)</label><input id="paseTalla" type="text" class="field-input" placeholder="1.70" /></div>
               <div class="field-group span-full"><label class="field-label" for="pasePadecimiento">Padecimiento Actual / Motivo *</label><textarea id="pasePadecimiento" class="field-textarea" required></textarea></div>
               <div class="field-group span-full"><label class="field-label" for="paseDiagnostico">Impresión Diagnóstica</label><input id="paseDiagnostico" type="text" class="field-input" /></div>
               <div class="field-group"><label class="field-label" for="paseEstudios">Estudios Paraclínicos</label><input id="paseEstudios" type="text" class="field-input" value="LOS NECESARIOS PARA SU PADECIMIENTO" /></div>
