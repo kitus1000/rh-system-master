@@ -2,7 +2,7 @@ name: Compilar APK Android Médico Bacís (100% Offline)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
     paths:
       - 'public/medico-app/**'
       - 'android-medico/**'
@@ -23,9 +23,7 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '17'
-
-      - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
+          cache: 'gradle'
 
       - name: Configurar Node.js
         uses: actions/setup-node@v4
