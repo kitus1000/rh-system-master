@@ -1,13 +1,8 @@
 name: Compilar APK Android Médico Bacís (100% Offline)
 
+# Desactivado el trigger automático en cada push para evitar compilaciones dobles innecesarias.
+# Solo se compilará manualmente cuando tú lo decidas desde el botón "Run workflow".
 on:
-  push:
-    branches: [ main, master ]
-    paths:
-      - 'public/medico-app/**'
-      - 'android-medico/**'
-      - 'capacitor.medico.config.json'
-      - '.github/workflows/build-medico-apk.yml'
   workflow_dispatch:
 
 jobs:
@@ -52,7 +47,7 @@ jobs:
 
       - name: Renombrar y Subir APK Médico Bacís para Descarga
         run: |
-          cp android-medico/app/build/outputs/apk/debug/app-debug.apk MedicoBacis-100-Offline-Android.apk
+          cp android-medico/app/build/outputs/apk/debug/*.apk MedicoBacis-100-Offline-Android.apk || cp android-medico/app/build/outputs/apk/*/*.apk MedicoBacis-100-Offline-Android.apk
 
       - name: Publicar Artefacto APK Descargable
         uses: actions/upload-artifact@v4

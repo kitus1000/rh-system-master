@@ -1,8 +1,8 @@
 name: Compilar APK Android Choferes Bacis (100% Offline)
 
+# Desactivado el trigger automático en cada push para evitar compilaciones dobles innecesarias.
+# Solo se compilará manualmente cuando tú lo decidas desde el botón "Run workflow".
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
