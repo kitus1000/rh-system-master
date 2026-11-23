@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+  <title>Médico Bacís — Clínica Móvil</title>
+  <meta name="theme-color" content="#0b2559" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Médico Bacís" />
+  <link rel="manifest" href="manifest-medico.json" />
+  <link rel="icon" type="image/png" href="medico-icon-192.png" />
+  <link rel="apple-touch-icon" href="medico-icon-512.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ========================================================================
+       PANTALLA 1: ACCESO PROTEGIDO (LOGIN SUPABASE + PIN CLÍNICO OFFLINE)
+       ======================================================================== -->
+  <div id="authScreen" class="auth-screen">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <img src="medico-icon-512.png" alt="Médico Bacís" />
+        <h1>MÉDICO BACÍS</h1>
+        <p>Servicios Médicos · Grupo Minero Bacís S.A. de C.V.</p>
+        <div class="auth-pill" id="authNetBadge">🛡️ Acceso Clínico Protegido</div>
+      </div>
+
+      <div id="authModeTabs" class="auth-mode-tabs hidden">
+        <button type="button" class="auth-mode-tab active" id="tabBtnPin" onclick="MedicoApp.setAuthMode('pin')">🔐 PIN Clínico (Offline)</button>
+        <button type="button" class="auth-mode-tab" id="tabBtnEmail" onclick="MedicoApp.setAuthMode('email')">📧 Correo y Clave</button>
+      </div>
+
+      <div id="authAlert" class="alert-banner alert-danger hidden" style="margin-bottom:14px;"></div>
+
+      <!-- Modo Correo y Contraseña (Supabase Auth) -->
+      <form id="loginEmailForm" class="form-grid" onsubmit="MedicoApp.handleEmailLogin(event)">
+        <div class="field-group">
+          <label class="field-label" for="loginEmail">Correo Institucional</label>
+          <input id="loginEmail" type="email" class="field-input" placeholder="doctor@bacis.com" autocomplete="username" required />
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="loginPass">Contraseña</label>
+          <input id="loginPass" type="password" class="field-input" placeholder="••••••••" autocomplete="current-password" required />
+        </div>
+        <button type="submit" id="btnEmailLogin" class="btn btn-primary btn-block" style="margin-top:4px;">
+          🔓 Iniciar Sesión Médica
+        </button>
+      </form>
+
+      <!-- Modo Desbloqueo por PIN (100% Offline si ya hubo inicio de sesión) -->
+      <div id="loginPinBox" class="hidden" style="text-align:center;">
+        <div id="pinSavedDoctorName" style="font-size:13.5px;font-weight:900;color:#0b2559;margin-bottom:2px;"></div>
+        <div style="font-size:12px;color:#475569;font-weight:600;">Ingresa tu PIN Clínico de seguridad para desbloquear</div>
+        <div id="pinDotsDisplay" class="pin-dots"></div>
+        <div class="pin-pad">
+          <button type="button" class="pin-key" onclick="MedicoApp.pinPress('1')">1</button>
+          <button type="button" class="pin-key" onclick="MedicoApp.pinPress('2')">2</button>
+          <button type="button" class="pin-key" onclick="MedicoApp.pinPress('3')">3</button>
+          <button type="button" class="pin-key" onclick="MedicoApp.pinPress('4')">4</button>
+          <button type="button" class="pin-key" onclick="MedicoApp.pinPress('5')">5</button>
+          <button type="button" class="pin-key" onclick="MedicoApp.pinPress('6')">6</button>
+          <button type="button" class="pin-key" onclick="MedicoApp.pinPress('7')">7</button>
+          <button type="button" class="pin-key" onclick="MedicoApp.pinPress('8')">8</button>
+          <button type="button" class="pin-key" onclick="MedicoApp.pinPress('9')">9</button>
+          <button type="button" class="pin-key" style="font-size:13px;" onclick="MedicoApp.pinClear()">Borrar</button>
+          <button type="button" class="pin-key" onclick="MedicoApp.pinPress('0')">0</button>
+          <button type="button" class="pin-key" style="background:#1d4ed8;color:#fff;border-color:#1d4ed8;font-size:14px;" onclick="MedicoApp.pinSubmit()">OK</button>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;text-align:center;font-size:11.5px;color:#64748b;font-weight:600;">
+        Conexión cifrada con base de datos oficial + operación 100% offline.
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       PANTALLA 2: APLICACIÓN CLÍNICA PRINCIPAL (ADAPTABLE CELULAR & TABLET)
+       ======================================================================== -->
+  <div id="appShell" class="app-shell hidden">
+    <!-- BARRA SUPERIOR COMPACTA (NUNCA ESTORBA) -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button type="button" class="menu-trigger-btn" onclick="MedicoApp.toggleDrawer(true)" aria-label="Abrir menú clínico" title="Abrir menú">
+          ☰
+        </button>
+        <img src="medico-icon-192.png" alt="Médico Bacís" class="topbar-brand-icon" />
+        <div class="topbar-titles">
+          <div class="topbar-title" id="topbarTitle">Inicio Clínico</div>
+          <div class="topbar-sub" id="topbarSub">Médico Bacís</div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button type="button" class="db-pill-btn" onclick="MedicoApp.navigate('conexion')" title="Ver estado de conexión a base de datos">
+          <span class="status-dot offline" id="headerDbDot"></span>
+          <span id="headerDbLabel">BD</span>
+        </button>
+        <button type="button" class="icon-btn-header" onclick="MedicoApp.lockScreen()" title="Bloquear pantalla clínica">
+          🔒
+        </button>
+      </div>
+    </header>
+
+    <!-- MENÚ DESPLEGABLE LATERAL BAJO DEMANDA -->
+    <div id="drawerBackdrop" class="drawer-backdrop" onclick="MedicoApp.toggleDrawer(false)"></div>
+    <aside id="drawerPanel" class="drawer-panel" aria-label="Menú principal clínico">
+      <div class="drawer-header">
+        <div class="drawer-user-info">
+          <img src="medico-icon-192.png" alt="Bacís" />
+          <div style="min-width:0;">
+            <div class="drawer-user-name" id="drawerUserName">Médico</div>
+            <span class="drawer-user-role" id="drawerUserRole">Médico Clínico</span>
+          </div>
+        </div>
+        <button type="button" class="drawer-close-btn" onclick="MedicoApp.toggleDrawer(false)">✕</button>
+      </div>
+
+      <nav class="drawer-nav">
+        <div class="drawer-section-label">Operación Clínica</div>
+        <button type="button" class="drawer-item active" data-nav="inicio" onclick="MedicoApp.navigate('inicio')">
+          <span class="drawer-item-left"><span class="drawer-icon">🩺</span><span>Inicio Clínico</span></span>
+        </button>
+        <button type="button" class="drawer-item" data-nav="pacientes" onclick="MedicoApp.navigate('pacientes')">
+          <span class="drawer-item-left"><span class="drawer-icon">👥</span><span>Pacientes y Estatus Alta</span></span>
+        </button>
+        <button type="button" class="drawer-item" data-nav="consultas" onclick="MedicoApp.navigate('consultas')">
+          <span class="drawer-item-left"><span class="drawer-icon">📋</span><span>Consultas y Recetas COFEPRIS</span></span>
+        </button>
+        <button type="button" class="drawer-item" data-nav="pases" onclick="MedicoApp.navigate('pases')">
+          <span class="drawer-item-left"><span class="drawer-icon">🏥</span><span>Pases Médicos</span></span>
+        </button>
+        <button type="button" class="drawer-item" data-nav="hotel" onclick="MedicoApp.navigate('hotel')">
+          <span class="drawer-item-left"><span class="drawer-icon">🏨</span><span>Pases de Hotel</span></span>
+        </button>
+        <button type="button" class="drawer-item" data-nav="farmacia" onclick="MedicoApp.navigate('farmacia')">
+          <span class="drawer-item-left"><span class="drawer-icon">💊</span><span>Farmacia y Clínicas</span></span>
+        </button>
+
+        <div class="drawer-section-label">Gestión y Sincronización</div>
+        <button type="button" class="drawer-item" data-nav="perfil" onclick="MedicoApp.navigate('perfil')">
+          <span class="drawer-item-left"><span class="drawer-icon">👨‍⚕️</span><span>Perfil Médico y Equipo</span></span>
+        </button>
+        <button type="button" class="drawer-item" data-nav="conexion" onclick="MedicoApp.navigate('conexion')">
+          <span class="drawer-item-left"><span class="drawer-icon">📡</span><span>Conexión BD y Sincronización</span></span>
+          <span class="drawer-badge hidden" id="drawerQueueBadge">0</span>
+        </button>
+      </nav>
+
+      <div class="drawer-footer">
+        <button type="button" class="btn btn-outline btn-sm" onclick="MedicoApp.toggleTheme()">
+          <span id="themeToggleText">🌙 Nocturno</span>
+        </button>
+        <button type="button" class="btn btn-danger btn-sm" onclick="MedicoApp.confirmLogout()">
+          Salir
+        </button>
+      </div>
+    </aside>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <main class="main-content">
+
+      <!-- ==================== VISTA 1: INICIO CLÍNICO ==================== -->
+      <section id="view-inicio" class="view-section active">
+        <div id="homeSyncBanner" class="alert-banner alert-info" style="justify-content:space-between;align-items:center;flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:900;" id="homeDbHeadline">Verificando conexión con base de datos...</div>
+            <div style="font-size:12px;opacity:0.9;" id="homeDbSubline">Toca para ver detalles y sincronizar con la computadora central.</div>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" onclick="MedicoApp.navigate('conexion')">Ver Conexión BD</button>
+        </div>
+
+        <div class="grid-kpis">
+          <div class="kpi-card" onclick="MedicoApp.navigate('pacientes')">
+            <span class="kpi-label">Trabajadores Activos</span>
+            <span class="kpi-value" id="kpiActivos">0</span>
+            <span class="kpi-meta" id="kpiBajasMeta">0 bajas registradas</span>
+          </div>
+          <div class="kpi-card" onclick="MedicoApp.navigate('pacientes')">
+            <span class="kpi-label">Pacientes / Benef.</span>
+            <span class="kpi-value" style="color:var(--teal);" id="kpiPacientes">0</span>
+            <span class="kpi-meta">Misma BD oficial</span>
+          </div>
+          <div class="kpi-card" onclick="MedicoApp.navigate('consultas')">
+            <span class="kpi-label">Consultas / Recetas</span>
+            <span class="kpi-value" id="kpiConsultas">0</span>
+            <span class="kpi-meta">Formato COFEPRIS</span>
+          </div>
+          <div class="kpi-card" onclick="MedicoApp.navigate('conexion')">
+            <span class="kpi-label">Pendientes Subir</span>
+            <span class="kpi-value" style="color:var(--warning);" id="kpiPendientes">0</span>
+            <span class="kpi-meta">Cola offline a BD</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">⚡ Accesos Clínicos Rápidos</div>
+              <div class="card-subtitle">Presiona ☰ arriba en cualquier momento para desplegar el menú completo</div>
+            </div>
+            <button type="button" class="btn btn-soft btn-sm" onclick="MedicoApp.openQrScanner()">📷 Escanear QR</button>
+          </div>
+          <div class="grid-quick-actions">
+            <button type="button" class="quick-tile" onclick="MedicoApp.navigate('pacientes')">
+              <div class="quick-tile-ico">🪪</div>
+              <div>
+                <div class="quick-tile-title">Verificar Alta / Pacientes</div>
+                <div class="quick-tile-desc">Ver si está activo o baja, editar y beneficiarios</div>
+              </div>
+            </button>
+            <button type="button" class="quick-tile" onclick="MedicoApp.navigate('consultas', { openForm: true })">
+              <div class="quick-tile-ico" style="background:var(--teal-soft);color:var(--teal);">📋</div>
+              <div>
+                <div class="quick-tile-title">Nueva Receta COFEPRIS</div>
+                <div class="quick-tile-desc">Consulta, signos vitales, IMC y PDF</div>
+              </div>
+            </button>
+            <button type="button" class="quick-tile" onclick="MedicoApp.navigate('pases', { openForm: true })">
+              <div class="quick-tile-ico">🏥</div>
+              <div>
+                <div class="quick-tile-title">Expedir Pase Médico</div>
+                <div class="quick-tile-desc">Clínicas externas, urgencias y traslado</div>
+              </div>
+            </button>
+            <button type="button" class="quick-tile" onclick="MedicoApp.navigate('hotel')">
+              <div class="quick-tile-ico" style="background:var(--purple-soft);color:var(--purple);">🏨</div>
+              <div>
+                <div class="quick-tile-title">Pase de Hotel</div>
+                <div class="quick-tile-desc">Hoja dividida Original + Copia PDF</div>
+              </div>
+            </button>
+            <button type="button" class="quick-tile" onclick="MedicoApp.navigate('perfil')">
+              <div class="quick-tile-ico" style="background:var(--success-soft);color:var(--success);">👨‍⚕️</div>
+              <div>
+                <div class="quick-tile-title">Perfil Médico y Firmas</div>
+                <div class="quick-tile-desc">Dr. Jefe, equipo y campos COFEPRIS</div>
+              </div>
+            </button>
+            <button type="button" class="quick-tile" onclick="MedicoApp.navigate('conexion')">
+              <div class="quick-tile-ico" style="background:var(--warning-soft);color:var(--warning);">📡</div>
+              <div>
+                <div class="quick-tile-title">Conexión BD y Sync</div>
+                <div class="quick-tile-desc">Verificar enlace y subir registros</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">👨‍⚕️ Médico Prescriptor Activo en Turno</div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="MedicoApp.navigate('perfil')">Cambiar / Editar</button>
+          </div>
+          <div id="homeActiveDoctorCard" class="record-meta"></div>
+        </div>
+      </section>
+
+      <!-- ==================== VISTA 2: PACIENTES Y ESTATUS ALTA ==================== -->
+      <section id="view-pacientes" class="view-section">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">👥 Padrón de Pacientes y Estatus de Alta</div>
+              <div class="card-subtitle">Consulta si un trabajador está DADO DE ALTA o BAJA, edita datos y gestiona beneficiarios</div>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn btn-soft btn-sm" onclick="MedicoApp.openQrScanner()">📷 QR Credencial</button>
+              <button type="button" class="btn btn-primary btn-sm" onclick="MedicoApp.openModalWorker()">+ Trabajador</button>
+              <button type="button" class="btn btn-teal btn-sm" onclick="MedicoApp.openModalPatient()">+ Beneficiario / Ext.</button>
+            </div>
+          </div>
+
+          <div class="form-grid cols-2" style="margin-bottom:12px;">
+            <div class="field-group">
+              <label class="field-label" for="pacSearchInput">Buscar por Nombre, Ficha, CURP, NSS o Depto</label>
+              <input id="pacSearchInput" type="search" class="field-input" placeholder="Escribe para buscar al instante..." oninput="MedicoApp.renderPacientes()" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="pacStatusFilter">Filtrar por Estatus</label>
+              <select id="pacStatusFilter" class="field-select" onchange="MedicoApp.renderPacientes()">
+                <option value="TODOS">Todos (Activos y Bajas)</option>
+                <option value="ACTIVO">🟢 Solo Dados de Alta (Activos)</option>
+                <option value="BAJA">🔴 Solo Dados de Baja (Suspendidos)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="subtabs" style="margin-bottom:12px;">
+            <button type="button" class="subtab-btn active" data-pactab="trabajadores" onclick="MedicoApp.setPacTab('trabajadores')">Trabajadores Titulares</button>
+            <button type="button" class="subtab-btn" data-pactab="beneficiarios" onclick="MedicoApp.setPacTab('beneficiarios')">Beneficiarios / Familiares</button>
+            <button type="button" class="subtab-btn" data-pactab="general" onclick="MedicoApp.setPacTab('general')">Población General</button>
+          </div>
+
+          <div id="pacientesCountBar" style="font-size:12px;font-weight:800;color:var(--text-muted);margin-bottom:10px;"></div>
+          <div id="pacientesListContainer" class="record-list grid-desktop"></div>
+        </div>
+      </section>
+
+      <!-- ==================== VISTA 3: CONSULTAS Y RECETAS COFEPRIS ==================== -->
+      <section id="view-consultas" class="view-section">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">📋 Consultas Médicas y Recetas COFEPRIS</div>
+              <div class="card-subtitle">Recetas abiertas adaptables a la configuración del Dr. Jefe · PDF 100% offline</div>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn btn-primary btn-sm" id="btnToggleConsultaForm" onclick="MedicoApp.toggleConsultaForm()">+ Nueva Consulta / Receta</button>
+            </div>
+          </div>
+
+          <form id="consultaFormBox" class="hidden" onsubmit="MedicoApp.saveConsulta(event)" style="margin-bottom:18px;padding-bottom:18px;border-bottom:2px solid var(--border);">
+            <div id="consultaBajaAlert" class="alert-banner alert-danger hidden" style="margin-bottom:12px;"></div>
+
+            <div class="form-grid cols-2">
+              <div class="field-group">
+                <label class="field-label" for="consDoctorSelect">Médico Prescriptor (Firma y Cédula)</label>
+                <select id="consDoctorSelect" class="field-select"></select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="consPacFilter">Filtrar Paciente del Padrón</label>
+                <input id="consPacFilter" type="search" class="field-input" placeholder="Buscar paciente..." oninput="MedicoApp.populateConsultaPatients()" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="consPacSelect">Seleccionar Paciente Registrado</label>
+                <select id="consPacSelect" class="field-select" onchange="MedicoApp.onConsultaPatientChange()"></select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="consPacLibre">O Nombre Libre (Receta Abierta / Externo)</label>
+                <input id="consPacLibre" type="text" class="field-input" placeholder="Si no está en padrón, escribe nombre completo" />
+              </div>
+            </div>
+
+            <div style="margin-top:14px;font-size:12px;font-weight:900;color:var(--teal);text-transform:uppercase;">Signos Vitales y Datos Clínicos (COFEPRIS Recomendados)</div>
+            <div class="form-grid cols-4" style="margin-top:8px;">
+              <div class="field-group">
+                <label class="field-label" for="consEdad">Edad</label>
+                <input id="consEdad" type="text" class="field-input" placeholder="Ej. 34 años" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="consSexo">Sexo</label>
+                <select id="consSexo" class="field-select">
+                  <option value="Masculino">Masculino</option>
+                  <option value="Femenino">Femenino</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="consPeso">Peso (kg)</label>
+                <input id="consPeso" type="text" class="field-input" placeholder="72" oninput="MedicoApp.recalcImc()" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="consTalla">Talla (m o cm)</label>
+                <input id="consTalla" type="text" class="field-input" placeholder="1.72" oninput="MedicoApp.recalcImc()" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="consImc">IMC (Auto)</label>
+                <input id="consImc" type="text" class="field-input" placeholder="Auto" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="consTemp">Temperatura (°C)</label>
+                <input id="consTemp" type="text" class="field-input" value="36.6" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="consTA">Presión Arterial</label>
+                <input id="consTA" type="text" class="field-input" value="120/80" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="consCosto">Costo Consulta ($)</label>
+                <input id="consCosto" type="number" step="0.01" min="0" class="field-input" value="0" />
+              </div>
+              <div class="field-group span-full">
+                <label class="field-label" for="consAlergias">Alergias</label>
+                <input id="consAlergias" type="text" class="field-input" value="Negadas" placeholder="Ej. Penicilina, AINEs o Negadas" />
+              </div>
+              <div class="field-group span-full">
+                <label class="field-label" for="consDiagnostico">Diagnóstico Médico *</label>
+                <textarea id="consDiagnostico" class="field-textarea" required placeholder="Describe valoración y diagnóstico clínico..."></textarea>
+              </div>
+              <div class="field-group span-full">
+                <label class="field-label" for="consAcompanante">Acompañante (opcional)</label>
+                <input id="consAcompanante" type="text" class="field-input" placeholder="Nombre del acompañante si aplica" />
+              </div>
+            </div>
+
+            <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span style="font-size:12px;font-weight:900;color:var(--primary);text-transform:uppercase;">Rx — Tratamiento Farmacológico COFEPRIS</span>
+              <button type="button" class="btn btn-soft btn-sm" onclick="MedicoApp.addConsultaMedRow()">+ Agregar Medicamento</button>
+            </div>
+            <div id="consultaMedsList" style="display:flex;flex-direction:column;gap:10px;margin-top:10px;"></div>
+
+            <div class="btn-row" style="margin-top:16px;justify-content:flex-end;">
+              <button type="button" class="btn btn-outline" onclick="MedicoApp.toggleConsultaForm(false)">Cancelar</button>
+              <button type="button" class="btn btn-soft" onclick="MedicoApp.previewDraftReceta()">👁️ Vista Previa</button>
+              <button type="submit" class="btn btn-primary">💾 Guardar Consulta y Generar Receta</button>
+            </div>
+          </form>
+
+          <div class="field-group" style="margin-bottom:12px;">
+            <label class="field-label" for="consHistSearch">Buscar en Historial de Consultas</label>
+            <input id="consHistSearch" type="search" class="field-input" placeholder="Paciente o diagnóstico..." oninput="MedicoApp.renderConsultas()" />
+          </div>
+          <div id="consultasListContainer" class="record-list"></div>
+        </div>
+      </section>
+
+      <!-- ==================== VISTA 4: PASES MÉDICOS ==================== -->
+      <section id="view-pases" class="view-section">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🏥 Pases Médicos a Clínicas Externas</div>
+              <div class="card-subtitle">Emisión con folio automático, signos vitales, traslado, hotel y PDF offline</div>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" id="btnTogglePaseForm" onclick="MedicoApp.togglePaseForm()">+ Nuevo Pase Médico</button>
+          </div>
+
+          <form id="paseFormBox" class="hidden" onsubmit="MedicoApp.savePaseMedico(event)" style="margin-bottom:18px;padding-bottom:18px;border-bottom:2px solid var(--border);">
+            <div id="paseBajaAlert" class="alert-banner alert-danger hidden" style="margin-bottom:12px;"></div>
+
+            <div class="form-grid cols-3">
+              <div class="field-group">
+                <label class="field-label" for="paseFolio">Folio</label>
+                <input id="paseFolio" type="text" class="field-input" required />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseUrgencia">Urgencia</label>
+                <select id="paseUrgencia" class="field-select">
+                  <option value="NO">NO — Ordinario</option>
+                  <option value="SI">SÍ — URGENCIA MÉDICA</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="pasePacFilter">Buscar Paciente</label>
+                <input id="pasePacFilter" type="search" class="field-input" placeholder="Filtrar padrón..." oninput="MedicoApp.populatePasePatients()" />
+              </div>
+              <div class="field-group span-full">
+                <label class="field-label" for="pasePacSelect">Paciente *</label>
+                <select id="pasePacSelect" class="field-select" required onchange="MedicoApp.onPasePatientChange()"></select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseTrabajador">Nombre Trabajador</label>
+                <input id="paseTrabajador" type="text" class="field-input" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseParentesco">Parentesco</label>
+                <input id="paseParentesco" type="text" class="field-input" placeholder="TITULAR / HIJO / ESPOSA" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseEdad">Edad</label>
+                <input id="paseEdad" type="text" class="field-input" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseClinicaOrigen">Clínica Origen</label>
+                <select id="paseClinicaOrigen" class="field-select"></select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseClinicaDestino">Clínica Destino</label>
+                <select id="paseClinicaDestino" class="field-select" onchange="MedicoApp.onPaseClinicaDestinoChange()"></select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseUnidadRefiere">Unidad que Se Refiere (Texto)</label>
+                <input id="paseUnidadRefiere" type="text" class="field-input" value="CONSULTORIO MEDICO INDUSTRIAL" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseServicio">Servicio / Especialidad</label>
+                <input id="paseServicio" type="text" class="field-input" placeholder="Ej. Traumatología, Rayos X, Oftalmología" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseFechaSalida">Fecha Salida</label>
+                <input id="paseFechaSalida" type="date" class="field-input" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseFechaCita">Fecha Cita (opcional)</label>
+                <input id="paseFechaCita" type="date" class="field-input" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseTransporte">Medio de Transporte</label>
+                <select id="paseTransporte" class="field-select">
+                  <option value="VIA TERRESTRE">VÍA TERRESTRE</option>
+                  <option value="AMBULANCIA">AMBULANCIA</option>
+                  <option value="VIA AEREA">VÍA AÉREA</option>
+                  <option value="VEHICULO PROPIO">VEHÍCULO PROPIO</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseAcompanante">Acompañante</label>
+                <input id="paseAcompanante" type="text" class="field-input" value="NO REQUIERE" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="paseRequiereHotel">¿Requiere Hotel?</label>
+                <select id="paseRequiereHotel" class="field-select" onchange="MedicoApp.onPaseHotelToggle()">
+                  <option value="NO">NO</option>
+                  <option value="SI">SÍ — Autorizar Hotel</option>
+                </select>
+              </div>
+              <div class="field-group hidden" id="paseHotelNombreGroup">
+                <label class="field-label" for="paseHotelNombre">Nombre del Hotel</label>
+                <input id="paseHotelNombre" type="text" class="field-input" value="HOTEL DEL CENTRO" />
+              </div>
+            </div>
+
+            <div style="margin-top:12px;font-size:12px;font-weight:900;color:var(--teal);text-transform:uppercase;">Signos Vitales y Resumen Clínico</div>
+            <div class="form-grid cols-4" style="margin-top:8px;">
+              <div class="field-group"><label class="field-label" for="paseTa">TA</label><input id="paseTa" type="text" class="field-input" placeholder="120/80" /></div>
+              <div class="field-group"><label class="field-label" for="paseTemp">Temp</label><input id="paseTemp" type="text" class="field-input" placeholder="36.5" /></div>
+              <div class="field-group"><label class="field-label" for="paseFc">FC</label><input id="paseFc" type="text" class="field-input" placeholder="72" /></div>
+              <div class="field-group"><label class="field-label" for="paseFr">FR</label><input id="paseFr" type="text" class="field-input" placeholder="18" /></div>
+              <div class="field-group span-full"><label class="field-label" for="pasePadecimiento">Padecimiento Actual / Motivo *</label><textarea id="pasePadecimiento" class="field-textarea" required></textarea></div>
+              <div class="field-group span-full"><label class="field-label" for="paseDiagnostico">Impresión Diagnóstica</label><input id="paseDiagnostico" type="text" class="field-input" /></div>
+              <div class="field-group"><label class="field-label" for="paseEstudios">Estudios Paraclínicos</label><input id="paseEstudios" type="text" class="field-input" value="LOS NECESARIOS PARA SU PADECIMIENTO" /></div>
+              <div class="field-group"><label class="field-label" for="paseComentarios">Comentarios</label><input id="paseComentarios" type="text" class="field-input" value="SE ENVIA PARA SEGUIMIENTO Y TRATAMIENTO" /></div>
+            </div>
+
+            <div class="btn-row" style="margin-top:14px;justify-content:flex-end;">
+              <button type="button" class="btn btn-outline" onclick="MedicoApp.togglePaseForm(false)">Cancelar</button>
+              <button type="submit" class="btn btn-primary">💾 Guardar Pase Médico y PDF</button>
+            </div>
+          </form>
+
+          <div class="field-group" style="margin-bottom:12px;">
+            <label class="field-label" for="pasesSearchInput">Buscar Pase Médico</label>
+            <input id="pasesSearchInput" type="search" class="field-input" placeholder="Folio, paciente, trabajador o clínica..." oninput="MedicoApp.renderPases()" />
+          </div>
+          <div id="pasesListContainer" class="record-list"></div>
+        </div>
+      </section>
+
+      <!-- ==================== VISTA 5: PASES DE HOTEL ==================== -->
+      <section id="view-hotel" class="view-section">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🏨 Pases de Hospedaje en Hotel</div>
+              <div class="card-subtitle">Verificación automática de Alta/Baja + Formato Hoja Dividida Original y Copia 100% offline</div>
+            </div>
+          </div>
+
+          <div id="hotelBajaAlert" class="alert-banner alert-danger hidden" style="margin-bottom:14px;">
+            ⚠️ ATENCIÓN MÉDICA SUSPENDIDA: El trabajador seleccionado está DADO DE BAJA. No tiene permitida la emisión de hospedaje en hotel.
+          </div>
+
+          <form onsubmit="MedicoApp.emitPaseHotel(event)" class="form-grid cols-2">
+            <div class="field-group">
+              <label class="field-label" for="hotelPacFilter">Buscar Paciente / Trabajador</label>
+              <input id="hotelPacFilter" type="search" class="field-input" placeholder="Filtrar padrón..." oninput="MedicoApp.populateHotelPatients()" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="hotelPacSelect">Seleccionar del Padrón</label>
+              <select id="hotelPacSelect" class="field-select" onchange="MedicoApp.onHotelPatientChange()"></select>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="hotelPacienteNombre">Paciente / Pase Médico A Favor De *</label>
+              <input id="hotelPacienteNombre" type="text" class="field-input" required placeholder="Nombre completo" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="hotelAcompanante">Acompañante</label>
+              <input id="hotelAcompanante" type="text" class="field-input" value="NO REQUIERE" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="hotelNombre">Nombre del Hotel *</label>
+              <input id="hotelNombre" type="text" class="field-input" value="HOTEL DEL CENTRO" required />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="hotelFechaSalida">Fecha de Salida de la Unidad *</label>
+              <input id="hotelFechaSalida" type="date" class="field-input" required />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="hotelEmpresa">Empresa</label>
+              <input id="hotelEmpresa" type="text" class="field-input" value="GRUPO MINERO BACIS S.A. DE C.V." />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="hotelUnidad">Unidad</label>
+              <input id="hotelUnidad" type="text" class="field-input" value='UNIDAD "EL HERRERO"' />
+            </div>
+            <div class="btn-row span-full" style="justify-content:flex-end;margin-top:4px;">
+              <button type="button" id="btnHotelPreview" class="btn btn-outline" onclick="MedicoApp.previewHotelPass()">👁️ Vista Previa Hoja</button>
+              <button type="submit" id="btnHotelEmit" class="btn btn-purple">📄 Emitir y Descargar PDF Hoja Dividida</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🗂️ Historial Reciente de Pases de Hotel</div>
+          </div>
+          <div id="hotelHistoryList" class="record-list"></div>
+        </div>
+      </section>
+
+      <!-- ==================== VISTA 6: FARMACIA Y CLÍNICAS ==================== -->
+      <section id="view-farmacia" class="view-section">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">💊 Catálogo de Farmacia y Clínicas</div>
+              <div class="card-subtitle">Consulta y alta rápida de medicamentos y clínicas de origen/destino (disponible offline)</div>
+            </div>
+          </div>
+          <div class="subtabs" style="margin-bottom:12px;">
+            <button type="button" class="subtab-btn active" data-farmtab="meds" onclick="MedicoApp.setFarmTab('meds')">💊 Medicamentos</button>
+            <button type="button" class="subtab-btn" data-farmtab="clinicas" onclick="MedicoApp.setFarmTab('clinicas')">🏥 Clínicas</button>
+          </div>
+
+          <!-- Panel Medicamentos -->
+          <div id="farmPanelMeds">
+            <form onsubmit="MedicoApp.saveMedicamento(event)" class="form-grid cols-4" style="margin-bottom:14px;padding:12px;background:var(--bg-subtle);border-radius:14px;border:1.5px solid var(--border);">
+              <div class="field-group"><label class="field-label" for="medNombre">Nombre Comercial *</label><input id="medNombre" class="field-input" required placeholder="Ej. Tempra" /></div>
+              <div class="field-group"><label class="field-label" for="medSustancia">Sustancia Activa</label><input id="medSustancia" class="field-input" placeholder="Paracetamol 500mg" /></div>
+              <div class="field-group"><label class="field-label" for="medPres">Presentación</label><input id="medPres" class="field-input" placeholder="Caja con 20 tabletas" /></div>
+              <div class="field-group"><label class="field-label" for="medPrecio">Precio ($)</label><input id="medPrecio" type="number" step="0.01" min="0" value="0" class="field-input" /></div>
+              <div class="span-full" style="display:flex;justify-content:flex-end;">
+                <button type="submit" class="btn btn-teal btn-sm">+ Agregar Medicamento</button>
+              </div>
+            </form>
+            <div class="field-group" style="margin-bottom:10px;">
+              <input id="medSearchInput" type="search" class="field-input" placeholder="Buscar medicamento o sustancia..." oninput="MedicoApp.renderFarmacia()" />
+            </div>
+            <div id="medsListContainer" class="record-list grid-desktop"></div>
+          </div>
+
+          <!-- Panel Clínicas -->
+          <div id="farmPanelClinicas" class="hidden">
+            <form onsubmit="MedicoApp.saveClinica(event)" class="form-grid cols-3" style="margin-bottom:14px;padding:12px;background:var(--bg-subtle);border-radius:14px;border:1.5px solid var(--border);">
+              <div class="field-group"><label class="field-label" for="cliNombre">Nombre Clínica / Hospital *</label><input id="cliNombre" class="field-input" required placeholder="Ej. HOSPITAL GENERAL" /></div>
+              <div class="field-group">
+                <label class="field-label" for="cliTipo">Tipo</label>
+                <select id="cliTipo" class="field-select">
+                  <option value="Interna">Interna (Mina / Unidad)</option>
+                  <option value="Externa">Externa (Destino / Ciudad)</option>
+                </select>
+              </div>
+              <div class="field-group"><label class="field-label" for="cliUbicacion">Ubicación / Ciudad</label><input id="cliUbicacion" class="field-input" placeholder="Ej. DURANGO" /></div>
+              <div class="span-full" style="display:flex;justify-content:flex-end;">
+                <button type="submit" class="btn btn-primary btn-sm">+ Agregar Clínica</button>
+              </div>
+            </form>
+            <div id="clinicasListContainer" class="record-list grid-desktop"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== VISTA 7: PERFIL MÉDICO, EQUIPO (DR. JEFE + DOCTORES) Y COFEPRIS ==================== -->
+      <section id="view-perfil" class="view-section">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">👨‍⚕️ Perfil Médico, Equipo Clínico y Firma Digital</div>
+              <div class="card-subtitle">Dr. Jefe (Principal) y Doctores Colaboradores · Datos completos COFEPRIS y firma individual</div>
+            </div>
+            <div class="btn-row" id="drJefeTeamControls">
+              <button type="button" class="btn btn-teal btn-sm" onclick="MedicoApp.createNewDoctor()">+ Nuevo Doctor en Equipo</button>
+            </div>
+          </div>
+
+          <div class="form-grid cols-2" style="margin-bottom:14px;">
+            <div class="field-group">
+              <label class="field-label" for="profileDocSelect">Seleccionar Perfil de Doctor (Activo en Turno)</label>
+              <select id="profileDocSelect" class="field-select" onchange="MedicoApp.selectDoctorProfile(this.value)"></select>
+            </div>
+            <div class="field-group" style="justify-content:flex-end;">
+              <div id="profileRoleBadgeBox" style="padding:10px 12px;border-radius:12px;background:var(--primary-soft);font-size:12.5px;font-weight:800;color:var(--primary);"></div>
+            </div>
+          </div>
+
+          <form onsubmit="MedicoApp.saveDoctorProfileForm(event)" class="form-grid cols-2">
+            <div class="field-group">
+              <label class="field-label" for="docNombre">Nombre Completo del Médico *</label>
+              <input id="docNombre" class="field-input" required placeholder="Dr(a). Nombre Apellidos" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="docCategoria">Categoría Emisor Autorizado (COFEPRIS I–VI) *</label>
+              <select id="docCategoria" class="field-select"></select>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="docCedula">Número de Cédula Profesional *</label>
+              <input id="docCedula" class="field-input" placeholder="Ej. 12345678" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="docInstitucion">Institución que Emite el Título *</label>
+              <input id="docInstitucion" class="field-input" placeholder="Ej. Universidad Juárez del Estado de Durango" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="docEspecialidad">Especialidad / Área</label>
+              <input id="docEspecialidad" class="field-input" placeholder="Medicina General / Ocupacional" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="docTelefono">Teléfono del Consultorio *</label>
+              <input id="docTelefono" class="field-input" placeholder="Ej. 618-000-0000" />
+            </div>
+            <div class="field-group span-full">
+              <label class="field-label" for="docDomicilio">Domicilio Completo del Consultorio *</label>
+              <input id="docDomicilio" class="field-input" placeholder="Calle, número, localidad, municipio, estado" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="docTituloConsultorio">Título Abierto del Consultorio (Encabezado Receta)</label>
+              <input id="docTituloConsultorio" class="field-input" placeholder="Opcional: Consultorio Médico Particular..." />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="docClinicaAsignada">Clínica Asignada</label>
+              <select id="docClinicaAsignada" class="field-select"></select>
+            </div>
+
+            <div class="field-group span-full" id="docIsPrincipalToggleWrap">
+              <label class="toggle-item">
+                <span>⭐ Designar como Dr. Jefe / Médico Principal (puede administrar equipo y campos de receta COFEPRIS)</span>
+                <input id="docEsPrincipal" type="checkbox" />
+              </label>
+            </div>
+
+            <!-- CAPTURA DE FIRMA DIGITAL INDIVIDUAL -->
+            <div class="field-group span-full" style="margin-top:4px;">
+              <label class="field-label">✍️ Firma Autógrafa Digital Individual (Dibuja con dedo o lápiz táctil)</label>
+              <div class="signature-pad-wrap">
+                <canvas id="signatureCanvas" class="signature-canvas" width="600" height="170"></canvas>
+              </div>
+              <div class="btn-row" style="margin-top:8px;">
+                <button type="button" class="btn btn-outline btn-sm" onclick="MedicoApp.setSigInk('#0f172a')">🖋️ Tinta Negra</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="MedicoApp.setSigInk('#1d4ed8')">🖋️ Tinta Azul</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="MedicoApp.clearSigPad()">🧹 Limpiar Pad</button>
+                <label class="btn btn-soft btn-sm" style="margin:0;">
+                  📤 Subir Imagen Firma
+                  <input type="file" accept="image/*" style="display:none;" onchange="MedicoApp.uploadSigImage(event)" />
+                </label>
+              </div>
+              <div id="savedSigPreviewBox" class="hidden" style="margin-top:8px;padding:10px;background:#fff;border:1.5px solid var(--border);border-radius:12px;text-align:center;">
+                <div style="font-size:11px;font-weight:800;color:#475569;margin-bottom:4px;">Firma Guardada de este Doctor:</div>
+                <img id="savedSigPreviewImg" alt="Firma" style="max-height:70px;max-width:240px;object-fit:contain;" />
+              </div>
+            </div>
+
+            <div class="btn-row span-full" style="justify-content:space-between;margin-top:6px;">
+              <button type="button" id="btnDeleteDoctor" class="btn btn-danger btn-sm hidden" onclick="MedicoApp.deleteSelectedDoctor()">🗑️ Eliminar Doctor</button>
+              <button type="submit" class="btn btn-primary">💾 Guardar Perfil Médico y Firma</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- CONFIGURADOR COFEPRIS (SOLO DR. JEFE / PRINCIPAL) -->
+        <div class="card" id="cofeprisConfigCard">
+          <div class="card-header">
+            <div>
+              <div class="card-title">⚙️ Personalización de Receta COFEPRIS (Dr. Jefe)</div>
+              <div class="card-subtitle">Activa o desactiva campos y la receta abierta se adapta uniformemente</div>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn btn-soft btn-sm" onclick="MedicoApp.applyCofeprisPreset('COFEPRIS_COMPLETA')">COFEPRIS Completa</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="MedicoApp.applyCofeprisPreset('SOLO_OBLIGATORIOS')">Solo Obligatorios</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="MedicoApp.applyCofeprisPreset('COMPACTA')">Compacta</button>
+              <button type="button" class="btn btn-primary btn-sm" onclick="MedicoApp.previewSampleReceta()">👁️ Probar Receta</button>
+            </div>
+          </div>
+
+          <div class="form-grid cols-2" style="margin-bottom:14px;">
+            <div class="field-group">
+              <label class="field-label" for="cfgTituloAbierto">Título Abierto Global del Consultorio</label>
+              <input id="cfgTituloAbierto" class="field-input" onchange="MedicoApp.saveCofeprisTexts()" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="cfgSubtitulo">Subtítulo de Receta</label>
+              <input id="cfgSubtitulo" class="field-input" onchange="MedicoApp.saveCofeprisTexts()" />
+            </div>
+          </div>
+          <div id="cofeprisTogglesContainer" class="toggle-grid"></div>
+        </div>
+
+        <!-- SEGURIDAD DE LA APP (PIN CLÍNICO Y BLOQUEO AUTOMÁTICO) -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🛡️ Seguridad Clínica del Dispositivo</div>
+              <div class="card-subtitle">Protege los expedientes médicos con PIN personal y bloqueo automático por inactividad</div>
+            </div>
+          </div>
+          <div class="form-grid cols-2">
+            <div class="field-group">
+              <label class="field-label" for="secNewPin">Configurar / Cambiar PIN Clínico (4 a 6 dígitos)</label>
+              <div style="display:flex;gap:8px;">
+                <input id="secNewPin" type="password" inputmode="numeric" maxlength="6" class="field-input" placeholder="Ej. 4589" />
+                <button type="button" class="btn btn-primary" onclick="MedicoApp.saveNewPin()">Guardar PIN</button>
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="secAutoLock">Bloqueo Automático por Inactividad</label>
+              <select id="secAutoLock" class="field-select" onchange="MedicoApp.updateAutoLock(this.value)">
+                <option value="5">Después de 5 minutos</option>
+                <option value="10">Después de 10 minutos</option>
+                <option value="15">Después de 15 minutos</option>
+                <option value="30">Después de 30 minutos</option>
+                <option value="0">Solo bloqueo manual (🔒)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== VISTA 8: MONITOR DE CONEXIÓN A BASE DE DATOS Y SINCRONIZACIÓN ==================== -->
+      <section id="view-conexion" class="view-section">
+        <div id="dbHeroCard" class="db-hero offline">
+          <div>
+            <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;opacity:0.9;">Estado de Enlace con Computadora / Base de Datos Central</div>
+            <div style="font-size:22px;font-weight:900;margin-top:3px;" id="dbHeroTitle">Verificando enlace...</div>
+            <div style="font-size:13px;font-weight:600;margin-top:4px;opacity:0.95;" id="dbHeroDetail">Probando respuesta en vivo de Supabase...</div>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn" style="background:#ffffff;color:#0b2559;" onclick="MedicoApp.runManualDbCheck()">🔍 Probar Conexión BD</button>
+            <button type="button" class="btn" style="background:rgba(2,6,23,0.35);color:#ffffff;border-color:rgba(255,255,255,0.4);" onclick="MedicoApp.runDownloadPadron()">⬇️ Actualizar Padrón</button>
+          </div>
+        </div>
+
+        <div class="grid-kpis">
+          <div class="kpi-card">
+            <span class="kpi-label">Red del Equipo</span>
+            <span class="kpi-value" style="font-size:18px;" id="connDeviceNet">—</span>
+            <span class="kpi-meta" id="connLastCheck">Sin verificar</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Latencia BD</span>
+            <span class="kpi-value" style="font-size:20px;color:var(--teal);" id="connLatency">—</span>
+            <span class="kpi-meta" id="connHttpCode">HTTP —</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Caché Offline</span>
+            <span class="kpi-value" style="font-size:20px;" id="connCachedCount">0</span>
+            <span class="kpi-meta" id="connLastDownload">Sin descarga</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Cola por Subir</span>
+            <span class="kpi-value" style="font-size:22px;color:var(--warning);" id="connQueueCount">0</span>
+            <span class="kpi-meta" id="connLastSync">Sin sincronizar</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">☁️ Registros Pendientes por Sincronizar a la Computadora / BD</div>
+              <div class="card-subtitle">Todo lo capturado sin internet se guarda aquí y se sube automáticamente al reconectarse</div>
+            </div>
+            <button type="button" class="btn btn-success" id="btnSyncAllNow" onclick="MedicoApp.runSyncNow()">
+              🔄 Sincronizar Todo Ahora
+            </button>
+          </div>
+          <div id="syncQueueContainer" class="record-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📦 Inventario Guardado en Este Dispositivo (Disponible Sin Internet)</div>
+          </div>
+          <div id="offlineCacheSummary" class="record-meta" style="font-size:13px;"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🖥️ Bitácora en Vivo de Conexión y Sincronización</div>
+          </div>
+          <div id="syncConsoleBox" class="sync-console"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ========================================================================
+       MODALES: ALTA/EDICIÓN TRABAJADOR, PACIENTE, DETALLE, VISTA PREVIA DOC, QR
+       ======================================================================== -->
+  <div id="modalWorker" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <div class="card-title" id="modalWorkerTitle">👤 Nuevo Trabajador Titular</div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="MedicoApp.closeModals()">✕</button>
+      </div>
+      <form onsubmit="MedicoApp.saveWorkerForm(event)" class="modal-body">
+        <input type="hidden" id="wrkId" />
+        <div class="form-grid cols-2">
+          <div class="field-group"><label class="field-label" for="wrkNombre">Nombre(s) *</label><input id="wrkNombre" class="field-input" required /></div>
+          <div class="field-group"><label class="field-label" for="wrkPaterno">Apellido Paterno *</label><input id="wrkPaterno" class="field-input" required /></div>
+          <div class="field-group"><label class="field-label" for="wrkMaterno">Apellido Materno</label><input id="wrkMaterno" class="field-input" /></div>
+          <div class="field-group"><label class="field-label" for="wrkNum">No. Empleado / Ficha</label><input id="wrkNum" class="field-input" /></div>
+          <div class="field-group"><label class="field-label" for="wrkDepto">Departamento</label><input id="wrkDepto" class="field-input" value="MINA GENERAL" /></div>
+          <div class="field-group"><label class="field-label" for="wrkPuesto">Puesto</label><input id="wrkPuesto" class="field-input" value="GENERAL" /></div>
+          <div class="field-group"><label class="field-label" for="wrkCurp">CURP</label><input id="wrkCurp" class="field-input" /></div>
+          <div class="field-group"><label class="field-label" for="wrkNss">NSS (IMSS)</label><input id="wrkNss" class="field-input" /></div>
+          <div class="field-group"><label class="field-label" for="wrkRfc">RFC</label><input id="wrkRfc" class="field-input" /></div>
+          <div class="field-group">
+            <label class="field-label" for="wrkEstado">Estatus</label>
+            <select id="wrkEstado" class="field-select">
+              <option value="ACTIVO">🟢 ACTIVO (DADO DE ALTA)</option>
+              <option value="BAJA">🔴 BAJA (SUSPENDIDO)</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-foot" style="padding:12px 0 0;border-top:1px solid var(--border);">
+          <button type="button" class="btn btn-outline" onclick="MedicoApp.closeModals()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">💾 Guardar Trabajador</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="modalPatient" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <div class="card-title" id="modalPatientTitle">🩺 Nuevo Beneficiario / Paciente</div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="MedicoApp.closeModals()">✕</button>
+      </div>
+      <form onsubmit="MedicoApp.savePatientForm(event)" class="modal-body">
+        <input type="hidden" id="patId" />
+        <div class="form-grid cols-2">
+          <div class="field-group span-full"><label class="field-label" for="patNombre">Nombre Completo *</label><input id="patNombre" class="field-input" required /></div>
+          <div class="field-group">
+            <label class="field-label" for="patTipo">Tipo de Paciente</label>
+            <select id="patTipo" class="field-select" onchange="MedicoApp.onPatTipoChange()">
+              <option value="BENEFICIARIO">Beneficiario / Familiar de Trabajador</option>
+              <option value="GENERAL">Población General / Externo</option>
+            </select>
+          </div>
+          <div class="field-group" id="patParentescoWrap">
+            <label class="field-label" for="patParentesco">Parentesco</label>
+            <select id="patParentesco" class="field-select">
+              <option value="Esposo(a)">Esposo(a)</option>
+              <option value="Hijo(a)">Hijo(a)</option>
+              <option value="Padre/Madre">Padre / Madre</option>
+              <option value="Concubina(o)">Concubina(o)</option>
+              <option value="TITULAR (TRABAJADOR)">TITULAR (TRABAJADOR)</option>
+            </select>
+          </div>
+          <div class="field-group span-full" id="patTitularWrap">
+            <label class="field-label" for="patTitularSelect">Trabajador Titular Vinculado</label>
+            <select id="patTitularSelect" class="field-select"></select>
+          </div>
+          <div class="field-group"><label class="field-label" for="patFechaNac">Fecha Nacimiento</label><input id="patFechaNac" type="date" class="field-input" /></div>
+          <div class="field-group"><label class="field-label" for="patAcompanante">Acompañante Habitual</label><input id="patAcompanante" class="field-input" /></div>
+        </div>
+        <div class="modal-foot" style="padding:12px 0 0;border-top:1px solid var(--border);">
+          <button type="button" class="btn btn-outline" onclick="MedicoApp.closeModals()">Cancelar</button>
+          <button type="submit" class="btn btn-teal">💾 Guardar Paciente</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="modalWorkerDetail" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <div class="card-title" id="detailWorkerTitle">Expediente Clínico del Trabajador</div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="MedicoApp.closeModals()">✕</button>
+      </div>
+      <div id="detailWorkerBody" class="modal-body"></div>
+      <div class="modal-foot" id="detailWorkerFoot"></div>
+    </div>
+  </div>
+
+  <div id="modalDocPreview" class="modal-overlay hidden">
+    <div class="modal-box wide">
+      <div class="modal-head">
+        <div class="card-title" id="docPreviewTitle">Vista Previa Documento</div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="MedicoApp.closeModals()">✕</button>
+      </div>
+      <div class="modal-body">
+        <iframe id="docPreviewIframe" class="preview-iframe" title="Vista previa documento clínico"></iframe>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-outline" onclick="MedicoApp.closeModals()">Cerrar</button>
+        <button type="button" class="btn btn-soft" onclick="MedicoApp.printPreviewDoc()">🖨️ Imprimir</button>
+        <button type="button" class="btn btn-primary" id="btnDocDownloadPdf">📄 Descargar PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ESCÁNER QR PANTALLA COMPLETA -->
+  <div id="qrScannerModal" class="qr-scanner-modal hidden">
+    <video id="qrVideo" class="qr-video" playsinline muted></video>
+    <div class="qr-hud">
+      <div class="qr-hud-bar">
+        <div>
+          <div style="font-weight:900;font-size:14px;">📷 Escáner QR de Credencial Bacís</div>
+          <div style="font-size:11.5px;color:#bae6fd;">Apunta al código QR del trabajador para verificar su alta</div>
+        </div>
+        <button type="button" class="btn btn-danger btn-sm" onclick="MedicoApp.closeQrScanner()">Cerrar</button>
+      </div>
+      <div class="qr-frame"></div>
+      <div class="qr-hud-bar" style="justify-content:center;">
+        <span style="font-size:12px;font-weight:800;">Escaneando credencial en tiempo real (100% offline)...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toastBanner" class="toast-banner hidden"></div>
+
+  <!-- SCRIPTS LOCALES 100% OFFLINE (CERO DEPENDENCIAS CDN) -->
+  <script src="jspdf.umd.min.js"></script>
+  <script src="jsqr.js"></script>
+  <script src="db-sync.js"></script>
+  <script src="docs-pdf.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

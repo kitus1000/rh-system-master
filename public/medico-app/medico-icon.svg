@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <defs>
+    <linearGradient id="mbBg" x1="10" y1="6" x2="110" y2="114" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0b2559"/>
+      <stop offset="55%" stop-color="#1d4ed8"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="mbPulse" x1="28" y1="68" x2="92" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1d4ed8"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="112" height="112" rx="28" fill="url(#mbBg)" stroke="#60a5fa" stroke-width="2.5" stroke-opacity="0.55"/>
+  <rect x="20" y="34" width="80" height="68" rx="18" fill="#020c22" fill-opacity="0.48" stroke="#38bdf8" stroke-width="2" stroke-opacity="0.7"/>
+  <rect x="38" y="14" width="44" height="18" rx="9" fill="#ffffff"/>
+  <text x="60" y="27" text-anchor="middle" font-family="Arial,sans-serif" font-weight="900" font-size="12" fill="#0f2b78" letter-spacing="1">GB</text>
+  <rect x="49.5" y="40" width="21" height="56" rx="5.5" fill="#ffffff"/>
+  <rect x="32" y="57.5" width="56" height="21" rx="5.5" fill="#ffffff"/>
+  <polyline points="28,68 45,68 50,68 54,53 60.5,82 66.5,62 71,68 92,68" fill="none" stroke="url(#mbPulse)" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

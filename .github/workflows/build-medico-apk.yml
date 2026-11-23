@@ -1,0 +1,64 @@
+name: Compilar APK Android Médico Bacís (100% Offline)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'public/medico-app/**'
+      - 'android-medico/**'
+      - 'capacitor.medico.config.json'
+      - '.github/workflows/build-medico-apk.yml'
+  workflow_dispatch:
+
+jobs:
+  build-medico-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar Código Fuente
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Asegurar Capacitor Android 6.2.0
+        run: |
+          if [ ! -d "node_modules/@capacitor/android" ]; then
+            npm install --no-save @capacitor/core@6.2.0 @capacitor/android@6.2.0
+          fi
+
+      - name: Sincronizar Web Bundle Médico Offline en android-medico
+        run: |
+          mkdir -p android-medico/app/src/main/assets/public
+          cp -r public/medico-app/* android-medico/app/src/main/assets/public/
+          cp capacitor.medico.config.json android-medico/app/src/main/assets/capacitor.config.json
+
+      - name: Dar permisos de ejecución a Gradle
+        run: chmod +x android-medico/gradlew
+
+      - name: Compilar APK Android Médico Bacís (100% Offline)
+        run: |
+          cd android-medico
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Renombrar y Subir APK Médico Bacís para Descarga
+        run: |
+          cp android-medico/app/build/outputs/apk/debug/app-debug.apk MedicoBacis-100-Offline-Android.apk
+
+      - name: Publicar Artefacto APK Descargable
+        uses: actions/upload-artifact@v4
+        with:
+          name: MedicoBacis-100-Offline-Android
+          path: MedicoBacis-100-Offline-Android.apk
+          retention-days: 30

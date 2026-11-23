@@ -1181,12 +1181,28 @@ export default function LandingHub() {
                     </form>
                   )}
 
-                  {/* ACCESOS DIRECTOS SIN CONTRASEÑA COMO ÍCONOS EN EL LOGIN */}
+                  {/* ACCESOS DIRECTOS Y APP MÓVIL COMO ÍCONOS EN EL LOGIN */}
                   <div className="mt-6 pt-4 border-t border-white/10">
                     <span className="block text-[9px] font-mono uppercase tracking-[0.2em] text-slate-400 text-center mb-2.5">
-                      Accesos Rápidos Sin Contraseña
+                      Accesos Rápidos y App Móvil
                     </span>
-                    <div className="grid grid-cols-2 gap-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <Link
+                        href="/medico-app"
+                        className="flex items-center gap-2.5 p-2 rounded-xl bg-blue-950/70 border border-blue-400/35 hover:border-blue-300 transition-all group"
+                      >
+                        <img
+                          src="/medico-icon-192.png"
+                          alt="App Médico Bacís"
+                          className="w-10 h-10 rounded-lg shrink-0"
+                        />
+                        <div className="text-left">
+                          <div className="text-[11px] font-black text-white group-hover:text-blue-300">
+                            App Médico
+                          </div>
+                          <div className="text-[9px] text-sky-300/90">Celular / Offline</div>
+                        </div>
+                      </Link>
                       <Link
                         href="/caseta-qr"
                         className="flex items-center gap-2.5 p-2 rounded-xl bg-black/70 border border-white/15 hover:border-blue-400 transition-all group"

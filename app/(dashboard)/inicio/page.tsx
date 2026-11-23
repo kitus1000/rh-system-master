@@ -47,6 +47,7 @@ import { BacisLogoEmblem } from '@/components/BacisLogoEmblem'
 import { PortalAppIcon, type PortalIconId } from '@/components/PortalAppIcons'
 
 const APP_ICON_MAP: Record<string, PortalIconId> = {
+  'med-app-movil': 'medico',
   'med-consultas': 'medico',
   'med-pacientes': 'medico',
   'med-pases': 'pases',
@@ -118,6 +119,19 @@ export default function InicioPage() {
   // Full Catalog of System Apps
   const ALL_APPS: AppItem[] = [
     // --- Módulo Médico ---
+    {
+      id: 'med-app-movil',
+      name: 'App Móvil / Tablet Médico Bacís',
+      subtitle: 'Modo celular/tablet 100% offline, PIN, recetas COFEPRIS y sincronización BD',
+      href: '/medico-app',
+      icon: Stethoscope,
+      category: 'medico',
+      badge: 'APK / OFFLINE',
+      color: 'text-sky-400',
+      bgGradient: 'from-blue-500/20 via-teal-500/10 to-transparent',
+      glowColor: 'hover:border-sky-400/60 hover:shadow-sky-500/25',
+      roles: ['Administrativo', 'Médico', 'Jefe Médico', 'Recursos Humanos']
+    },
     {
       id: 'med-consultas',
       name: 'Consultas Médicas',

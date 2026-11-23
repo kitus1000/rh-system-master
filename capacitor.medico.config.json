@@ -1,0 +1,11 @@
+{
+  "appId": "com.minasbacis.medico",
+  "appName": "Médico Bacís",
+  "webDir": "public/medico-app",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  }
+}

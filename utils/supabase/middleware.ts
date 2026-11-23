@@ -41,6 +41,8 @@ export async function updateSession(request: NextRequest) {
         request.nextUrl.pathname !== '/reservar-viaje' &&
         !request.nextUrl.pathname.startsWith('/registro-locker') &&
         !request.nextUrl.pathname.startsWith('/caseta-qr') &&
+        !request.nextUrl.pathname.startsWith('/medico-app') &&
+        !request.nextUrl.pathname.startsWith('/api/pwa-medico-manifest') &&
         !request.nextUrl.pathname.startsWith('/api/caseta') &&
         !request.nextUrl.pathname.startsWith('/api/contratistas/solicitar-cuenta') &&
         !request.nextUrl.pathname.startsWith('/api/movimientos/responder-correo') &&
