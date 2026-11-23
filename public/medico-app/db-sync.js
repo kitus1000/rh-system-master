@@ -155,6 +155,21 @@
 
   // Depuración y limpieza automática de la cola offline para descartar errores de esquema irrecuperables
   if (Array.isArray(state.queue)) {
+    let modified = false;
+    state.queue.forEach((item) => {
+      if (item.type === 'CREATE_PASE_MEDICO' && item.payload && item.payload.pase) {
+        if ('departamento_pasajero' in item.payload.pase) {
+          delete item.payload.pase.departamento_pasajero;
+          modified = true;
+        }
+        if (item.error && item.error.includes('departamento_pasajero')) {
+          item.status = 'PENDING';
+          delete item.error;
+          item.retries = 0;
+          modified = true;
+        }
+      }
+    });
     const rawLen = state.queue.length;
     state.queue = state.queue.filter((item) => {
       if (item.error && (item.error.includes('schema cache') || item.error.includes('column of \'perfiles\''))) {
@@ -165,7 +180,7 @@
       }
       return true;
     });
-    if (state.queue.length !== rawLen) {
+    if (state.queue.length !== rawLen || modified) {
       safeWriteJSON(KEYS.QUEUE, state.queue);
     }
   }
@@ -672,11 +687,32 @@
         id_paciente: p.pase.id_paciente ? resolveId(p.pase.id_paciente) : null,
         id_empleado: p.pase.id_empleado ? resolveId(p.pase.id_empleado) : null,
       });
-      await restRequest('pases_medicos', {
-        method: 'POST',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify([paseRow]),
-      });
+      delete paseRow.departamento_pasajero;
+
+      try {
+        await restRequest('pases_medicos', {
+          method: 'POST',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify([paseRow]),
+        });
+      } catch (err) {
+        if (err.message && (err.message.includes('column of') || err.message.includes('schema cache'))) {
+          addLog('WARN', `Aviso de esquema remoto en pases_medicos (${err.message}). Reintentando con campos esenciales...`);
+          delete paseRow.departamento_pasajero;
+          delete paseRow.antiguedad;
+          delete paseRow.sv_peso;
+          delete paseRow.sv_talla;
+          delete paseRow.compartido_departamentos;
+          await restRequest('pases_medicos', {
+            method: 'POST',
+            headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify([paseRow]),
+          });
+          addLog('OK', `Pase médico guardado en Supabase.`);
+          return true;
+        }
+        throw err;
+      }
       return true;
     }
 

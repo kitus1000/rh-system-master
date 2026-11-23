@@ -17,5 +17,13 @@ ALTER TABLE perfiles ADD COLUMN IF NOT EXISTS domicilio_consultorio TEXT;
 ALTER TABLE perfiles ADD COLUMN IF NOT EXISTS titulo_consultorio TEXT;
 ALTER TABLE perfiles ADD COLUMN IF NOT EXISTS categoria_emisor TEXT;
 
--- 2. Recargar la caché del esquema de PostgREST para que Supabase reconozca las nuevas columnas inmediatamente
+-- 2. Asegurar columnas de pases médicos (Departamentos, Hotel, Retorno y Signos Vitales)
+ALTER TABLE pases_medicos ADD COLUMN IF NOT EXISTS departamento_pasajero TEXT;
+ALTER TABLE pases_medicos ADD COLUMN IF NOT EXISTS antiguedad TEXT;
+ALTER TABLE pases_medicos ADD COLUMN IF NOT EXISTS fecha_retorno DATE;
+ALTER TABLE pases_medicos ADD COLUMN IF NOT EXISTS sv_peso TEXT;
+ALTER TABLE pases_medicos ADD COLUMN IF NOT EXISTS sv_talla TEXT;
+ALTER TABLE pases_medicos ADD COLUMN IF NOT EXISTS compartido_departamentos BOOLEAN DEFAULT FALSE;
+
+-- 3. Recargar la caché del esquema de PostgREST para que Supabase reconozca las nuevas columnas inmediatamente
 NOTIFY pgrst, 'reload schema';

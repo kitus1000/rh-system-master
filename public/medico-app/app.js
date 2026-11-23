@@ -1217,6 +1217,7 @@
     const reqHotel = $('paseRequiereHotel').value === 'SI';
     const hotelNombre = reqHotel ? ($('paseHotelNombre').value.trim().toUpperCase() || 'HOTEL DEL CENTRO') : null;
 
+    const deptoPasajero = ($('paseDepartamento') ? $('paseDepartamento').value.trim() : '').toUpperCase();
     const paseRow = {
       id_paciente: pac.id_paciente,
       id_empleado: pac.id_empleado || null,
@@ -1227,7 +1228,6 @@
       parentesco: $('paseParentesco').value.trim().toUpperCase(),
       nombre_trabajador: $('paseTrabajador').value.trim().toUpperCase(),
       edad: $('paseEdad').value.trim().toUpperCase(),
-      departamento_pasajero: ($('paseDepartamento') ? $('paseDepartamento').value.trim() : '').toUpperCase(),
       antiguedad: ($('paseAntiguedad') ? $('paseAntiguedad').value.trim() : '').toUpperCase(),
       unidad_refiere: 'UNIDAD MEDICA BACIS',
       unidad_se_refiere: $('paseUnidadRefiere').value.trim().toUpperCase(),
@@ -1270,13 +1270,21 @@
       });
     }
 
-    const previewObj = Object.assign({}, paseRow, { paciente_nombre: pac.nombre_completo });
+    const previewObj = Object.assign({}, paseRow, {
+      paciente_nombre: pac.nombre_completo,
+      departamento_pasajero: deptoPasajero,
+    });
     const res = await DB.submitOrQueue(
       'CREATE_PASE_MEDICO',
       `Pase Médico ${paseRow.folio}: ${pac.nombre_completo}`,
       { pase: paseRow },
       () => {
-        DB.state.cache.pases.unshift(Object.assign({ id_pase: 'local_pase_' + Date.now(), creado_el: new Date().toISOString(), pacientes: { nombre_completo: pac.nombre_completo } }, paseRow));
+        DB.state.cache.pases.unshift(Object.assign({
+          id_pase: 'local_pase_' + Date.now(),
+          creado_el: new Date().toISOString(),
+          pacientes: { nombre_completo: pac.nombre_completo },
+          departamento_pasajero: deptoPasajero,
+        }, paseRow));
       }
     );
 
