@@ -4,6 +4,7 @@
   "webDir": "public/medico-app",
   "bundledWebRuntime": false,
   "android": {
+    "path": "android-medico",
     "allowMixedContent": true,
     "captureInput": true,
     "webContentsDebuggingEnabled": false

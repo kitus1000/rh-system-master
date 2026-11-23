@@ -24,13 +24,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
-      - name: Instalar Dependencias
-        run: npm ci
+      - name: Instalar Capacitor 6.2.0
+        run: |
+          REPO_DIR="$PWD"
+          mkdir -p /tmp/cap-deps
+          cd /tmp/cap-deps
+          npm init -y >/dev/null 2>&1
+          npm install @capacitor/core@6.2.0 @capacitor/cli@6.2.0 @capacitor/android@6.2.0
+          cd "$REPO_DIR"
+          rm -rf node_modules
+          mv /tmp/cap-deps/node_modules ./node_modules
 
       - name: Sincronizar Capacitor con Android
-        run: npx cap sync android
+        run: node ./node_modules/@capacitor/cli/bin/capacitor sync android
 
       - name: Dar permisos de ejecución a Gradle
         run: chmod +x android/gradlew
