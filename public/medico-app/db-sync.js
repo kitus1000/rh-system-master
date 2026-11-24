@@ -157,13 +157,14 @@
   if (Array.isArray(state.queue)) {
     let modified = false;
     state.queue.forEach((item) => {
+      if (!item) return;
       if (item.type === 'CREATE_PASE_MEDICO' && item.payload && item.payload.pase) {
         if ('departamento_pasajero' in item.payload.pase) {
           delete item.payload.pase.departamento_pasajero;
           modified = true;
         }
         if (item.error && item.error.includes('departamento_pasajero')) {
-          item.status = 'PENDING';
+          item.status = 'PENDIENTE';
           delete item.error;
           item.retries = 0;
           modified = true;
@@ -172,7 +173,8 @@
     });
     const rawLen = state.queue.length;
     state.queue = state.queue.filter((item) => {
-      if (item.error && (item.error.includes('schema cache') || item.error.includes('column of \'perfiles\''))) {
+      if (!item) return false;
+      if (item.error && (item.error.includes('schema cache') || item.error.includes("column of 'perfiles'"))) {
         return false;
       }
       if (item.type === 'UPDATE_DOCTOR_PROFILE' && item.retries > 0) {
@@ -212,8 +214,53 @@
     emitChange();
   }
 
+  let refreshInFlight = null;
+  let checkInFlight = null;
+
+  function getJwtExpSeconds(jwt) {
+    try {
+      const parts = String(jwt || '').split('.');
+      if (parts.length !== 3) return 0;
+      const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const pad = b64.length % 4 ? b64 + '='.repeat(4 - (b64.length % 4)) : b64;
+      const payload = JSON.parse(atob(pad));
+      return Number(payload.exp || 0);
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  function getAnonAuthHeaders(extra) {
+    return Object.assign(
+      {
+        apikey: SUPABASE_KEY,
+        Authorization: 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+      },
+      extra || {}
+    );
+  }
+
+  function getApikeyOnlyHeaders(extra) {
+    return Object.assign(
+      {
+        apikey: SUPABASE_KEY,
+        'Content-Type': 'application/json',
+      },
+      extra || {}
+    );
+  }
+
+  function hasUsableUserJwt() {
+    if (!state.session || !state.session.access_token) return false;
+    const expAt = state.session.expires_at || getJwtExpSeconds(state.session.access_token);
+    if (!expAt) return true;
+    const nowSec = Math.floor(Date.now() / 1000);
+    return expAt > nowSec + 10;
+  }
+
   function getAuthHeaders(extra) {
-    const token = state.session && state.session.access_token ? state.session.access_token : SUPABASE_KEY;
+    const token = hasUsableUserJwt() ? state.session.access_token : SUPABASE_KEY;
     return Object.assign(
       {
         apikey: SUPABASE_KEY,
@@ -224,58 +271,128 @@
     );
   }
 
-  async function refreshSessionIfNeeded() {
+  async function refreshSessionIfNeeded(force) {
     if (!state.session || !state.session.refresh_token) return false;
-    const expAt = state.session.expires_at || 0;
+    const expAt = state.session.expires_at || getJwtExpSeconds(state.session.access_token);
     const nowSec = Math.floor(Date.now() / 1000);
-    if (expAt && expAt - nowSec > 180) return true;
+    if (!force && expAt && expAt - nowSec > 180) return true;
+
+    if (refreshInFlight) return refreshInFlight;
+
+    refreshInFlight = (async () => {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+          method: 'POST',
+          headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: state.session.refresh_token }),
+        });
+        if (!res.ok) {
+          // Si el refresh_token fue revocado o expiró, limpiar tokens caducados sin borrar el perfil local ni el PIN
+          if (res.status === 400 || res.status === 401 || res.status === 403) {
+            if (state.session) {
+              delete state.session.access_token;
+              delete state.session.refresh_token;
+              state.session.tokenMode = 'anon';
+              safeWriteJSON(KEYS.SESSION, state.session);
+            }
+          }
+          return false;
+        }
+        const data = await res.json();
+        if (data && data.access_token) {
+          state.session.access_token = data.access_token;
+          state.session.refresh_token = data.refresh_token || state.session.refresh_token;
+          state.session.expires_at = Math.floor(Date.now() / 1000) + (data.expires_in || 3600);
+          delete state.session.tokenMode;
+          safeWriteJSON(KEYS.SESSION, state.session);
+          return true;
+        }
+      } catch (_) {}
+      return false;
+    })();
+
     try {
-      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-        method: 'POST',
-        headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: state.session.refresh_token }),
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      if (data && data.access_token) {
-        state.session.access_token = data.access_token;
-        state.session.refresh_token = data.refresh_token || state.session.refresh_token;
-        state.session.expires_at = Math.floor(Date.now() / 1000) + (data.expires_in || 3600);
-        safeWriteJSON(KEYS.SESSION, state.session);
-        return true;
-      }
-    } catch (_) {}
-    return false;
+      return await refreshInFlight;
+    } finally {
+      refreshInFlight = null;
+    }
   }
 
-  async function restRequest(path, options) {
-    await refreshSessionIfNeeded();
-    const opts = Object.assign({ method: 'GET' }, options || {});
-    opts.headers = getAuthHeaders(opts.headers);
+  async function doFetchRest(path, method, headers, body, timeoutMs) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutMs || 12000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 12000);
     try {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-        method: opts.method,
-        headers: opts.headers,
-        body: opts.body,
+        method,
+        headers,
+        body,
         signal: controller.signal,
       });
       clearTimeout(timer);
       const text = await res.text();
-      let json = null;
-      try { json = text ? JSON.parse(text) : null; } catch (_) {}
-      if (!res.ok) {
-        const msg = (json && (json.message || json.error_description || json.error)) || `HTTP ${res.status}`;
-        const err = new Error(msg);
-        err.status = res.status;
-        throw err;
-      }
-      return json;
+      return { res, text };
     } catch (err) {
       clearTimeout(timer);
       throw err;
     }
+  }
+
+  async function restRequest(path, options) {
+    await refreshSessionIfNeeded(false);
+    const opts = Object.assign({ method: 'GET' }, options || {});
+    const hadUserJwt = hasUsableUserJwt();
+    let { res, text } = await doFetchRest(
+      path,
+      opts.method,
+      getAuthHeaders(opts.headers),
+      opts.body,
+      opts.timeoutMs
+    );
+
+    if (res.status === 401 || res.status === 403) {
+      const refreshed = await refreshSessionIfNeeded(true);
+      if (refreshed) {
+        ({ res, text } = await doFetchRest(
+          path,
+          opts.method,
+          getAuthHeaders(opts.headers),
+          opts.body,
+          opts.timeoutMs
+        ));
+      }
+      if ((res.status === 401 || res.status === 403) && (hadUserJwt || (state.session && state.session.access_token))) {
+        ({ res, text } = await doFetchRest(
+          path,
+          opts.method,
+          getAnonAuthHeaders(opts.headers),
+          opts.body,
+          opts.timeoutMs
+        ));
+        if (res.status === 401 || res.status === 403) {
+          ({ res, text } = await doFetchRest(
+            path,
+            opts.method,
+            getApikeyOnlyHeaders(opts.headers),
+            opts.body,
+            opts.timeoutMs
+          ));
+        }
+        if (res.ok && state.session && state.session.access_token) {
+          delete state.session.access_token;
+          safeWriteJSON(KEYS.SESSION, state.session);
+        }
+      }
+    }
+
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch (_) {}
+    if (!res.ok) {
+      const msg = (json && (json.message || json.error_description || json.error)) || `HTTP ${res.status}`;
+      const err = new Error(msg);
+      err.status = res.status;
+      throw err;
+    }
+    return json;
   }
 
   /* ==========================================================================
@@ -379,63 +496,124 @@
   /* ==========================================================================
      MONITOR EN VIVO DE CONEXIÓN A BASE DE DATOS SUPABASE
      ========================================================================== */
-  async function testDatabaseConnection() {
-    const deviceOnline = navigator.onLine;
-    state.dbStatus.onlineDevice = deviceOnline;
-    state.dbStatus.lastCheckAt = new Date().toISOString();
-
-    if (!deviceOnline) {
-      state.dbStatus.state = 'offline';
-      state.dbStatus.dbReachable = false;
-      state.dbStatus.latencyMs = null;
-      state.dbStatus.httpStatus = 0;
-      state.dbStatus.lastError = 'Dispositivo sin conexión Wi-Fi o datos móviles.';
-      emitChange();
-      return state.dbStatus;
-    }
-
-    const t0 = performance.now();
+  async function pingSupabaseClinicas(headers) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9000);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
       const res = await fetch(`${SUPABASE_URL}/rest/v1/cat_clinicas?select=id_clinica&limit=1`, {
         method: 'GET',
-        headers: getAuthHeaders(),
+        headers,
         signal: controller.signal,
       });
       clearTimeout(timeout);
-      const latency = Math.round(performance.now() - t0);
-      state.dbStatus.latencyMs = latency;
-      state.dbStatus.httpStatus = res.status;
-
-      if (res.ok) {
-        state.dbStatus.state = state.isSyncing ? 'syncing' : 'online';
-        state.dbStatus.dbReachable = true;
-        state.dbStatus.lastError = null;
-      } else {
-        state.dbStatus.state = 'error';
-        state.dbStatus.dbReachable = false;
-        state.dbStatus.lastError = `Respuesta BD HTTP ${res.status}`;
-      }
+      return res;
     } catch (err) {
-      state.dbStatus.state = 'offline';
-      state.dbStatus.dbReachable = false;
-      state.dbStatus.latencyMs = null;
-      state.dbStatus.httpStatus = 0;
-      state.dbStatus.lastError = err.name === 'AbortError' ? 'Tiempo de espera agotado (sin respuesta BD)' : err.message;
+      clearTimeout(timeout);
+      throw err;
     }
+  }
 
-    emitChange();
-    return state.dbStatus;
+  async function testDatabaseConnection(opts) {
+    if (checkInFlight) return checkInFlight;
+
+    checkInFlight = (async () => {
+      const prevState = state.dbStatus.state;
+      const deviceOnline = navigator.onLine;
+      state.dbStatus.onlineDevice = deviceOnline;
+      state.dbStatus.lastCheckAt = new Date().toISOString();
+
+      if (!deviceOnline) {
+        state.dbStatus.state = 'offline';
+        state.dbStatus.dbReachable = false;
+        state.dbStatus.latencyMs = null;
+        state.dbStatus.httpStatus = 0;
+        state.dbStatus.lastError = 'Dispositivo sin conexión Wi-Fi o datos móviles.';
+        emitChange();
+        return state.dbStatus;
+      }
+
+      const t0 = performance.now();
+      try {
+        // Renovar token JWT si está por vencer o ya expiró antes de probar BD
+        await refreshSessionIfNeeded(false);
+
+        let res = await pingSupabaseClinicas(getAuthHeaders());
+
+        // Si el JWT guardado fue rechazado (401/403), intentar renovación forzada o respaldo publishable
+        if (res.status === 401 || res.status === 403) {
+          const refreshed = await refreshSessionIfNeeded(true);
+          if (refreshed) {
+            res = await pingSupabaseClinicas(getAuthHeaders());
+          }
+          if (res.status === 401 || res.status === 403) {
+            res = await pingSupabaseClinicas(getAnonAuthHeaders());
+            if (res.status === 401 || res.status === 403) {
+              res = await pingSupabaseClinicas(getApikeyOnlyHeaders());
+            }
+            if (res.ok && state.session && state.session.access_token) {
+              delete state.session.access_token;
+              safeWriteJSON(KEYS.SESSION, state.session);
+            }
+          }
+        }
+
+        const latency = Math.round(performance.now() - t0);
+        state.dbStatus.latencyMs = latency;
+        state.dbStatus.httpStatus = res.status;
+
+        if (res.ok) {
+          state.dbStatus.state = state.isSyncing ? 'syncing' : 'online';
+          state.dbStatus.dbReachable = true;
+          state.dbStatus.lastError = null;
+          if ((opts && opts.verbose) || prevState === 'error') {
+            addLog('OK', `Enlace activo con BD Central (HTTP ${res.status}, ${latency} ms).`);
+          }
+        } else {
+          let detail = '';
+          try {
+            const txt = await res.text();
+            const parsed = txt ? JSON.parse(txt) : null;
+            detail = (parsed && (parsed.message || parsed.error_description || parsed.error)) || txt || '';
+          } catch (_) {}
+          state.dbStatus.state = 'error';
+          state.dbStatus.dbReachable = false;
+          state.dbStatus.lastError = `Respuesta BD HTTP ${res.status}${detail ? ': ' + detail : ''}`;
+          if ((opts && opts.verbose) || prevState !== 'error') {
+            addLog('ERR', `Error de respuesta BD: ${state.dbStatus.lastError}`);
+          }
+        }
+      } catch (err) {
+        state.dbStatus.state = 'offline';
+        state.dbStatus.dbReachable = false;
+        state.dbStatus.latencyMs = null;
+        state.dbStatus.httpStatus = 0;
+        state.dbStatus.lastError = err.name === 'AbortError' ? 'Tiempo de espera agotado (sin respuesta BD)' : err.message;
+        if (opts && opts.verbose) {
+          addLog('WARN', `No se pudo alcanzar el servidor BD: ${state.dbStatus.lastError}`);
+        }
+      }
+
+      emitChange();
+      return state.dbStatus;
+    })();
+
+    try {
+      return await checkInFlight;
+    } finally {
+      checkInFlight = null;
+    }
   }
 
   /* ==========================================================================
      DESCARGA DE PADRÓN COMPLETO A CACHÉ OFFLINE
      ========================================================================== */
   async function downloadAllData(silent) {
-    const status = await testDatabaseConnection();
+    const status = await testDatabaseConnection({ verbose: !silent });
     if (!status.dbReachable) {
-      if (!silent) addLog('WARN', 'No hay conexión con la BD. Trabajando con el padrón guardado en caché local.');
+      if (!silent) {
+        const reason = status.lastError ? ` (${status.lastError})` : '';
+        addLog('WARN', `No hay conexión con la BD${reason}. Trabajando con el padrón guardado en caché local.`);
+      }
       return false;
     }
 
@@ -689,29 +867,36 @@
       });
       delete paseRow.departamento_pasajero;
 
-      try {
-        await restRequest('pases_medicos', {
-          method: 'POST',
-          headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify([paseRow]),
-        });
-      } catch (err) {
-        if (err.message && (err.message.includes('column of') || err.message.includes('schema cache'))) {
-          addLog('WARN', `Aviso de esquema remoto en pases_medicos (${err.message}). Reintentando con campos esenciales...`);
-          delete paseRow.departamento_pasajero;
-          delete paseRow.antiguedad;
-          delete paseRow.sv_peso;
-          delete paseRow.sv_talla;
-          delete paseRow.compartido_departamentos;
+      let attempts = 0;
+      while (attempts < 10) {
+        try {
           await restRequest('pases_medicos', {
             method: 'POST',
             headers: { Prefer: 'return=minimal' },
             body: JSON.stringify([paseRow]),
           });
-          addLog('OK', `Pase médico guardado en Supabase.`);
           return true;
+        } catch (err) {
+          const msg = err && err.message ? err.message : '';
+          const colMatch = msg.match(/Could not find the '([^']+)' column/i);
+          if (colMatch && colMatch[1] && Object.prototype.hasOwnProperty.call(paseRow, colMatch[1])) {
+            addLog('WARN', `Campo '${colMatch[1]}' no existe aún en tabla pases_medicos; omitiendo para guardar el pase...`);
+            delete paseRow[colMatch[1]];
+            attempts++;
+            continue;
+          }
+          if (attempts === 0 && (msg.includes('column of') || msg.includes('schema cache'))) {
+            addLog('WARN', `Aviso de esquema remoto en pases_medicos (${msg}). Reintentando con campos esenciales...`);
+            delete paseRow.departamento_pasajero;
+            delete paseRow.antiguedad;
+            delete paseRow.sv_peso;
+            delete paseRow.sv_talla;
+            delete paseRow.compartido_departamentos;
+            attempts++;
+            continue;
+          }
+          throw err;
         }
-        throw err;
       }
       return true;
     }
@@ -736,31 +921,29 @@
 
     if (item.type === 'UPDATE_DOCTOR_PROFILE') {
       if (p.userId && p.patch) {
-        let patchData = Object.assign({}, p.patch);
-        try {
-          await restRequest(`perfiles?id=eq.${encodeURIComponent(p.userId)}`, {
-            method: 'PATCH',
-            headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify(patchData),
-          });
-        } catch (err) {
-          // Si Supabase devuelve error porque alguna columna aún no existe en el esquema (ej. institucion_titulo)
-          if (err.message && (err.message.includes('column of') || err.message.includes('schema cache'))) {
-            addLog('WARN', `Aviso de esquema en perfiles (${err.message}). Intentando guardar sólo campos compatibles...`);
-            delete patchData.institucion_titulo;
-            delete patchData.especialidad;
-            delete patchData.cedula_profesional;
-            try {
-              await restRequest(`perfiles?id=eq.${encodeURIComponent(p.userId)}`, {
-                method: 'PATCH',
-                headers: { Prefer: 'return=minimal' },
-                body: JSON.stringify(patchData),
-              });
-              addLog('OK', `Campos compatibles de perfil guardados en Supabase.`);
-            } catch (fallbackErr) {
-              addLog('WARN', `Aviso: El perfil médico completo quedó resguardado en la memoria local del dispositivo.`);
+        const patchData = Object.assign({}, p.patch);
+        let attempts = 0;
+        while (attempts < 8 && Object.keys(patchData).length > 0) {
+          try {
+            await restRequest(`perfiles?id=eq.${encodeURIComponent(p.userId)}`, {
+              method: 'PATCH',
+              headers: { Prefer: 'return=minimal' },
+              body: JSON.stringify(patchData),
+            });
+            return true;
+          } catch (err) {
+            const msg = err && err.message ? err.message : '';
+            const colMatch = msg.match(/Could not find the '([^']+)' column/i);
+            if (colMatch && colMatch[1] && Object.prototype.hasOwnProperty.call(patchData, colMatch[1])) {
+              addLog('WARN', `Columna '${colMatch[1]}' no existe aún en perfiles; guardando resto de campos compatibles...`);
+              delete patchData[colMatch[1]];
+              attempts++;
+              continue;
             }
-          } else {
+            if (msg.includes('column of') || msg.includes('schema cache')) {
+              addLog('WARN', `Aviso de esquema en perfiles (${msg}). Respaldado en memoria local.`);
+              return true;
+            }
             throw err;
           }
         }
@@ -783,6 +966,7 @@
         const result = await executeSingleMutation({ type, payload }, {});
         state.dbStatus.state = 'online';
         state.dbStatus.dbReachable = true;
+        state.dbStatus.lastError = null;
         state.dbStatus.lastSyncAt = new Date().toISOString();
         addLog('OK', `[EN LÍNEA] Guardado en base de datos central: ${summary}`);
         emitChange();

@@ -118,9 +118,11 @@
       if (lbl) lbl.textContent = '☀️ Claro';
     }
 
-    // Registrar Service Worker para operación PWA offline
+    // Registrar Service Worker para operación PWA offline y actualizar si hay nueva versión
     if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
-      navigator.serviceWorker.register('/medico-app/sw-medico.js').catch(() => {});
+      navigator.serviceWorker.register('/medico-app/sw-medico.js')
+        .then((reg) => { try { reg.update(); } catch (_) {} })
+        .catch(() => {});
     }
 
     // Suscribirse a cambios del motor DB/Sync
@@ -1923,9 +1925,13 @@
 
   async function runManualDbCheck() {
     showToast('Probando enlace con base de datos...');
-    const st = await DB.testDatabaseConnection();
+    const st = await DB.testDatabaseConnection({ verbose: true });
     renderConexionView();
-    showToast(st.dbReachable ? `🟢 Conectado a la BD (${st.latencyMs} ms)` : '🟡 Sin respuesta de la base de datos.');
+    showToast(
+      st.dbReachable
+        ? `🟢 Conectado a la BD (${st.latencyMs} ms)`
+        : `🔴 ${st.lastError || 'Sin respuesta de la base de datos.'}`
+    );
   }
 
   async function runDownloadPadron() {
@@ -1933,7 +1939,12 @@
     const ok = await DB.downloadAllData(false);
     reloadDoctorProfiles();
     renderConexionView();
-    showToast(ok ? '✅ Padrón actualizado en este dispositivo.' : '⚠️ No se pudo descargar (sin conexión).');
+    const st = DB.state.dbStatus;
+    showToast(
+      ok
+        ? '✅ Padrón actualizado en este dispositivo.'
+        : `⚠️ No se pudo descargar (${st.lastError || 'sin conexión'}).`
+    );
   }
 
   async function runSyncNow() {

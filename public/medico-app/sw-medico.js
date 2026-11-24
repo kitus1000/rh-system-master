@@ -1,4 +1,4 @@
-const MEDICO_CACHE = 'medico-bacis-offline-v1';
+const MEDICO_CACHE = 'medico-bacis-offline-v2';
 
 const PRECACHE_URLS = [
   '/medico-app',
@@ -45,19 +45,20 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/medico-app') ||
     url.pathname.startsWith('/medico-icon')
   ) {
+    // Estrategia Network-First para recibir siempre la versión más reciente si hay internet,
+    // cayendo instantáneamente a la caché offline cuando no hay red.
     event.respondWith(
-      caches.match(event.request).then((cached) => {
-        const net = fetch(event.request)
-          .then((res) => {
-            if (res && res.status === 200) {
-              const copy = res.clone();
-              caches.open(MEDICO_CACHE).then((c) => c.put(event.request, copy));
-            }
-            return res;
-          })
-          .catch(() => cached || caches.match('/medico-app/index.html'));
-        return cached || net;
-      })
+      fetch(event.request)
+        .then((res) => {
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            caches.open(MEDICO_CACHE).then((c) => c.put(event.request, copy));
+          }
+          return res;
+        })
+        .catch(() =>
+          caches.match(event.request).then((cached) => cached || caches.match('/medico-app/index.html'))
+        )
     );
   }
 });
