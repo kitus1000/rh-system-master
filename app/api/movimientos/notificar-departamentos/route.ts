@@ -6,7 +6,8 @@ import { formatShortDate } from '@/utils/contratistasConfig'
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { vacante, candidatos, baseUrl } = body
+    const { vacante, candidatos, baseUrl, modo_prueba } = body
+    const isTestMode = Boolean(modo_prueba)
 
     if (!vacante || !Array.isArray(candidatos) || candidatos.length === 0) {
       return NextResponse.json({ error: 'Se requiere la vacante y al menos un candidato seleccionado.' }, { status: 400 })
@@ -127,6 +128,7 @@ export async function POST(req: Request) {
         to: grp.encargado_correo,
         subject,
         html,
+        isTestMode,
       })
 
       if (admin) {
@@ -151,6 +153,8 @@ export async function POST(req: Request) {
         departamentos: deptListStr,
         trabajadores: grp.items.length,
         sent: mailRes.sent,
+        simulated: Boolean(mailRes.simulated),
+        reason: mailRes.reason,
         error: mailRes.error,
       })
     }

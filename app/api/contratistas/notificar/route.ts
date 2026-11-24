@@ -5,7 +5,8 @@ import { sendSystemEmail, EmailConfigOverride } from '@/utils/mailer'
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { tipo, to, asunto, mensaje, detalles, config } = body
+    const { tipo, to, asunto, mensaje, detalles, config, modo_prueba } = body
+    const isTestMode = Boolean(modo_prueba) && tipo !== 'test'
 
     if (!to) {
       return NextResponse.json({ sent: false, error: 'Destinatario requerido para el correo' }, { status: 400 })
@@ -89,6 +90,7 @@ export async function POST(req: Request) {
           </div>
         </div>
       `,
+      isTestMode,
     }, configOverride)
 
     return NextResponse.json(res)

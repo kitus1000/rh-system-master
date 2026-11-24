@@ -387,6 +387,7 @@ export default function ContratistasAdminPage() {
               password: empresaForm.password_usuario,
               razon_social: newEmp.razon_social,
               portal_url: typeof window !== 'undefined' ? window.location.origin : '',
+              modo_prueba: isTestMode,
             }),
           })
           const mailJson = await mailRes.json()
@@ -566,6 +567,7 @@ export default function ContratistasAdminPage() {
             asunto: `Credenciales QR Autorizadas - Folio ${sol.folio}`,
             mensaje: `Hola ${sol.contratistas_empresas.razon_social}, tu solicitud ${sol.folio} fue autorizada y ya puedes descargar las ${createdCount} credencial(es) QR desde tu Portal de Contratistas.`,
             detalles: `Área: ${sol.departamento_nombre} | Vigencia: ${formatShortDate(sol.fecha_inicio)} al ${formatShortDate(sol.fecha_fin)}`,
+            modo_prueba: isTestMode,
           }),
         }).catch(() => {})
       }
@@ -771,6 +773,7 @@ export default function ContratistasAdminPage() {
         password: pass.trim(),
         razon_social: emp.razon_social,
         portal_url: typeof window !== 'undefined' ? window.location.origin : '',
+        modo_prueba: isTestMode,
       }),
     })
     const mailJson = await mailRes.json()

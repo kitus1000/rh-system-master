@@ -1,17 +1,48 @@
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 
+const INTERNAL_NON_ROUTABLE_DOMAINS = new Set([
+  'bacis.com', // Cuentas internas ficticias de acceso/prueba (los buzones reales usan @grupobacis.com)
+  'mina.com',
+  'example.com',
+  'example.org',
+  'example.net',
+  'test.com',
+  'localhost',
+])
+
+/** Determina si una dirección es un correo interno ficticio/de prueba que no tiene buzón SMTP real */
+export function isSimulatedOrPlaceholderEmail(email?: string | null): boolean {
+  const clean = String(email || '').trim().toLowerCase()
+  if (!clean || !clean.includes('@')) return true
+  const [local, domain] = clean.split('@')
+  if (!local || !domain || !domain.includes('.')) return true
+  if (INTERNAL_NON_ROUTABLE_DOMAINS.has(domain)) return true
+  if (domain.endsWith('.local') || domain.endsWith('.test') || domain.endsWith('.invalid')) return true
+  if (local.startsWith('usuario.ajeno') || local.startsWith('supervisor.ajeno')) return true
+  return false
+}
+
+export function isTestActorOrSubject(text?: string | null): boolean {
+  const s = String(text || '').toLowerCase()
+  return s.includes('(modo prueba)') || s.includes('[modo prueba]')
+}
+
 export interface SendEmailInput {
   to: string | string[]
   subject: string
   html: string
   text?: string
+  isTestMode?: boolean
+  actorName?: string
 }
 
 export interface SendEmailResult {
   sent: boolean
   provider?: 'resend' | 'smtp'
-  reason?: 'NO_EMAIL_PROVIDER' | 'ERROR'
+  reason?: 'NO_EMAIL_PROVIDER' | 'ERROR' | 'TEST_MODE' | 'PLACEHOLDER_DOMAIN'
+  simulated?: boolean
+  skippedPlaceholders?: string[]
   error?: string
   id?: string
 }
@@ -107,11 +138,44 @@ export async function resolveEmailConfig(override?: EmailConfigOverride): Promis
 
 export async function sendSystemEmail(input: SendEmailInput, override?: EmailConfigOverride): Promise<SendEmailResult> {
   try {
-    const cfg = await resolveEmailConfig(override)
-    const recipients = Array.isArray(input.to) ? input.to.filter(Boolean) : [input.to].filter(Boolean)
-    if (recipients.length === 0) {
+    const rawRecipients = Array.isArray(input.to) ? input.to.filter(Boolean) : [input.to].filter(Boolean)
+    if (rawRecipients.length === 0) {
       return { sent: false, reason: 'ERROR', error: 'Sin destinatario válido' }
     }
+
+    if (input.isTestMode || isTestActorOrSubject(input.actorName) || isTestActorOrSubject(input.subject)) {
+      return {
+        sent: false,
+        reason: 'TEST_MODE',
+        simulated: true,
+        skippedPlaceholders: rawRecipients,
+        error: 'Modo Prueba activo: el correo se simuló internamente y NO se envió por SMTP para evitar rebotes o spam.',
+      }
+    }
+
+    const skippedPlaceholders: string[] = []
+    const recipients: string[] = []
+    for (const r of rawRecipients) {
+      const clean = r.trim()
+      if (!clean) continue
+      if (isSimulatedOrPlaceholderEmail(clean)) {
+        skippedPlaceholders.push(clean)
+      } else {
+        recipients.push(clean)
+      }
+    }
+
+    if (recipients.length === 0) {
+      return {
+        sent: false,
+        reason: 'PLACEHOLDER_DOMAIN',
+        simulated: true,
+        skippedPlaceholders,
+        error: `Omitido: los destinatarios (${skippedPlaceholders.join(', ')}) son cuentas internas de sistema (@bacis.com) sin buzón real. Configura correos reales (ej. @grupobacis.com o @gmail.com) para recibir por email.`,
+      }
+    }
+
+    const cfg = await resolveEmailConfig(override)
 
     if (!cfg.provider) {
       // Diagnostic message to help user know exactly what field is missing

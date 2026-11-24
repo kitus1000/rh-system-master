@@ -18,7 +18,7 @@ import {
 import { formatShortDate, getDocLabel, isSchemaMissingError } from '@/utils/contratistasConfig'
 
 export default function SeguridadIndustrialPage() {
-  const { user, profile } = useAuth()
+  const { user, profile, isTestModeActive } = useAuth()
   const [loading, setLoading] = useState(true)
   const [schemaMissing, setSchemaMissing] = useState(false)
 
@@ -160,6 +160,7 @@ export default function SeguridadIndustrialPage() {
           asunto: `Fecha de Inducción Programada - Folio ${scheduleSol.folio}`,
           mensaje: `Hola ${scheduleSol.contratistas_empresas.razon_social}, Seguridad Industrial programó la cita de inducción para tu personal:`,
           detalles: `Fecha: ${formatShortDate(scheduleForm.fecha)} | Hora: ${scheduleForm.hora} | Lugar: ${scheduleForm.lugar}`,
+          modo_prueba: isTestModeActive,
         }),
       }).catch(() => {})
     }

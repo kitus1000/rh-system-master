@@ -290,6 +290,9 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
               <span className="text-[11px] font-mono bg-black/10 px-2 py-0.5 rounded font-bold">
                 {activeTestLevel.email} · Rol: {activeTestLevel.rol} · Área: {activeTestLevel.departamento}
               </span>
+              <span className="px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300 font-bold text-[10px]">
+                🔕 Correos externos bloqueados (Modo Prueba)
+              </span>
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5">

@@ -4,7 +4,7 @@ import { sendSystemEmail } from '@/utils/mailer'
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { email, password, razon_social, portal_url } = body
+    const { email, password, razon_social, portal_url, modo_prueba } = body
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Falta correo o contraseña' }, { status: 400 })
@@ -32,6 +32,7 @@ export async function POST(req: Request) {
         </div>
       `,
       text: `Hola ${razon_social || 'Contratista'},\nTu usuario para el Portal de Contratistas ya está activo.\nEnlace: ${portal_url || ''}\nUsuario: ${email}\nContraseña: ${password}`,
+      isTestMode: Boolean(modo_prueba),
     })
 
     return NextResponse.json(result)

@@ -505,6 +505,7 @@ export default function AutorizacionesMultiNivelPage() {
           user_name: targetLevelObj.nombre_completo,
           user_rol: targetLevelObj.rol,
           bypass_lock: true,
+          modo_prueba: true,
           baseUrl: typeof window !== 'undefined' ? window.location.origin : '',
           ...(extras || {}),
         }),
@@ -751,7 +752,7 @@ export default function AutorizacionesMultiNivelPage() {
               Consola de Vistas y Niveles de Autorización
             </h1>
             <p className="text-xs text-zinc-400 mt-0.5 max-w-3xl">
-              Cambia con un clic entre las vistas de <strong>RH Unidad</strong>, <strong>RH Corporativo</strong>, <strong>Jefes de Área (Mina / Planta / Mtto)</strong>, <strong>Seguridad Industrial</strong>, <strong>Campamentos</strong>, <strong>Servicio Médico</strong> y <strong>Sindicato</strong> para probar todas las autorizaciones paso a paso.
+              Cambia con un clic entre las vistas de <strong>RH Unidad</strong>, <strong>RH Corporativo</strong>, <strong>Jefes de Área (Mina / Planta / Mtto)</strong>, <strong>Seguridad Industrial</strong>, <strong>Campamentos</strong>, <strong>Servicio Médico</strong> y <strong>Sindicato</strong> para probar todas las autorizaciones paso a paso. <span className="text-emerald-300 font-bold">(En esta consola de prueba NO se envían correos SMTP reales para evitar rebotes).</span>
             </p>
           </div>
         </div>

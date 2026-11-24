@@ -50,11 +50,37 @@ function matchesEncargadoForDept(encargados: any[], deptoName: string, subDeptoN
   return null
 }
 
-async function safeEmail(to: string | string[], subject: string, html: string, enabled: boolean) {
-  if (!enabled) return { sent: false, reason: 'DISABLED' }
+async function safeEmail(
+  to: string | string[],
+  subject: string,
+  html: string,
+  enabled: boolean,
+  isTestMode?: boolean,
+  actorName?: string
+) {
+  if (!enabled) return { sent: false, reason: 'DISABLED' as const }
+  if (isTestMode) {
+    return {
+      sent: false,
+      reason: 'TEST_MODE' as const,
+      simulated: true,
+      error: 'Modo Prueba activo: correo omitido para evitar rebotes.',
+    }
+  }
   const cleanTo = (Array.isArray(to) ? to : [to]).map((x) => (x || '').trim()).filter(Boolean)
-  if (cleanTo.length === 0) return { sent: false, reason: 'NO_RECIPIENT' }
-  return await sendSystemEmail({ to: cleanTo, subject, html })
+  if (cleanTo.length === 0) return { sent: false, reason: 'NO_RECIPIENT' as const }
+  return await sendSystemEmail({ to: cleanTo, subject, html, isTestMode, actorName })
+}
+
+function formatMailNote(mRes: { sent?: boolean; reason?: string; simulated?: boolean }): string {
+  if (mRes.sent) return ''
+  if (mRes.reason === 'TEST_MODE') {
+    return ' (🧪 Modo Prueba: alerta guardada en bandeja; correo SMTP omitido).'
+  }
+  if (mRes.reason === 'PLACEHOLDER_DOMAIN') {
+    return ' (ℹ️ Correo omitido: direcciones internas @bacis.com sin buzón real).'
+  }
+  return ''
 }
 
 export async function POST(req: Request) {
@@ -74,6 +100,7 @@ export async function POST(req: Request) {
       nueva_fecha,
       baseUrl,
       bypass_lock,
+      modo_prueba,
     } = body
 
     if (!id_postulacion || !etapa) {
@@ -109,6 +136,11 @@ export async function POST(req: Request) {
     const actorRolLower = (user_rol || '').toLowerCase()
     const actorName = user_name || user_email || 'Usuario Autorizador'
     const autoMail = Boolean(reglas.regla_notificar_correo_automatico)
+    const isTestMode = Boolean(
+      modo_prueba ||
+      bypass_lock ||
+      String(actorName).toLowerCase().includes('modo prueba')
+    )
 
     // =========================================================================
     // ETAPA 0: NOTIFICAR_INSCRIPCION (Se dispara al inscribir un postulante)
@@ -151,7 +183,9 @@ export async function POST(req: Request) {
             </div>
           </div>
         `,
-        autoMail
+        autoMail,
+        isTestMode,
+        actorName
       )
 
       await admin.from('movimientos_notificaciones_log').insert([
@@ -167,7 +201,12 @@ export async function POST(req: Request) {
         },
       ])
 
-      return NextResponse.json({ success: true, emailSent: mailRes.sent, nextStage: 'PASO_1_RH_UNIDAD' })
+      return NextResponse.json({
+        success: true,
+        emailSent: mailRes.sent,
+        emailSimulated: Boolean(isTestMode || (mailRes as any).simulated),
+        nextStage: 'PASO_1_RH_UNIDAD',
+      })
     }
 
     // =========================================================================
@@ -212,6 +251,7 @@ export async function POST(req: Request) {
         .eq('etapa', 'PASO_1_RH_UNIDAD')
 
       let emailSent = false
+      let emailNote = ''
       if (approve) {
         const corpEmail = reglas.supt_rh_corporativo_correo
         const titulo = `Paso 2 Pendiente: ${post.nombre_completo} ya autorizado por RH Unidad (${actorName})`
@@ -247,9 +287,12 @@ export async function POST(req: Request) {
               </div>
             </div>
           `,
-          autoMail
+          autoMail,
+          isTestMode,
+          actorName
         )
         emailSent = mRes.sent
+        emailNote = formatMailNote(mRes)
 
         await admin.from('movimientos_notificaciones_log').insert([
           {
@@ -269,8 +312,9 @@ export async function POST(req: Request) {
         success: true,
         etapa,
         emailSent,
+        emailSimulated: isTestMode,
         message: approve
-          ? `✅ Autorización registrada por ${actorName}. Se notificó al Superintendente de RH Corporativo (${reglas.supt_rh_corporativo_correo}).`
+          ? `✅ Autorización registrada por ${actorName}. Notificación registrada para Superintendente de RH Corporativo (${reglas.supt_rh_corporativo_correo}).${emailNote}`
           : 'Postulación rechazada por RH Unidad.',
       })
     }
@@ -324,6 +368,7 @@ export async function POST(req: Request) {
         .eq('etapa', 'PASO_2_RH_CORPORATIVO')
 
       let emailSent = false
+      let emailNote = ''
       const encDestino = matchesEncargadoForDept(encList || [], vac?.departamento_destino || 'Mina', vac?.sub_departamento_destino)
       if (approve) {
         await admin
@@ -371,9 +416,12 @@ export async function POST(req: Request) {
               </div>
             </div>
           `,
-          autoMail
+          autoMail,
+          isTestMode,
+          actorName
         )
         emailSent = mRes.sent
+        emailNote = formatMailNote(mRes)
 
         await admin.from('movimientos_notificaciones_log').insert([
           {
@@ -393,8 +441,9 @@ export async function POST(req: Request) {
         success: true,
         etapa,
         emailSent,
+        emailSimulated: isTestMode,
         message: approve
-          ? `✅ Firma Corporativa registrada por ${actorName}. Se notificó al responsable de ${vac?.departamento_destino || 'Mina'} para definir Plan y Fecha.`
+          ? `✅ Firma Corporativa registrada por ${actorName}. Alerta registrada para responsable de ${vac?.departamento_destino || 'Mina'}.${emailNote}`
           : 'Postulación rechazada por RH Corporativo.',
       })
     }
@@ -500,8 +549,11 @@ export async function POST(req: Request) {
             </div>
           </div>
         `,
-        autoMail
+        autoMail,
+        isTestMode,
+        actorName
       )
+      const emailNote = formatMailNote(mRes)
 
       await admin.from('movimientos_notificaciones_log').insert([
         {
@@ -520,7 +572,8 @@ export async function POST(req: Request) {
         success: true,
         etapa,
         emailSent: mRes.sent,
-        message: `✅ Plan y fecha (${formatShortDate(chosenDate)}) confirmados. Se envió notificación a ${origenNombre} (${origenCorreo}).`,
+        emailSimulated: isTestMode,
+        message: `✅ Plan y fecha (${formatShortDate(chosenDate)}) confirmados. Aviso registrado para ${origenNombre} (${origenCorreo}).${emailNote}`,
       })
     }
 
@@ -627,8 +680,11 @@ export async function POST(req: Request) {
             </div>
           </div>
         `,
-        autoMail
+        autoMail,
+        isTestMode,
+        actorName
       )
+      const emailNote = formatMailNote(mRes)
 
       await admin.from('movimientos_notificaciones_log').insert([
         {
@@ -648,7 +704,8 @@ export async function POST(req: Request) {
         etapa,
         isApproved: isYes,
         emailSent: mRes.sent,
-        message: mensaje,
+        emailSimulated: isTestMode,
+        message: `${mensaje}${emailNote}`,
       })
     }
 

@@ -111,7 +111,7 @@ const DEFAULT_ENCARGADOS = [
 ]
 
 export default function MovimientosSindicatoPage() {
-  const { user, profile } = useAuth()
+  const { user, profile, isTestModeActive } = useAuth()
   const [loading, setLoading] = useState(true)
   const [schemaMissing, setSchemaMissing] = useState(false)
   const [activeTab, setActiveTab] = useState<
@@ -532,6 +532,7 @@ export default function MovimientosSindicatoPage() {
             user_email: actorEmail,
             user_name: actorName,
             user_rol: profile?.rol || '',
+            modo_prueba: isTestModeActive,
             baseUrl: typeof window !== 'undefined' ? window.location.origin : '',
           }),
         })
@@ -575,6 +576,7 @@ export default function MovimientosSindicatoPage() {
           user_email: actorEmail,
           user_name: actorName,
           user_rol: profile?.rol || '',
+          modo_prueba: isTestModeActive,
           baseUrl,
           ...(extras || {}),
         }),
@@ -689,6 +691,7 @@ export default function MovimientosSindicatoPage() {
           vacante: currentVacante,
           candidatos: selectedCandidates,
           baseUrl,
+          modo_prueba: isTestModeActive,
         }),
       })
       const json = await res.json()
@@ -715,11 +718,20 @@ export default function MovimientosSindicatoPage() {
       await fetchAllData()
 
       const sentSummary = (json.results || [])
-        .map((r: any) => `• ${r.encargado} (${r.departamentos}): ${r.trabajadores} trabajador(es)`)
+        .map((r: any) => {
+          const statusTxt = r.sent
+            ? '✉️ Correo enviado'
+            : r.reason === 'TEST_MODE'
+            ? '🧪 Simulado (Modo Prueba)'
+            : r.reason === 'PLACEHOLDER_DOMAIN'
+            ? 'ℹ️ Omitido (@bacis.com sin buzón real)'
+            : '⚠️ Aviso en bandeja interna'
+          return `• ${r.encargado} (${r.departamentos}): ${r.trabajadores} trabajador(es) — ${statusTxt}`
+        })
         .join('\n')
 
       alert(
-        `📧 ¡Notificaciones enviadas a los Encargados de los Departamentos / Sub-departamentos de Origen!\n\n${sentSummary}\n\nCada encargado puede responder "✅ SÍ AUTORIZO" o "⏳ NO / REPROGRAMAR" desde su correo o en su portal.`
+        `📧 Notificaciones procesadas para los Encargados de Origen:\n\n${sentSummary}\n\nCada encargado puede responder "✅ SÍ AUTORIZO" o "⏳ NO / REPROGRAMAR" desde su portal.`
       )
     } catch (err: any) {
       alert('Error enviando avisos a departamentos: ' + err.message)
@@ -3311,7 +3323,7 @@ export default function MovimientosSindicatoPage() {
                     1. Matriz de Autorizadores Oficiales (¿Quién Firma Cada Paso?)
                   </h3>
                   <p className="text-xs text-zinc-500">
-                    Selecciona a un usuario registrado del sistema o captura su correo oficial para recibir notificaciones y desbloquear su firma.
+                    Selecciona a un usuario registrado del sistema o captura su correo oficial para recibir notificaciones y desbloquear su firma. <span className="text-amber-700 font-semibold">(Nota: las cuentas @bacis.com sirven solo para iniciar sesión; para recibir correos reales asigna buzones activos como @grupobacis.com o @gmail.com).</span>
                   </p>
                 </div>
                 <button
@@ -4616,7 +4628,7 @@ export default function MovimientosSindicatoPage() {
                   required
                   value={encargadoForm.correo_encargado}
                   onChange={(e) => setEncargadoForm({ ...encargadoForm, correo_encargado: e.target.value })}
-                  placeholder="ejemplo@bacis.com"
+                  placeholder="correo.real@grupobacis.com"
                   className="w-full border border-zinc-300 rounded-xl px-3 py-2 font-mono"
                 />
               </div>

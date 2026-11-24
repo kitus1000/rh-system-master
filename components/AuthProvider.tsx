@@ -27,6 +27,7 @@ interface AuthContextType {
     hasAccess: (allowedRoles: Role[]) => boolean
     testLevelId: string
     activeTestLevel: TestAuthLevel
+    isTestModeActive: boolean
     setTestLevel: (levelId: string) => void
 }
 
@@ -38,6 +39,7 @@ const AuthContext = createContext<AuthContextType>({
     hasAccess: () => false,
     testLevelId: 'REAL_SESSION',
     activeTestLevel: TEST_AUTH_LEVELS[0],
+    isTestModeActive: false,
     setTestLevel: () => {}
 })
 
@@ -349,6 +351,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             hasAccess,
             testLevelId,
             activeTestLevel,
+            isTestModeActive,
             setTestLevel
         }}>
             {children}
