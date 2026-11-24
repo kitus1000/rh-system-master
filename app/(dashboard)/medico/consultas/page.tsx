@@ -133,7 +133,7 @@ export default function ConsultasPage() {
       nombre_completo: sessionProfile?.nombre_completo || 'Médico Prescriptor',
       categoria_emisor: 'I' as CofeprisEmisorCategoriaId,
       cedula_profesional: (sessionProfile as any)?.cedula_profesional || '',
-      institucion_titulo: (sessionProfile as any)?.universidad || '',
+      institucion_titulo: (sessionProfile as any)?.institucion_titulo || (sessionProfile as any)?.universidad || '',
       especialidad: (sessionProfile as any)?.especialidad || 'Medicina General',
       domicilio_consultorio:
         (sessionProfile as any)?.domicilio_consultorio || 'Consultorio Médico',
@@ -301,11 +301,16 @@ export default function ConsultasPage() {
         cofeprisPayload
       )
 
+      const selectedPac = resolvedPatientId
+        ? pacientes.find((p) => p.id_paciente === resolvedPatientId)
+        : null
+
       const { data: consultaData, error: consultaError } = await supabase
         .from('consultas_medicas')
         .insert([
           {
             id_paciente: resolvedPatientId,
+            id_empleado: selectedPac?.id_empleado || null,
             diagnostico: diagFinal,
             costo_consulta: formData.costo_consulta,
             medico_id: sessionProfile?.id || profile?.id || null,
@@ -425,7 +430,7 @@ export default function ConsultasPage() {
             nombre_completo: docDb.nombre_completo || activeDoctor.nombre_completo,
             categoria_emisor: 'I',
             cedula_profesional: docDb.cedula_profesional || '',
-            institucion_titulo: docDb.universidad || '',
+            institucion_titulo: docDb.institucion_titulo || docDb.universidad || '',
             especialidad: docDb.especialidad || '',
             domicilio_consultorio: docDb.domicilio_consultorio || '',
             telefono_consultorio: docDb.telefono_consultorio || '',

@@ -248,7 +248,7 @@ export default function PaseHotelPage() {
                         >
                             <option value="">Seleccionar paciente del padrón...</option>
                             {pacientes.map(p => {
-                                const isBaja = p.empleados?.estado_empleado === 'BAJA'
+                                const isBaja = ['BAJA', 'INACTIVO'].includes((p.empleados?.estado_empleado || '').toUpperCase())
                                 return (
                                     <option key={p.id_paciente} value={p.id_paciente}>
                                         {p.nombre_completo} ({p.parentesco || 'Titular'}) {isBaja ? '🔴 DADO DE BAJA' : ''}

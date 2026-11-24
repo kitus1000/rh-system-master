@@ -1831,7 +1831,7 @@ export default function PasesPage() {
                                         <td className="px-6 py-4 font-bold text-amber-700">{pase.unidad_se_refiere || pase.clinica_destino?.nombre || 'Destino'}</td>
                                         <td className="px-6 py-4">
                                             <div className="truncate max-w-xs">{pase.motivo}</div>
-                                            <div className="text-[10px] text-zinc-400 font-bold uppercase">Urgencia: <span className={pase.urgencia === 'SÍ' ? 'text-red-600 font-black' : ''}>{pase.urgencia || 'NO'}</span></div>
+                                            <div className="text-[10px] text-zinc-400 font-bold uppercase">Urgencia: <span className={pase.urgencia === 'SÍ' || pase.urgencia === 'SI' ? 'text-red-600 font-black' : ''}>{pase.urgencia || 'NO'}</span></div>
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex gap-2">

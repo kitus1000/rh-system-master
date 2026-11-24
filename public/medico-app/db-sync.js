@@ -153,7 +153,8 @@
     listeners: [],
   };
 
-  // Depuración y limpieza automática de la cola offline para descartar errores de esquema irrecuperables
+  // Depuración y limpieza automática de la cola offline para descartar errores de esquema en perfil de doctor
+  // y sanear campos puramente visuales en pases médicos sin borrar nunca registros clínicos pendientes
   if (Array.isArray(state.queue)) {
     let modified = false;
     state.queue.forEach((item) => {
@@ -174,11 +175,13 @@
     const rawLen = state.queue.length;
     state.queue = state.queue.filter((item) => {
       if (!item) return false;
-      if (item.error && (item.error.includes('schema cache') || item.error.includes("column of 'perfiles'"))) {
-        return false;
-      }
-      if (item.type === 'UPDATE_DOCTOR_PROFILE' && item.retries > 0) {
-        return false;
+      if (item.type === 'UPDATE_DOCTOR_PROFILE') {
+        if (item.error && (item.error.includes('schema cache') || item.error.includes("column of 'perfiles'"))) {
+          return false;
+        }
+        if (item.retries > 0) {
+          return false;
+        }
       }
       return true;
     });
@@ -607,7 +610,7 @@
   /* ==========================================================================
      DESCARGA DE PADRÓN COMPLETO A CACHÉ OFFLINE
      ========================================================================== */
-  async function downloadAllData(silent) {
+  async function downloadAllData(silent, skipQueueSync) {
     const status = await testDatabaseConnection({ verbose: !silent });
     if (!status.dbReachable) {
       if (!silent) {
@@ -615,6 +618,11 @@
         addLog('WARN', `No hay conexión con la BD${reason}. Trabajando con el padrón guardado en caché local.`);
       }
       return false;
+    }
+
+    // Subir cambios pendientes antes de descargar para no pisar trabajo local sin sincronizar
+    if (!skipQueueSync && state.queue.length > 0 && !state.isSyncing) {
+      await syncAllPending({ skipDownload: true });
     }
 
     if (!silent) addLog('INFO', 'Descargando padrón actualizado desde la base de datos central...');
@@ -712,26 +720,107 @@
     return item;
   }
 
+  function extractMissingColumnFromError(msg) {
+    if (!msg) return null;
+    const m1 = String(msg).match(/Could not find the '([^']+)' column/i);
+    if (m1 && m1[1]) return m1[1];
+    const m2 = String(msg).match(/column ["']?([a-zA-Z0-9_]+)["']? of/i);
+    return m2 && m2[1] ? m2[1] : null;
+  }
+
+  function computeNextNumericEmpNumber() {
+    let maxNum = 90000;
+    (state.cache.empleados || []).forEach((e) => {
+      const n = parseInt(String(e && e.numero_empleado ? e.numero_empleado : '').trim(), 10);
+      if (!isNaN(n) && n > maxNum && n < 99999999) {
+        maxNum = n;
+      }
+    });
+    return maxNum + 1;
+  }
+
+  async function insertWithSchemaFallback(table, rowObj, preferHeader) {
+    const payloadRow = Object.assign({}, rowObj);
+    let attempts = 0;
+    while (attempts < 10) {
+      try {
+        return await restRequest(table, {
+          method: 'POST',
+          headers: { Prefer: preferHeader || 'return=minimal' },
+          body: JSON.stringify([payloadRow]),
+        });
+      } catch (err) {
+        const msg = err && err.message ? err.message : '';
+        const missingCol = extractMissingColumnFromError(msg);
+        if (missingCol && Object.prototype.hasOwnProperty.call(payloadRow, missingCol)) {
+          addLog('WARN', `Campo '${missingCol}' no existe aún en tabla ${table}; omitiendo para guardar registro...`);
+          delete payloadRow[missingCol];
+          attempts++;
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error(`No se pudo insertar en ${table} tras depurar columnas opcionales.`);
+  }
+
+  async function patchWithSchemaFallback(tableQuery, patchObj, preferHeader) {
+    const payloadPatch = Object.assign({}, patchObj);
+    let attempts = 0;
+    while (attempts < 10) {
+      if (Object.keys(payloadPatch).length === 0) {
+        addLog('WARN', `Sin campos compatibles para actualizar en ${tableQuery}; conservado en caché local.`);
+        return true;
+      }
+      try {
+        return await restRequest(tableQuery, {
+          method: 'PATCH',
+          headers: { Prefer: preferHeader || 'return=minimal' },
+          body: JSON.stringify(payloadPatch),
+        });
+      } catch (err) {
+        const msg = err && err.message ? err.message : '';
+        const missingCol = extractMissingColumnFromError(msg);
+        if (missingCol && Object.prototype.hasOwnProperty.call(payloadPatch, missingCol)) {
+          addLog('WARN', `Columna '${missingCol}' no existe aún en ${tableQuery.split('?')[0]}; omitiendo para guardar...`);
+          delete payloadPatch[missingCol];
+          attempts++;
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error(`No se pudo actualizar ${tableQuery} tras depurar columnas opcionales.`);
+  }
+
   async function executeSingleMutation(item, idMap) {
     const resolveId = (val) => (val && idMap[val] ? idMap[val] : val);
     const p = item.payload || {};
 
     if (item.type === 'CREATE_WORKER') {
-      const inserted = await restRequest('empleados', {
-        method: 'POST',
-        headers: { Prefer: 'return=representation' },
-        body: JSON.stringify([p.empleado]),
-      });
+      const empRow = Object.assign({}, p.empleado);
+      const rawNum = empRow.numero_empleado != null ? String(empRow.numero_empleado).trim() : '';
+      empRow.numero_empleado = /^\d+$/.test(rawNum) ? parseInt(rawNum, 10) : computeNextNumericEmpNumber();
+
+      let inserted;
+      try {
+        inserted = await insertWithSchemaFallback('empleados', empRow, 'return=representation');
+      } catch (err) {
+        const msg = String(err && err.message ? err.message : '').toLowerCase();
+        if (msg.includes('duplicate') || msg.includes('unique')) {
+          empRow.numero_empleado = Math.floor(100000 + (Date.now() % 899999));
+          inserted = await insertWithSchemaFallback('empleados', empRow, 'return=representation');
+        } else {
+          throw err;
+        }
+      }
+
       const realEmp = Array.isArray(inserted) ? inserted[0] : inserted;
       if (!realEmp || !realEmp.id_empleado) throw new Error('No se recibió ID de empleado creado.');
       if (p.tempEmpId) idMap[p.tempEmpId] = realEmp.id_empleado;
 
       const titularRow = Object.assign({}, p.titularPaciente, { id_empleado: realEmp.id_empleado });
-      const insPac = await restRequest('pacientes', {
-        method: 'POST',
-        headers: { Prefer: 'return=representation' },
-        body: JSON.stringify([titularRow]),
-      });
+      const insPac = await insertWithSchemaFallback('pacientes', titularRow, 'return=representation');
       const realPac = Array.isArray(insPac) ? insPac[0] : insPac;
       if (p.tempPacId && realPac && realPac.id_paciente) {
         idMap[p.tempPacId] = realPac.id_paciente;
@@ -741,26 +830,25 @@
 
     if (item.type === 'UPDATE_WORKER_STATUS') {
       const empId = resolveId(p.id_empleado);
-      await restRequest(`empleados?id_empleado=eq.${encodeURIComponent(empId)}`, {
-        method: 'PATCH',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({ estado_empleado: p.estado_empleado }),
+      await patchWithSchemaFallback(`empleados?id_empleado=eq.${encodeURIComponent(empId)}`, {
+        estado_empleado: p.estado_empleado,
       });
-      await restRequest(`pacientes?id_empleado=eq.${encodeURIComponent(empId)}`, {
-        method: 'PATCH',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({ activo: p.estado_empleado === 'ACTIVO' }),
+      await patchWithSchemaFallback(`pacientes?id_empleado=eq.${encodeURIComponent(empId)}`, {
+        activo: String(p.estado_empleado || '').toUpperCase() === 'ACTIVO',
       }).catch(() => {});
       return true;
     }
 
     if (item.type === 'UPDATE_WORKER_DATA') {
       const empId = resolveId(p.id_empleado);
-      await restRequest(`empleados?id_empleado=eq.${encodeURIComponent(empId)}`, {
-        method: 'PATCH',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify(p.patch),
-      });
+      const patch = Object.assign({}, p.patch);
+      const rawNum = patch.numero_empleado != null ? String(patch.numero_empleado).trim() : '';
+      if (/^\d+$/.test(rawNum)) {
+        patch.numero_empleado = parseInt(rawNum, 10);
+      } else {
+        delete patch.numero_empleado;
+      }
+      await patchWithSchemaFallback(`empleados?id_empleado=eq.${encodeURIComponent(empId)}`, patch);
       return true;
     }
 
@@ -768,11 +856,7 @@
       const row = Object.assign({}, p.paciente, {
         id_empleado: p.paciente.id_empleado ? resolveId(p.paciente.id_empleado) : null,
       });
-      const inserted = await restRequest('pacientes', {
-        method: 'POST',
-        headers: { Prefer: 'return=representation' },
-        body: JSON.stringify([row]),
-      });
+      const inserted = await insertWithSchemaFallback('pacientes', row, 'return=representation');
       const realPac = Array.isArray(inserted) ? inserted[0] : inserted;
       if (p.tempPacId && realPac && realPac.id_paciente) {
         idMap[p.tempPacId] = realPac.id_paciente;
@@ -782,37 +866,30 @@
 
     if (item.type === 'UPDATE_PATIENT') {
       const pacId = resolveId(p.id_paciente);
-      await restRequest(`pacientes?id_paciente=eq.${encodeURIComponent(pacId)}`, {
-        method: 'PATCH',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify(p.patch),
-      });
+      await patchWithSchemaFallback(`pacientes?id_paciente=eq.${encodeURIComponent(pacId)}`, p.patch);
       return true;
     }
 
     if (item.type === 'CREATE_CONSULTA') {
       let pacId = p.consulta.id_paciente ? resolveId(p.consulta.id_paciente) : null;
       if (!pacId && p.freePatientName) {
-        const created = await restRequest('pacientes', {
-          method: 'POST',
-          headers: { Prefer: 'return=representation' },
-          body: JSON.stringify([
-            {
-              nombre_completo: p.freePatientName.toUpperCase(),
-              es_poblacion_general: true,
-              activo: true,
-            },
-          ]),
-        });
+        const created = await insertWithSchemaFallback(
+          'pacientes',
+          {
+            nombre_completo: p.freePatientName.toUpperCase(),
+            es_poblacion_general: true,
+            activo: true,
+          },
+          'return=representation'
+        );
         if (Array.isArray(created) && created[0]) pacId = created[0].id_paciente;
       }
 
-      const consultaRow = Object.assign({}, p.consulta, { id_paciente: pacId });
-      const ins = await restRequest('consultas_medicas', {
-        method: 'POST',
-        headers: { Prefer: 'return=representation' },
-        body: JSON.stringify([consultaRow]),
+      const consultaRow = Object.assign({}, p.consulta, {
+        id_paciente: pacId,
+        id_empleado: p.consulta.id_empleado ? resolveId(p.consulta.id_empleado) : null,
       });
+      const ins = await insertWithSchemaFallback('consultas_medicas', consultaRow, 'return=representation');
       const realConsulta = Array.isArray(ins) ? ins[0] : ins;
       if (realConsulta && realConsulta.id_consulta) {
         if (p.cofeprisMeta && global.MedicoDocs) {
@@ -850,10 +927,8 @@
           }
         }
         if (pacId && p.acompanante) {
-          await restRequest(`pacientes?id_paciente=eq.${encodeURIComponent(pacId)}`, {
-            method: 'PATCH',
-            headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify({ acompanante: p.acompanante.toUpperCase() }),
+          await patchWithSchemaFallback(`pacientes?id_paciente=eq.${encodeURIComponent(pacId)}`, {
+            acompanante: p.acompanante.toUpperCase(),
           }).catch(() => {});
         }
       }
@@ -866,87 +941,23 @@
         id_empleado: p.pase.id_empleado ? resolveId(p.pase.id_empleado) : null,
       });
       delete paseRow.departamento_pasajero;
-
-      let attempts = 0;
-      while (attempts < 10) {
-        try {
-          await restRequest('pases_medicos', {
-            method: 'POST',
-            headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify([paseRow]),
-          });
-          return true;
-        } catch (err) {
-          const msg = err && err.message ? err.message : '';
-          const colMatch = msg.match(/Could not find the '([^']+)' column/i);
-          if (colMatch && colMatch[1] && Object.prototype.hasOwnProperty.call(paseRow, colMatch[1])) {
-            addLog('WARN', `Campo '${colMatch[1]}' no existe aún en tabla pases_medicos; omitiendo para guardar el pase...`);
-            delete paseRow[colMatch[1]];
-            attempts++;
-            continue;
-          }
-          if (attempts === 0 && (msg.includes('column of') || msg.includes('schema cache'))) {
-            addLog('WARN', `Aviso de esquema remoto en pases_medicos (${msg}). Reintentando con campos esenciales...`);
-            delete paseRow.departamento_pasajero;
-            delete paseRow.antiguedad;
-            delete paseRow.sv_peso;
-            delete paseRow.sv_talla;
-            delete paseRow.compartido_departamentos;
-            attempts++;
-            continue;
-          }
-          throw err;
-        }
-      }
+      await insertWithSchemaFallback('pases_medicos', paseRow, 'return=minimal');
       return true;
     }
 
     if (item.type === 'CREATE_MEDICAMENTO') {
-      await restRequest('cat_medicamentos', {
-        method: 'POST',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify([p.medicamento]),
-      });
+      await insertWithSchemaFallback('cat_medicamentos', p.medicamento, 'return=minimal');
       return true;
     }
 
     if (item.type === 'CREATE_CLINICA') {
-      await restRequest('cat_clinicas', {
-        method: 'POST',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify([p.clinica]),
-      });
+      await insertWithSchemaFallback('cat_clinicas', p.clinica, 'return=minimal');
       return true;
     }
 
     if (item.type === 'UPDATE_DOCTOR_PROFILE') {
       if (p.userId && p.patch) {
-        const patchData = Object.assign({}, p.patch);
-        let attempts = 0;
-        while (attempts < 8 && Object.keys(patchData).length > 0) {
-          try {
-            await restRequest(`perfiles?id=eq.${encodeURIComponent(p.userId)}`, {
-              method: 'PATCH',
-              headers: { Prefer: 'return=minimal' },
-              body: JSON.stringify(patchData),
-            });
-            return true;
-          } catch (err) {
-            const msg = err && err.message ? err.message : '';
-            const colMatch = msg.match(/Could not find the '([^']+)' column/i);
-            if (colMatch && colMatch[1] && Object.prototype.hasOwnProperty.call(patchData, colMatch[1])) {
-              addLog('WARN', `Columna '${colMatch[1]}' no existe aún en perfiles; guardando resto de campos compatibles...`);
-              delete patchData[colMatch[1]];
-              attempts++;
-              continue;
-            }
-            if (msg.includes('column of') || msg.includes('schema cache')) {
-              addLog('WARN', `Aviso de esquema en perfiles (${msg}). Respaldado en memoria local.`);
-              return true;
-            }
-            throw err;
-          }
-        }
+        await patchWithSchemaFallback(`perfiles?id=eq.${encodeURIComponent(p.userId)}`, p.patch);
       }
       return true;
     }
@@ -961,7 +972,8 @@
     }
 
     // 2. Si hay conexión y no hay cola previa dependiente, intentar envío directo a Supabase
-    if (navigator.onLine && state.queue.length === 0) {
+    const hadPriorQueue = state.queue.length > 0;
+    if (navigator.onLine && !hadPriorQueue) {
       try {
         const result = await executeSingleMutation({ type, payload }, {});
         state.dbStatus.state = 'online';
@@ -981,12 +993,17 @@
       }
     }
 
-    // 3. Guardar en cola persistente para subir en cuanto haya conexión
+    // 3. Guardar en cola persistente y, si existía cola previa y hay red, sincronizar en orden de inmediato
     const queued = enqueueMutation(type, summary, payload);
+    if (hadPriorQueue && navigator.onLine && !state.isSyncing) {
+      await syncAllPending();
+      const stillQueued = state.queue.some((q) => q.id === queued.id);
+      return { synced: !stillQueued, queued: stillQueued ? queued : null };
+    }
     return { synced: false, queued };
   }
 
-  async function syncAllPending() {
+  async function syncAllPending(opts) {
     if (state.isSyncing) return { synced: 0, failed: 0 };
     if (state.queue.length === 0) {
       await testDatabaseConnection();
@@ -1014,10 +1031,13 @@
         syncedCount++;
         addLog('OK', `Sincronizado con BD: ${item.summary}`);
       } catch (err) {
-        // Si el fallo es por un campo que no existe en el esquema de Supabase,
-        // no debemos atascar la cola indefinidamente ni marcar la BD como caída
-        if (err.message && (err.message.includes('schema cache') || err.message.includes('column of \'perfiles\''))) {
-          addLog('WARN', `Operación omitida de la cola por incompatibilidad de esquema remoto: ${err.message}.`);
+        // Solo omitir errores de esquema no críticos en actualización de perfil; nunca descartar registros clínicos
+        if (
+          item.type === 'UPDATE_DOCTOR_PROFILE' &&
+          err.message &&
+          (err.message.includes('schema cache') || err.message.includes("column of 'perfiles'"))
+        ) {
+          addLog('WARN', `Operación de perfil omitida por incompatibilidad de esquema remoto: ${err.message}.`);
           syncedCount++;
           continue;
         }
@@ -1036,8 +1056,8 @@
     state.dbStatus.state = conn.dbReachable ? 'online' : 'offline';
     emitChange();
 
-    if (syncedCount > 0) {
-      await downloadAllData(true);
+    if (!(opts && opts.skipDownload) && syncedCount > 0) {
+      await downloadAllData(true, true);
     }
     return { synced: syncedCount, failed: remaining.length };
   }

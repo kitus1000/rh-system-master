@@ -448,7 +448,13 @@ export default function EmpleadosPage() {
           searchTerm
         )
 
-        const matchesStatus = statusFilter === 'Todos' ? true : emp.estado_empleado === statusFilter
+        const empStatusUpper = (emp.estado_empleado || 'Activo').toUpperCase()
+        const matchesStatus =
+          statusFilter === 'Todos'
+            ? true
+            : statusFilter.toUpperCase() === 'BAJA'
+            ? empStatusUpper === 'BAJA' || empStatusUpper === 'INACTIVO'
+            : empStatusUpper === statusFilter.toUpperCase()
 
         const matchesDept =
           deptFilter === 'TODOS' ? true : getResolvedDepartment(emp).canonicalKey === deptFilter
@@ -1074,7 +1080,7 @@ export default function EmpleadosPage() {
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         <span
                           className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase ${
-                            empleado.estado_empleado === 'Activo'
+                            (empleado.estado_empleado || 'Activo').toUpperCase() === 'ACTIVO'
                               ? 'bg-emerald-100 text-emerald-800'
                               : 'bg-rose-100 text-rose-800'
                           }`}

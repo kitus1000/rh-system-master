@@ -417,7 +417,7 @@ export function loadDoctorProfiles(currentSessionProfile?: any): DoctorCofeprisP
         cedula_profesional:
           currentSessionProfile.cedula_profesional || (idx >= 0 ? list[idx].cedula_profesional : '') || '',
         institucion_titulo:
-          currentSessionProfile.universidad || (idx >= 0 ? list[idx].institucion_titulo : '') || '',
+          currentSessionProfile.institucion_titulo || currentSessionProfile.universidad || (idx >= 0 ? list[idx].institucion_titulo : '') || '',
         especialidad:
           currentSessionProfile.especialidad || (idx >= 0 ? list[idx].especialidad : '') || 'Medicina General',
         domicilio_consultorio:
@@ -428,7 +428,7 @@ export function loadDoctorProfiles(currentSessionProfile?: any): DoctorCofeprisP
           currentSessionProfile.telefono_consultorio || (idx >= 0 ? list[idx].telefono_consultorio : '') || '',
         titulo_consultorio: idx >= 0 ? list[idx].titulo_consultorio : undefined,
         firma_base64:
-          (idx >= 0 && list[idx].firma_base64) || currentSessionProfile.firma || '',
+          currentSessionProfile.firma || (idx >= 0 && list[idx].firma_base64) || '',
         es_dr_principal: idx >= 0 ? Boolean(list[idx].es_dr_principal || isPrincipal) : isPrincipal,
       }
       if (idx >= 0) {

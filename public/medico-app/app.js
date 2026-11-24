@@ -630,7 +630,7 @@
     const nextStatus = isEmpBaja(emp) ? 'ACTIVO' : 'BAJA';
     if (!confirm(`¿Cambiar estatus de ${getEmpFullName(emp)} a ${nextStatus}?`)) return;
 
-    await DB.submitOrQueue(
+    const res = await DB.submitOrQueue(
       'UPDATE_WORKER_STATUS',
       `Estatus ${nextStatus}: ${getEmpFullName(emp)}`,
       { id_empleado: emp.id_empleado, estado_empleado: nextStatus },
@@ -641,9 +641,14 @@
         });
       }
     );
+    if (res.synced) await DB.downloadAllData(true, true);
     closeModals();
     renderPacientes();
-    showToast(`Estatus actualizado a ${nextStatus}.`);
+    showToast(
+      res.synced
+        ? `✅ Estatus actualizado a ${nextStatus} en BD central.`
+        : `🟡 Estatus ${nextStatus} guardado localmente (pendiente por subir a BD).`
+    );
   }
 
   function openModalWorker(empId) {
@@ -666,11 +671,12 @@
   async function saveWorkerForm(e) {
     e.preventDefault();
     const editId = $('wrkId').value;
+    const rawNum = $('wrkNum').value.trim();
+    const numVal = /^\d+$/.test(rawNum) ? parseInt(rawNum, 10) : null;
     const data = {
       nombre: $('wrkNombre').value.trim().toUpperCase(),
       apellido_paterno: $('wrkPaterno').value.trim().toUpperCase(),
       apellido_materno: $('wrkMaterno').value.trim().toUpperCase(),
-      numero_empleado: $('wrkNum').value.trim() || null,
       departamento: $('wrkDepto').value.trim().toUpperCase() || 'MINA GENERAL',
       puesto: $('wrkPuesto').value.trim().toUpperCase() || 'GENERAL',
       curp: $('wrkCurp').value.trim().toUpperCase() || null,
@@ -678,10 +684,13 @@
       rfc: $('wrkRfc').value.trim().toUpperCase() || null,
       estado_empleado: $('wrkEstado').value,
     };
+    if (numVal !== null) {
+      data.numero_empleado = numVal;
+    }
     const fullName = `${data.nombre} ${data.apellido_paterno} ${data.apellido_materno}`.trim();
 
     if (editId) {
-      await DB.submitOrQueue(
+      const res = await DB.submitOrQueue(
         'UPDATE_WORKER_DATA',
         `Editar trabajador: ${fullName}`,
         { id_empleado: editId, patch: data },
@@ -690,7 +699,12 @@
           if (found) Object.assign(found, data);
         }
       );
-      showToast('Trabajador actualizado correctamente.');
+      if (res.synced) await DB.downloadAllData(true, true);
+      showToast(
+        res.synced
+          ? '✅ Trabajador actualizado en BD central.'
+          : '🟡 Cambios guardados localmente (en cola para subir a BD).'
+      );
     } else {
       const tempEmpId = 'local_emp_' + Date.now();
       const tempPacId = 'local_pac_' + Date.now();
@@ -709,8 +723,8 @@
           DB.state.cache.pacientes.unshift(Object.assign({ id_paciente: tempPacId, id_empleado: tempEmpId }, titularPaciente));
         }
       );
-      if (res.synced) await DB.downloadAllData(true);
-      showToast(res.synced ? 'Trabajador guardado en BD central.' : 'Trabajador guardado localmente (se subirá al conectar).');
+      if (res.synced) await DB.downloadAllData(true, true);
+      showToast(res.synced ? '✅ Trabajador guardado en BD central.' : '🟡 Trabajador guardado localmente (se subirá al conectar).');
     }
     closeModals();
     renderPacientes();
@@ -762,7 +776,7 @@
     };
 
     if (editId) {
-      await DB.submitOrQueue(
+      const res = await DB.submitOrQueue(
         'UPDATE_PATIENT',
         `Modificar paciente: ${row.nombre_completo}`,
         { id_paciente: editId, patch: row },
@@ -771,7 +785,12 @@
           if (found) Object.assign(found, row);
         }
       );
-      showToast('Paciente modificado correctamente.');
+      if (res.synced) await DB.downloadAllData(true, true);
+      showToast(
+        res.synced
+          ? '✅ Paciente actualizado en BD central.'
+          : '🟡 Paciente modificado localmente (en cola para BD).'
+      );
     } else {
       const tempPacId = 'local_pac_' + Date.now();
       const res = await DB.submitOrQueue(
@@ -782,8 +801,8 @@
           DB.state.cache.pacientes.unshift(Object.assign({ id_paciente: tempPacId }, row));
         }
       );
-      if (res.synced) await DB.downloadAllData(true);
-      showToast(res.synced ? 'Paciente registrado en BD central.' : 'Paciente guardado en caché offline.');
+      if (res.synced) await DB.downloadAllData(true, true);
+      showToast(res.synced ? '✅ Paciente registrado en BD central.' : '🟡 Paciente guardado en caché offline.');
     }
     closeModals();
     renderPacientes();
@@ -1000,8 +1019,13 @@
     const localId = 'local_cons_' + Date.now();
     Docs.saveConsultaMetaLocal(localId, cofeprisMeta);
 
+    const pacObj = pacId ? (DB.state.cache.pacientes || []).find((p) => String(p.id_paciente) === String(pacId)) : null;
+    const activeDoc = getActiveDoctor();
+
     const consultaRow = {
       id_paciente: pacId,
+      id_empleado: (pacObj && pacObj.id_empleado) || null,
+      id_clinica: activeDoc.id_clinica || null,
       diagnostico: diagEncoded,
       costo_consulta: parseFloat($('consCosto').value || '0') || 0,
       medico_id: (DB.state.session && DB.state.session.user_id) || null,
@@ -1237,6 +1261,7 @@
       acompanante: $('paseAcompanante').value.trim().toUpperCase() || 'NO REQUIERE',
       medio_transporte: $('paseTransporte').value,
       fecha_salida: $('paseFechaSalida').value || null,
+      fecha_salida_unidad: $('paseFechaSalida').value || null,
       fecha_retorno: ($('paseFechaRetorno') ? $('paseFechaRetorno').value : null) || null,
       fecha_cita: $('paseFechaCita').value || null,
       requiere_hotel: reqHotel,
@@ -1257,6 +1282,8 @@
       medico_responsable_unidad: drJefe.nombre_completo,
       cedula_responsable_unidad: drJefe.cedula_profesional || '',
       compartido_departamentos: $('paseCompartidoDeptos') ? $('paseCompartidoDeptos').checked : true,
+      estatus: 'Generado',
+      generado_por: (DB.state.session && DB.state.session.user_id) || null,
     };
 
     if (reqHotel) {
@@ -1510,12 +1537,12 @@
     const res = await DB.submitOrQueue('CREATE_MEDICAMENTO', `Nuevo medicamento: ${med.nombre}`, { medicamento: med }, () => {
       DB.state.cache.medicamentos.unshift(Object.assign({ id_medicamento: 'local_med_' + Date.now() }, med));
     });
-    if (res.synced) await DB.downloadAllData(true);
+    if (res.synced) await DB.downloadAllData(true, true);
     $('medNombre').value = '';
     $('medSustancia').value = '';
     $('medPres').value = '';
     renderFarmacia();
-    showToast('Medicamento guardado.');
+    showToast(res.synced ? '✅ Medicamento guardado en BD central.' : '🟡 Medicamento guardado localmente (en cola para BD).');
   }
 
   async function saveClinica(e) {
@@ -1529,11 +1556,11 @@
     const res = await DB.submitOrQueue('CREATE_CLINICA', `Nueva clínica: ${cli.nombre}`, { clinica: cli }, () => {
       DB.state.cache.clinicas.unshift(Object.assign({ id_clinica: 'local_cli_' + Date.now() }, cli));
     });
-    if (res.synced) await DB.downloadAllData(true);
+    if (res.synced) await DB.downloadAllData(true, true);
     $('cliNombre').value = '';
     $('cliUbicacion').value = '';
     renderFarmacia();
-    showToast('Clínica registrada.');
+    showToast(res.synced ? '✅ Clínica registrada en BD central.' : '🟡 Clínica guardada localmente (en cola para BD).');
   }
 
   /* ==========================================================================
@@ -1653,8 +1680,9 @@
 
     // Si corresponde al usuario autenticado en Supabase, sincronizar con tabla `perfiles`
     const sess = DB.state.session;
+    let toastMsg = '✅ Perfil de doctor colaborador guardado en este dispositivo.';
     if (sess && sess.user_id && updated.id === sess.user_id) {
-      await DB.submitOrQueue(
+      const res = await DB.submitOrQueue(
         'UPDATE_DOCTOR_PROFILE',
         `Actualizar perfil médico: ${updated.nombre_completo}`,
         {
@@ -1665,13 +1693,24 @@
             especialidad: updated.especialidad || null,
             firma: updated.firma_base64 || null,
             id_clinica: updated.id_clinica || null,
+            domicilio_consultorio: updated.domicilio_consultorio || null,
+            telefono_consultorio: updated.telefono_consultorio || null,
+            titulo_consultorio: updated.titulo_consultorio || null,
+            categoria_emisor: updated.categoria_emisor || null,
+            es_dr_principal: Boolean(updated.es_dr_principal),
           },
         }
       );
+      if (res && res.synced) {
+        await DB.downloadAllData(true, true);
+        toastMsg = '✅ Perfil médico y firma guardados en BD central.';
+      } else {
+        toastMsg = '🟡 Perfil guardado en este dispositivo (pendiente/limitado en BD central).';
+      }
     }
 
     renderPerfilView();
-    showToast('✅ Perfil médico y firma digital guardados.');
+    showToast(toastMsg);
   }
 
   // Pad de Firma Táctil (Mouse + Touch + Stylus)

@@ -131,6 +131,8 @@ export default function PacientesPage() {
         if (data) setDepartamentos(data)
     }
 
+    const isStatusBaja = (st?: string | null) => ['BAJA', 'INACTIVO'].includes((st || '').toUpperCase())
+
     const getEmpFullName = (emp: any) => {
         if (!emp) return ''
         return `${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.trim()
@@ -149,7 +151,7 @@ export default function PacientesPage() {
     }
 
     const toggleBajaStatus = async (emp: any) => {
-        const isBaja = emp.estado_empleado === 'BAJA'
+        const isBaja = isStatusBaja(emp.estado_empleado)
         const actionName = isBaja ? 'REACTIVAR' : 'DAR DE BAJA'
         
         if (!confirm(`¿Está seguro de ${actionName} al trabajador "${getEmpFullName(emp)}"? ${!isBaja ? '\n\nATENCIÓN: Su perfil se marcará en ROJO y se suspenderá la atención médica y pases.' : ''}`)) {
@@ -693,7 +695,7 @@ export default function PacientesPage() {
                                         <option value="">Seleccionar trabajador titular...</option>
                                         {empleados.map(emp => (
                                             <option key={emp.id_empleado} value={emp.id_empleado}>
-                                                {getEmpFullName(emp)} ({emp.departamento || 'Sin Depto'}) {emp.estado_empleado === 'BAJA' ? '🔴 DADO DE BAJA' : ''}
+                                                {getEmpFullName(emp)} ({emp.departamento || 'Sin Depto'}) {isStatusBaja(emp.estado_empleado) ? '🔴 DADO DE BAJA' : ''}
                                             </option>
                                         ))}
                                     </select>
@@ -792,7 +794,7 @@ export default function PacientesPage() {
                                 ) : (
                                     filteredEmpleados.map(emp => {
                                         const fullName = getEmpFullName(emp)
-                                        const isBaja = emp.estado_empleado === 'BAJA' || emp.estado_empleado === 'INACTIVO'
+                                        const isBaja = isStatusBaja(emp.estado_empleado)
                                         const countBeneficiarios = pacientes.filter(p => p.id_empleado === emp.id_empleado && !isTitularPatient(p)).length
 
                                         return (
@@ -932,7 +934,7 @@ export default function PacientesPage() {
                                 ) : (
                                     filteredBeneficiarios.map(pac => {
                                         const empFullName = pac.empleados ? getEmpFullName(pac.empleados) : 'SIN TITULAR VINCULADO'
-                                        const isBaja = pac.empleados?.estado_empleado === 'BAJA'
+                                        const isBaja = isStatusBaja(pac.empleados?.estado_empleado)
 
                                         return (
                                             <tr key={pac.id_paciente} className={`transition-colors ${isBaja ? 'bg-rose-50/60' : 'hover:bg-zinc-50/60'}`}>
@@ -988,12 +990,12 @@ export default function PacientesPage() {
             {selectedWorkerModal && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
                     <div className={`bg-white rounded-3xl shadow-2xl max-w-2xl w-full p-6 space-y-5 border-2 relative overflow-hidden ${
-                        selectedWorkerModal.estado_empleado === 'BAJA' 
+                        isStatusBaja(selectedWorkerModal.estado_empleado) 
                             ? 'border-rose-500 bg-rose-50/20' 
                             : 'border-emerald-500'
                     }`}>
                         <div className={`absolute top-0 left-0 right-0 h-2 ${
-                            selectedWorkerModal.estado_empleado === 'BAJA' ? 'bg-rose-600' : 'bg-emerald-500'
+                            isStatusBaja(selectedWorkerModal.estado_empleado) ? 'bg-rose-600' : 'bg-emerald-500'
                         }`} />
 
                         {/* Modal Header */}
@@ -1003,7 +1005,7 @@ export default function PacientesPage() {
                                     <h2 className="text-xl font-black text-zinc-900">
                                         {getEmpFullName(selectedWorkerModal)}
                                     </h2>
-                                    {selectedWorkerModal.estado_empleado === 'BAJA' ? (
+                                    {isStatusBaja(selectedWorkerModal.estado_empleado) ? (
                                         <span className="px-2.5 py-0.5 bg-rose-600 text-white rounded-full font-black text-[10px] uppercase">
                                             🔴 DADO DE BAJA
                                         </span>
@@ -1026,7 +1028,7 @@ export default function PacientesPage() {
                         </div>
 
                         {/* WARNING BANNER IF BAJA */}
-                        {selectedWorkerModal.estado_empleado === 'BAJA' && (
+                        {isStatusBaja(selectedWorkerModal.estado_empleado) && (
                             <div className="bg-rose-600 text-white p-4 rounded-2xl flex items-start gap-3 shadow-md">
                                 <ShieldX className="w-6 h-6 flex-shrink-0 mt-0.5 text-rose-100" />
                                 <div>
@@ -1112,12 +1114,12 @@ export default function PacientesPage() {
                                 onClick={() => toggleBajaStatus(selectedWorkerModal)}
                                 disabled={updatingStatus}
                                 className={`px-5 py-2.5 rounded-2xl font-black text-xs uppercase flex items-center gap-2 shadow-md transition-all ${
-                                    selectedWorkerModal.estado_empleado === 'BAJA'
+                                    isStatusBaja(selectedWorkerModal.estado_empleado)
                                         ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
                                         : 'bg-rose-600 hover:bg-rose-500 text-white'
                                 }`}
                             >
-                                {selectedWorkerModal.estado_empleado === 'BAJA' ? (
+                                {isStatusBaja(selectedWorkerModal.estado_empleado) ? (
                                     <>
                                         <CheckCircle className="w-4 h-4" />
                                         🟢 Reactivar Trabajador (Habilitar Atención)
