@@ -62,6 +62,8 @@ export default function ConsultasPage() {
   const [consultas, setConsultas] = useState<any[]>([])
   const [pacientes, setPacientes] = useState<any[]>([])
   const [medicamentosCat, setMedicamentosCat] = useState<any[]>([])
+  const [inventarioClinicas, setInventarioClinicas] = useState<any[]>([])
+  const [clinicasCat, setClinicasCat] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [savingConsulta, setSavingConsulta] = useState(false)
   const [showForm, setShowForm] = useState(false)
@@ -142,17 +144,24 @@ export default function ConsultasPage() {
     }
 
   const fetchCatalogos = async () => {
-    const { data: pData } = await supabase.from('pacientes').select('*').order('nombre_completo')
-    if (pData) setPacientes(pData)
+    const [pRes, mRes, invRes, cRes, cfgRes] = await Promise.all([
+      supabase.from('pacientes').select('*').order('nombre_completo'),
+      supabase.from('cat_medicamentos').select('*').order('nombre'),
+      supabase.from('inventario_clinicas').select('*'),
+      supabase.from('cat_clinicas').select('*').neq('activo', false).order('nombre'),
+      supabase.from('configuracion_empresa').select('logo_base64').single(),
+    ])
+    if (pRes.data) setPacientes(pRes.data)
+    if (mRes.data) setMedicamentosCat(mRes.data)
+    if (invRes.data) setInventarioClinicas(invRes.data)
+    if (cRes.data) setClinicasCat(cRes.data)
+    if (cfgRes.data?.logo_base64) setLogoBase64(cfgRes.data.logo_base64)
+  }
 
-    const { data: mData } = await supabase.from('cat_medicamentos').select('*').order('nombre')
-    if (mData) setMedicamentosCat(mData)
-
-    const { data: configData } = await supabase
-      .from('configuracion_empresa')
-      .select('logo_base64')
-      .single()
-    if (configData?.logo_base64) setLogoBase64(configData.logo_base64)
+  const getStockTotalMed = (idMed: string) => {
+    return inventarioClinicas
+      .filter((r) => String(r.id_medicamento) === String(idMed))
+      .reduce((acc, r) => acc + Math.max(0, Number(r.cantidad || 0)), 0)
   }
 
   const fetchConsultas = async () => {
@@ -347,6 +356,47 @@ export default function ConsultasPage() {
               costo_total: (med.cantidad || 1) * (med.costo_unitario || 0),
             }))
             await supabase.from('dispensacion_medicamentos').insert(dispBasic)
+          }
+
+          // Descontar automáticamente del inventario de la clínica por cada fármaco recetado
+          const preferredClinId =
+            (sessionProfile as any)?.id_clinica ||
+            clinicasCat.find((c) => c.tipo === 'Interna')?.id_clinica ||
+            clinicasCat[0]?.id_clinica ||
+            ''
+
+          for (const med of catalogMeds) {
+            try {
+              const qty = Math.max(1, Number(med.cantidad) || 1)
+              const { data: invRows } = await supabase
+                .from('inventario_clinicas')
+                .select('*')
+                .eq('id_medicamento', med.id_medicamento)
+
+              if (Array.isArray(invRows) && invRows.length > 0) {
+                let targetRow = preferredClinId
+                  ? invRows.find(
+                      (r: any) =>
+                        String(r.id_clinica) === String(preferredClinId) &&
+                        Number(r.cantidad || 0) > 0
+                    )
+                  : null
+                if (!targetRow) {
+                  targetRow = [...invRows].sort(
+                    (a: any, b: any) => Number(b.cantidad || 0) - Number(a.cantidad || 0)
+                  )[0]
+                }
+                if (targetRow?.id_inventario) {
+                  const nextQty = Math.max(0, Number(targetRow.cantidad || 0) - qty)
+                  await supabase
+                    .from('inventario_clinicas')
+                    .update({ cantidad: nextQty })
+                    .eq('id_inventario', targetRow.id_inventario)
+                }
+              }
+            } catch (invErr) {
+              console.warn('Aviso al descontar stock en inventario_clinicas:', invErr)
+            }
           }
         }
 
@@ -1023,7 +1073,7 @@ export default function ConsultasPage() {
                           <option value="">-- Medicamento Libre / Receta Abierta --</option>
                           {medicamentosCat.map((m) => (
                             <option key={m.id_medicamento} value={m.id_medicamento}>
-                              {m.nombre} {m.sustancia_activa ? `(${m.sustancia_activa})` : ''}
+                              {m.nombre} {m.sustancia_activa ? `(${m.sustancia_activa})` : ''} — Stock: {getStockTotalMed(m.id_medicamento)}
                             </option>
                           ))}
                         </select>

@@ -132,6 +132,7 @@
       pases: [],
       clinicas: [],
       medicamentos: [],
+      inventario: [],
       medicos: [],
       logoBase64: null,
       lastDownloadAt: null,
@@ -627,7 +628,7 @@
 
     if (!silent) addLog('INFO', 'Descargando padrón actualizado desde la base de datos central...');
     try {
-      const [emps, pacs, cons, pases, clinicas, meds, perfiles, configEmp] = await Promise.all([
+      const [emps, pacs, cons, pases, clinicas, meds, inventario, perfiles, configEmp] = await Promise.all([
         restRequest('empleados?select=*&order=apellido_paterno.asc&limit=4000').catch(() => null),
         restRequest('pacientes?select=*&order=nombre_completo.asc&limit=5000').catch(() => null),
         restRequest('consultas_medicas?select=*,pacientes(nombre_completo,parentesco,es_poblacion_general,acompanante,fecha_nacimiento)&order=fecha.desc&limit=250').catch(() =>
@@ -638,6 +639,7 @@
         ),
         restRequest('cat_clinicas?select=*&order=nombre.asc').catch(() => null),
         restRequest('cat_medicamentos?select=*&order=nombre.asc&limit=2000').catch(() => null),
+        restRequest('inventario_clinicas?select=*&limit=4000').catch(() => null),
         restRequest('perfiles?select=*&order=nombre_completo.asc').catch(() => null),
         restRequest('configuracion_empresa?select=logo_base64&limit=1').catch(() => null),
       ]);
@@ -659,6 +661,9 @@
       }
       if (Array.isArray(meds)) {
         state.cache.medicamentos = meds;
+      }
+      if (Array.isArray(inventario)) {
+        state.cache.inventario = inventario;
       }
       if (Array.isArray(perfiles)) {
         state.cache.medicos = perfiles.filter((u) => isRoleAuthorized(u.rol));
@@ -793,6 +798,32 @@
     throw new Error(`No se pudo actualizar ${tableQuery} tras depurar columnas opcionales.`);
   }
 
+  async function deductInventoryRemote(idMedicamento, qty, preferredClinicaId) {
+    if (!idMedicamento || !qty || qty <= 0) return;
+    const rows = await restRequest(
+      `inventario_clinicas?id_medicamento=eq.${encodeURIComponent(idMedicamento)}&select=*`
+    ).catch(() => []);
+    if (!Array.isArray(rows) || rows.length === 0) return;
+
+    let target = null;
+    if (preferredClinicaId) {
+      target =
+        rows.find((r) => String(r.id_clinica) === String(preferredClinicaId) && Number(r.cantidad || 0) > 0) || null;
+    }
+    if (!target) {
+      const candidates = rows
+        .filter((r) => Number(r.cantidad || 0) > 0)
+        .sort((a, b) => Number(b.cantidad || 0) - Number(a.cantidad || 0));
+      target = candidates[0] || null;
+    }
+    if (!target || !target.id_inventario) return;
+
+    const nextQty = Math.max(0, Number(target.cantidad || 0) - qty);
+    await patchWithSchemaFallback(`inventario_clinicas?id_inventario=eq.${encodeURIComponent(target.id_inventario)}`, {
+      cantidad: nextQty,
+    });
+  }
+
   async function executeSingleMutation(item, idMap) {
     const resolveId = (val) => (val && idMap[val] ? idMap[val] : val);
     const p = item.payload || {};
@@ -925,6 +956,15 @@
               body: JSON.stringify(basic),
             }).catch(() => {});
           }
+
+          // Descontar automáticamente del inventario de clínica por cada medicamento dispensado
+          for (const med of catalogMeds) {
+            await deductInventoryRemote(
+              resolveId(med.id_medicamento),
+              Math.max(1, Number(med.cantidad) || 1),
+              p.consulta && p.consulta.id_clinica ? resolveId(p.consulta.id_clinica) : null
+            ).catch(() => {});
+          }
         }
         if (pacId && p.acompanante) {
           await patchWithSchemaFallback(`pacientes?id_paciente=eq.${encodeURIComponent(pacId)}`, {
@@ -946,7 +986,50 @@
     }
 
     if (item.type === 'CREATE_MEDICAMENTO') {
-      await insertWithSchemaFallback('cat_medicamentos', p.medicamento, 'return=minimal');
+      const inserted = await insertWithSchemaFallback('cat_medicamentos', p.medicamento, 'return=representation');
+      const realMed = Array.isArray(inserted) ? inserted[0] : inserted;
+      const medId = realMed && realMed.id_medicamento ? realMed.id_medicamento : null;
+      if (medId && p.local_id) idMap[p.local_id] = medId;
+      if (medId && Number(p.stock_inicial || 0) > 0 && p.id_clinica) {
+        await insertWithSchemaFallback(
+          'inventario_clinicas',
+          {
+            id_clinica: resolveId(p.id_clinica),
+            id_medicamento: medId,
+            cantidad: Math.max(0, Number(p.stock_inicial) || 0),
+          },
+          'return=minimal'
+        ).catch(() => {});
+      }
+      return realMed || true;
+    }
+
+    if (item.type === 'ADJUST_STOCK') {
+      const clinId = p.id_clinica ? resolveId(p.id_clinica) : null;
+      const medId = p.id_medicamento ? resolveId(p.id_medicamento) : null;
+      if (clinId && medId) {
+        const existing = await restRequest(
+          `inventario_clinicas?id_clinica=eq.${encodeURIComponent(clinId)}&id_medicamento=eq.${encodeURIComponent(medId)}&select=*`
+        ).catch(() => []);
+        const row = Array.isArray(existing) && existing[0] ? existing[0] : null;
+        if (row && row.id_inventario) {
+          const nextQty =
+            typeof p.newCantidad === 'number'
+              ? Math.max(0, p.newCantidad)
+              : Math.max(0, Number(row.cantidad || 0) + Number(p.delta || 0));
+          await patchWithSchemaFallback(`inventario_clinicas?id_inventario=eq.${encodeURIComponent(row.id_inventario)}`, {
+            cantidad: nextQty,
+          });
+        } else {
+          const initQty =
+            typeof p.newCantidad === 'number' ? Math.max(0, p.newCantidad) : Math.max(0, Number(p.delta || 0));
+          await insertWithSchemaFallback(
+            'inventario_clinicas',
+            { id_clinica: clinId, id_medicamento: medId, cantidad: initQty },
+            'return=minimal'
+          );
+        }
+      }
       return true;
     }
 

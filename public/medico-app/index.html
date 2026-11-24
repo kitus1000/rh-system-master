@@ -614,7 +614,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">💊 Catálogo de Farmacia y Clínicas</div>
-              <div class="card-subtitle">Consulta y alta rápida de medicamentos y clínicas de origen/destino (disponible offline)</div>
+              <div class="card-subtitle">Stock en vivo con descuento automático al emitir receta + clínicas (disponible offline)</div>
             </div>
           </div>
           <div class="subtabs" style="margin-bottom:12px;">
@@ -624,13 +624,14 @@
 
           <!-- Panel Medicamentos -->
           <div id="farmPanelMeds">
-            <form onsubmit="MedicoApp.saveMedicamento(event)" class="form-grid cols-4" style="margin-bottom:14px;padding:12px;background:var(--bg-subtle);border-radius:14px;border:1.5px solid var(--border);">
+            <form onsubmit="MedicoApp.saveMedicamento(event)" class="form-grid cols-3" style="margin-bottom:14px;padding:12px;background:var(--bg-subtle);border-radius:14px;border:1.5px solid var(--border);">
               <div class="field-group"><label class="field-label" for="medNombre">Nombre Comercial *</label><input id="medNombre" class="field-input" required placeholder="Ej. Tempra" /></div>
               <div class="field-group"><label class="field-label" for="medSustancia">Sustancia Activa</label><input id="medSustancia" class="field-input" placeholder="Paracetamol 500mg" /></div>
               <div class="field-group"><label class="field-label" for="medPres">Presentación</label><input id="medPres" class="field-input" placeholder="Caja con 20 tabletas" /></div>
               <div class="field-group"><label class="field-label" for="medPrecio">Precio ($)</label><input id="medPrecio" type="number" step="0.01" min="0" value="0" class="field-input" /></div>
-              <div class="span-full" style="display:flex;justify-content:flex-end;">
-                <button type="submit" class="btn btn-teal btn-sm">+ Agregar Medicamento</button>
+              <div class="field-group"><label class="field-label" for="medStockInicial">Stock Inicial</label><input id="medStockInicial" type="number" min="0" value="0" class="field-input" /></div>
+              <div class="field-group" style="display:flex;align-items:flex-end;justify-content:flex-end;">
+                <button type="submit" class="btn btn-teal btn-sm" style="width:100%;">+ Agregar Medicamento</button>
               </div>
             </form>
             <div class="field-group" style="margin-bottom:10px;">

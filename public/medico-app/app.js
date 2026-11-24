@@ -919,11 +919,36 @@
     consultaMeds[idx][field] = field === 'cantidad' ? Math.max(1, parseInt(val, 10) || 1) : val;
   }
 
+  function getMedStockTotal(idMed) {
+    return (DB.state.cache.inventario || [])
+      .filter((r) => String(r.id_medicamento) === String(idMed))
+      .reduce((acc, r) => acc + Math.max(0, Number(r.cantidad || 0)), 0);
+  }
+
+  function deductLocalCacheStock(idMed, qty) {
+    const inv = DB.state.cache.inventario || [];
+    const activeDoc = getActiveDoctor();
+    const prefClin = activeDoc && activeDoc.id_clinica ? String(activeDoc.id_clinica) : '';
+    let row = prefClin
+      ? inv.find((r) => String(r.id_medicamento) === String(idMed) && String(r.id_clinica) === prefClin && Number(r.cantidad || 0) > 0)
+      : null;
+    if (!row) {
+      const candidates = inv
+        .filter((r) => String(r.id_medicamento) === String(idMed) && Number(r.cantidad || 0) > 0)
+        .sort((a, b) => Number(b.cantidad || 0) - Number(a.cantidad || 0));
+      row = candidates[0] || inv.find((r) => String(r.id_medicamento) === String(idMed)) || null;
+    }
+    if (row) {
+      row.cantidad = Math.max(0, Number(row.cantidad || 0) - Math.max(1, Number(qty) || 1));
+    }
+  }
+
   function renderConsultaMeds() {
     const medsCat = DB.state.cache.medicamentos || [];
-    const catOpts = '<option value="">— Captura libre o elegir de farmacia —</option>' + medsCat.slice(0, 300).map((m) =>
-      `<option value="${Docs.esc(m.id_medicamento)}">${Docs.esc(m.nombre)} ${m.sustancia_activa ? '(' + Docs.esc(m.sustancia_activa) + ')' : ''}</option>`
-    ).join('');
+    const catOpts = '<option value="">— Captura libre o elegir de farmacia —</option>' + medsCat.slice(0, 300).map((m) => {
+      const stk = getMedStockTotal(m.id_medicamento);
+      return `<option value="${Docs.esc(m.id_medicamento)}">${Docs.esc(m.nombre)} ${m.sustancia_activa ? '(' + Docs.esc(m.sustancia_activa) + ')' : ''} — Stock: ${stk}</option>`;
+    }).join('');
 
     $('consultaMedsList').innerHTML = consultaMeds.map((m, i) => `
       <div class="med-item-box">
@@ -1042,6 +1067,11 @@
         acompanante: $('consAcompanante').value.trim(),
       },
       () => {
+        (input.medicamentos || []).forEach((med) => {
+          if (med && med.id_medicamento) {
+            deductLocalCacheStock(med.id_medicamento, med.cantidad || 1);
+          }
+        });
         DB.state.cache.consultas.unshift({
           id_consulta: localId,
           id_paciente: pacId,
@@ -1499,16 +1529,26 @@
     );
     $('medsListContainer').innerHTML = meds.length === 0
       ? '<div class="empty-state span-full">Sin medicamentos encontrados.</div>'
-      : meds.slice(0, 80).map((m) => `
+      : meds.slice(0, 80).map((m) => {
+        const stock = getMedStockTotal(m.id_medicamento);
+        const badgeCls = stock > 10 ? 'badge-ok' : stock > 0 ? 'badge-warn' : 'badge-danger';
+        return `
         <div class="record-card">
           <div class="record-top">
             <div>
               <div class="record-name">${Docs.esc(m.nombre)}</div>
               <div class="record-meta"><span>${Docs.esc(m.sustancia_activa || '—')}</span><span>${Docs.esc(m.presentacion || '')}</span></div>
             </div>
-            <span class="badge badge-teal">$${Number(m.precio_venta || 0).toFixed(2)}</span>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+              <span class="badge ${badgeCls}">Stock: ${stock}</span>
+              <span class="badge badge-teal">$${Number(m.precio_venta || 0).toFixed(2)}</span>
+            </div>
           </div>
-        </div>`).join('');
+          <div class="record-actions" style="margin-top:8px;display:flex;justify-content:flex-end;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="MedicoApp.adjustMedStock('${Docs.esc(m.id_medicamento)}', 10)">+10 Stock</button>
+          </div>
+        </div>`;
+      }).join('');
 
     const clinicas = DB.state.cache.clinicas || [];
     $('clinicasListContainer').innerHTML = clinicas.length === 0
@@ -1525,6 +1565,41 @@
         </div>`).join('');
   }
 
+  async function adjustMedStock(idMed, delta) {
+    const clinicas = DB.state.cache.clinicas || [];
+    const targetCli = clinicas.find((c) => String(c.tipo || '').toLowerCase() === 'interna') || clinicas[0];
+    if (!targetCli) return showToast('⚠️ Registra primero una clínica para asignar stock.');
+    const addQty = Number(delta || 10);
+    const meds = DB.state.cache.medicamentos || [];
+    const medObj = meds.find((m) => String(m.id_medicamento) === String(idMed));
+    const medName = (medObj && medObj.nombre) || 'Medicamento';
+
+    const res = await DB.submitOrQueue(
+      'ADJUST_STOCK',
+      `Entrada +${addQty} unidades: ${medName}`,
+      { id_medicamento: idMed, id_clinica: targetCli.id_clinica, delta: addQty },
+      () => {
+        if (!Array.isArray(DB.state.cache.inventario)) DB.state.cache.inventario = [];
+        const existing = DB.state.cache.inventario.find(
+          (r) => String(r.id_medicamento) === String(idMed) && String(r.id_clinica) === String(targetCli.id_clinica)
+        );
+        if (existing) {
+          existing.cantidad = Math.max(0, Number(existing.cantidad || 0) + addQty);
+        } else {
+          DB.state.cache.inventario.push({
+            id_inventario: 'local_inv_' + Date.now(),
+            id_clinica: targetCli.id_clinica,
+            id_medicamento: idMed,
+            cantidad: Math.max(0, addQty),
+          });
+        }
+      }
+    );
+    if (res.synced) await DB.downloadAllData(true, true);
+    renderFarmacia();
+    showToast(res.synced ? `✅ +${addQty} unidades agregadas al inventario central.` : `🟡 +${addQty} unidades guardadas localmente (en cola para BD).`);
+  }
+
   async function saveMedicamento(e) {
     e.preventDefault();
     const med = {
@@ -1534,13 +1609,34 @@
       precio_venta: parseFloat($('medPrecio').value || '0') || 0,
       descripcion: '',
     };
-    const res = await DB.submitOrQueue('CREATE_MEDICAMENTO', `Nuevo medicamento: ${med.nombre}`, { medicamento: med }, () => {
-      DB.state.cache.medicamentos.unshift(Object.assign({ id_medicamento: 'local_med_' + Date.now() }, med));
-    });
+    const stockInicial = Math.max(0, parseInt(($('medStockInicial') && $('medStockInicial').value) || '0', 10) || 0);
+    const clinicas = DB.state.cache.clinicas || [];
+    const interna = clinicas.find((c) => String(c.tipo || '').toLowerCase() === 'interna') || clinicas[0];
+    const idClinica = interna ? interna.id_clinica : null;
+    const localMedId = 'local_med_' + Date.now();
+
+    const res = await DB.submitOrQueue(
+      'CREATE_MEDICAMENTO',
+      `Nuevo medicamento: ${med.nombre}`,
+      { medicamento: med, stock_inicial: stockInicial, id_clinica: idClinica, local_id: localMedId },
+      () => {
+        DB.state.cache.medicamentos.unshift(Object.assign({ id_medicamento: localMedId }, med));
+        if (stockInicial > 0 && idClinica) {
+          if (!Array.isArray(DB.state.cache.inventario)) DB.state.cache.inventario = [];
+          DB.state.cache.inventario.push({
+            id_inventario: 'local_inv_' + Date.now(),
+            id_clinica: idClinica,
+            id_medicamento: localMedId,
+            cantidad: stockInicial,
+          });
+        }
+      }
+    );
     if (res.synced) await DB.downloadAllData(true, true);
     $('medNombre').value = '';
     $('medSustancia').value = '';
     $('medPres').value = '';
+    if ($('medStockInicial')) $('medStockInicial').value = '50';
     renderFarmacia();
     showToast(res.synced ? '✅ Medicamento guardado en BD central.' : '🟡 Medicamento guardado localmente (en cola para BD).');
   }
@@ -2139,6 +2235,7 @@
     reprintHotel,
     setFarmTab,
     renderFarmacia,
+    adjustMedStock,
     saveMedicamento,
     saveClinica,
     selectDoctorProfile,
