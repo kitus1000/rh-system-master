@@ -7,15 +7,23 @@ import { Plus, Save, X } from 'lucide-react'
 export function AdscripcionesManager({
     idEmpleado,
     isReadOnly = false,
+    puestoActual,
+    departamentoActual,
+    fechaIngreso,
     onSaved,
 }: {
     idEmpleado: string
     isReadOnly?: boolean
+    puestoActual?: string
+    departamentoActual?: string
+    fechaIngreso?: string
     onSaved?: () => void
 }) {
     const [history, setHistory] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [isCreating, setIsCreating] = useState(false)
+    const [syncingDirect, setSyncingDirect] = useState(false)
+    const [empBase, setEmpBase] = useState<{ puesto?: string; departamento?: string; fecha_creacion?: string } | null>(null)
 
     // Catalogs
     const [deptos, setDeptos] = useState<any[]>([])
@@ -35,48 +43,130 @@ export function AdscripcionesManager({
     useEffect(() => {
         fetchHistory()
         fetchCatalogs()
-    }, [])
+    }, [idEmpleado])
 
     async function fetchHistory() {
-        const { data } = await supabase
-            .from('empleado_adscripciones')
-            .select(`
-        *,
-        cat_departamentos(departamento),
-        cat_puestos(puesto),
-        cat_unidades_trabajo(unidad_trabajo)
-      `)
-            .eq('id_empleado', idEmpleado)
-            .order('fecha_inicio', { ascending: false })
+        const [{ data }, { data: empData }] = await Promise.all([
+            supabase
+                .from('empleado_adscripciones')
+                .select(`
+            *,
+            cat_departamentos(departamento),
+            cat_puestos(puesto),
+            cat_unidades_trabajo(unidad_trabajo)
+          `)
+                .eq('id_empleado', idEmpleado)
+                .order('fecha_inicio', { ascending: false }),
+            supabase
+                .from('empleados')
+                .select('puesto, departamento, fecha_creacion')
+                .eq('id_empleado', idEmpleado)
+                .maybeSingle()
+        ])
 
         setHistory(data || [])
+        if (empData) setEmpBase(empData)
         setLoading(false)
     }
 
     async function fetchCatalogs() {
         supabase.from('cat_departamentos').select('*').then(res => setDeptos(res.data || []))
         supabase.from('cat_puestos').select('*').then(res => setPuestos(res.data || []))
-        supabase.from('cat_unidades_trabajo').select('*').then(res => setUnidades(res.data || []))
+        supabase.from('cat_unidades_trabajo').select('*').then(res => {
+            const list = res.data || []
+            setUnidades(list)
+            if (list.length > 0) {
+                setFormData(prev => ({ ...prev, id_unidad: prev.id_unidad || list[0].id_unidad }))
+            }
+        })
+    }
+
+    async function handleSyncDirectAdscripcion() {
+        const targetDeptoName = (departamentoActual || empBase?.departamento || 'OPERACIONES GENERALES').trim()
+        const targetPuestoName = (puestoActual || empBase?.puesto || 'OPERATIVO GENERAL').trim()
+        const targetFecha = fechaIngreso || (empBase?.fecha_creacion ? String(empBase.fecha_creacion).split('T')[0] : new Date().toISOString().split('T')[0])
+
+        setSyncingDirect(true)
+        try {
+            let deptoRow = deptos.find(d => String(d.departamento || '').trim().toLowerCase() === targetDeptoName.toLowerCase())
+            if (!deptoRow) {
+                const { data: createdDepto } = await supabase
+                    .from('cat_departamentos')
+                    .insert([{ departamento: targetDeptoName, activo: true }])
+                    .select()
+                    .maybeSingle()
+                if (createdDepto) {
+                    deptoRow = createdDepto
+                    setDeptos(prev => [...prev, createdDepto])
+                }
+            }
+
+            let puestoRow = puestos.find(p => String(p.puesto || '').trim().toLowerCase() === targetPuestoName.toLowerCase())
+            if (!puestoRow) {
+                const { data: createdPuesto } = await supabase
+                    .from('cat_puestos')
+                    .insert([{ puesto: targetPuestoName, activo: true }])
+                    .select()
+                    .maybeSingle()
+                if (createdPuesto) {
+                    puestoRow = createdPuesto
+                    setPuestos(prev => [...prev, createdPuesto])
+                }
+            }
+
+            let unidadId = unidades[0]?.id_unidad || null
+            if (!unidadId) {
+                const { data: createdUnidad } = await supabase
+                    .from('cat_unidades_trabajo')
+                    .insert([{ unidad_trabajo: 'Unidad Minera El Herrero (Bacís)', activo: true }])
+                    .select()
+                    .maybeSingle()
+                if (createdUnidad) {
+                    unidadId = createdUnidad.id_unidad
+                    setUnidades(prev => [...prev, createdUnidad])
+                }
+            }
+
+            if (deptoRow?.id_departamento && puestoRow?.id_puesto) {
+                const payload: any = {
+                    id_empleado: idEmpleado,
+                    fecha_inicio: targetFecha,
+                    id_departamento: deptoRow.id_departamento,
+                    id_puesto: puestoRow.id_puesto,
+                    es_jefe: targetPuestoName.toUpperCase().includes('JEFE') || targetPuestoName.toUpperCase().includes('SUPERINTENDENTE')
+                }
+                if (unidadId) payload.id_unidad = unidadId
+                await supabase.from('empleado_adscripciones').insert([payload])
+            }
+
+            await fetchHistory()
+            onSaved?.()
+        } catch (err: any) {
+            alert('Error sincronizando adscripción: ' + err.message)
+        } finally {
+            setSyncingDirect(false)
+        }
     }
 
     async function handleSave() {
-        if (!formData.id_unidad || !formData.id_departamento || !formData.id_puesto) {
-            alert("Favor de seleccionar Unidad, Departamento y Puesto")
+        if (!formData.id_departamento || !formData.id_puesto) {
+            alert("Favor de seleccionar Departamento y Puesto")
             return
         }
 
         try {
-            // 1. Close previous active record (if needed logic exists, currently simplified)
-
-            // 2. Insert Adscription
-            const { error: adsError } = await supabase.from('empleado_adscripciones').insert([{
+            // 1. Insert Adscription
+            const insertPayload: any = {
                 id_empleado: idEmpleado,
                 fecha_inicio: formData.fecha_inicio,
-                id_unidad: formData.id_unidad,
                 id_departamento: formData.id_departamento,
                 id_puesto: formData.id_puesto,
                 es_jefe: formData.es_jefe
-            }])
+            }
+            if (formData.id_unidad || unidades[0]?.id_unidad) {
+                insertPayload.id_unidad = formData.id_unidad || unidades[0]?.id_unidad
+            }
+            const { error: adsError } = await supabase.from('empleado_adscripciones').insert([insertPayload])
             if (adsError) throw adsError
 
             // Sincronizar departamento y puesto actual en empleados
@@ -192,7 +282,33 @@ export function AdscripcionesManager({
                     </thead>
                     <tbody className="divide-y divide-zinc-200">
                         {!loading && history.length === 0 && (
-                            <tr><td colSpan={3} className="p-4 text-center text-sm text-zinc-400">No hay historial registrado.</td></tr>
+                            <tr className="bg-amber-50/40">
+                                <td className="px-4 py-3 text-sm text-zinc-900 border-l-4 border-amber-500">
+                                    {fechaIngreso || (empBase?.fecha_creacion ? String(empBase.fecha_creacion).split('T')[0] : 'Registro Base')} <span className="text-zinc-400 mx-1">➜</span> Vigente
+                                    <span className="block text-[10px] font-bold text-amber-700 mt-0.5">
+                                        Adscripción Directa del Padrón General
+                                    </span>
+                                </td>
+                                <td className="px-4 py-3 text-sm text-zinc-900 font-bold">
+                                    {puestoActual || empBase?.puesto || 'Operativo General'}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-zinc-600 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                    <div>
+                                        <span className="font-semibold text-zinc-800">{departamentoActual || empBase?.departamento || 'Sin departamento'}</span>
+                                        <span className="block text-xs text-zinc-400">Unidad Minera El Herrero (Bacís)</span>
+                                    </div>
+                                    {!isReadOnly && (
+                                        <button
+                                            type="button"
+                                            disabled={syncingDirect}
+                                            onClick={handleSyncDirectAdscripcion}
+                                            className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-amber-400 text-xs font-black shrink-0 cursor-pointer"
+                                        >
+                                            {syncingDirect ? 'Sincronizando...' : '⚡ Formalizar en Historial'}
+                                        </button>
+                                    )}
+                                </td>
+                            </tr>
                         )}
                         {history.map((h) => (
                             <tr key={h.fecha_inicio + h.id_empleado}>

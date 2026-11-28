@@ -55,6 +55,91 @@ export default function EmpleadosPage() {
   const [canManage, setCanManage] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
+  const [repairingExpedientes, setRepairingExpedientes] = useState(false)
+
+  const handleRepairAllDirectExpedientes = async () => {
+    setRepairingExpedientes(true)
+    try {
+      const [{ data: existingIngresos }, { data: existingAds }, { data: catDeptos }, { data: catPuestos }, { data: catUnidades }] =
+        await Promise.all([
+          supabase.from('empleado_ingreso').select('id_empleado'),
+          supabase.from('empleado_adscripciones').select('id_empleado'),
+          supabase.from('cat_departamentos').select('id_departamento, departamento'),
+          supabase.from('cat_puestos').select('id_puesto, puesto'),
+          supabase.from('cat_unidades_trabajo').select('id_unidad').limit(1),
+        ])
+
+      const ingSet = new Set((existingIngresos || []).map((r: any) => String(r.id_empleado)))
+      const adsSet = new Set((existingAds || []).map((r: any) => String(r.id_empleado)))
+      const defaultUnidadId = catUnidades?.[0]?.id_unidad || null
+
+      const deptoMap = new Map<string, string>()
+      ;(catDeptos || []).forEach((d: any) => {
+        if (d.departamento) deptoMap.set(String(d.departamento).trim().toLowerCase(), d.id_departamento)
+      })
+      const puestoMap = new Map<string, string>()
+      ;(catPuestos || []).forEach((p: any) => {
+        if (p.puesto) puestoMap.set(String(p.puesto).trim().toLowerCase(), p.id_puesto)
+      })
+
+      const missingIngresosPayload: any[] = []
+      const missingAdsPayload: any[] = []
+
+      for (const emp of empleados) {
+        if (!emp.id_empleado) continue
+        const empId = String(emp.id_empleado)
+        const fallbackDate =
+          emp.fecha_inicio_rol ||
+          (emp.fecha_creacion ? String(emp.fecha_creacion).split('T')[0] : '2024-01-01')
+
+        if (!ingSet.has(empId)) {
+          missingIngresosPayload.push({
+            id_empleado: emp.id_empleado,
+            fecha_ingreso: fallbackDate,
+          })
+          ingSet.add(empId)
+        }
+
+        if (!adsSet.has(empId)) {
+          const deptoOfficial = getResolvedDepartment(emp).officialName
+          const puestoOfficial = getResolvedPuesto(emp)
+          const deptoId = deptoMap.get(deptoOfficial.trim().toLowerCase())
+          const puestoId = puestoMap.get(puestoOfficial.trim().toLowerCase())
+
+          if (deptoId && puestoId) {
+            const row: any = {
+              id_empleado: emp.id_empleado,
+              fecha_inicio: fallbackDate,
+              id_departamento: deptoId,
+              id_puesto: puestoId,
+              es_jefe:
+                puestoOfficial.toUpperCase().includes('JEFE') ||
+                puestoOfficial.toUpperCase().includes('SUPERINTENDENTE'),
+            }
+            if (defaultUnidadId) row.id_unidad = defaultUnidadId
+            missingAdsPayload.push(row)
+            adsSet.add(empId)
+          }
+        }
+      }
+
+      if (missingIngresosPayload.length > 0) {
+        await supabase.from('empleado_ingreso').insert(missingIngresosPayload)
+      }
+      if (missingAdsPayload.length > 0) {
+        await supabase.from('empleado_adscripciones').insert(missingAdsPayload)
+      }
+
+      await fetchEmpleados()
+      alert(
+        `✅ Expedientes verificados y reparados en todo el padrón:\n\n• ${missingIngresosPayload.length} fechas de ingreso/antigüedad inicializadas.\n• ${missingAdsPayload.length} adscripciones vinculadas al historial.\n• Todos los ${empleados.length} trabajadores cuentan con expediente activo.`
+      )
+    } catch (err: any) {
+      alert('Error reparando expedientes directos: ' + err.message)
+    } finally {
+      setRepairingExpedientes(false)
+    }
+  }
 
   const canEvaluateTrayectoria = useMemo(() => {
     const rolUpper = (authProfile?.rol || '').toUpperCase()
@@ -634,11 +719,23 @@ export default function EmpleadosPage() {
           )
         }
 
-        const { error } = await supabase.from('empleados').insert(nuevosEmpleados)
+        const { data: insertedEmps, error } = await supabase
+          .from('empleados')
+          .insert(nuevosEmpleados)
+          .select('id_empleado, fecha_creacion')
         if (error) throw error
 
+        if (insertedEmps && insertedEmps.length > 0) {
+          const todayStr = new Date().toISOString().split('T')[0]
+          const ingresosInit = insertedEmps.map((e: any) => ({
+            id_empleado: e.id_empleado,
+            fecha_ingreso: e.fecha_creacion ? String(e.fecha_creacion).split('T')[0] : todayStr,
+          }))
+          await supabase.from('empleado_ingreso').insert(ingresosInit)
+        }
+
         alert(
-          `Se importaron ${nuevosEmpleados.length} empleados correctamente (con departamentos y nombres normalizados).${
+          `Se importaron ${nuevosEmpleados.length} empleados correctamente con su expediente inicializado (departamentos y nombres normalizados).${
             skippedDuplicates > 0 ? `\nSe omitieron ${skippedDuplicates} duplicados detectados.` : ''
           }`
         )
@@ -695,6 +792,15 @@ export default function EmpleadosPage() {
           >
             <FileDown className="mr-1.5 h-4 w-4" />
             Exportar
+          </button>
+          <button
+            onClick={handleRepairAllDirectExpedientes}
+            disabled={repairingExpedientes}
+            className="inline-flex items-center px-3.5 py-2 rounded-xl text-xs font-black text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 cursor-pointer"
+            title="Inicializa automáticamente las tablas de ingreso, vacaciones y adscripción para empleados metidos directamente"
+          >
+            <UserCheck className="mr-1.5 h-4 w-4 text-amber-700" />
+            {repairingExpedientes ? 'Reparando...' : '⚡ Reparar Expedientes Directos'}
           </button>
           <Link
             href="/empleados/credenciales"

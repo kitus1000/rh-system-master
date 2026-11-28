@@ -41,10 +41,14 @@ import {
 } from 'lucide-react'
 import { formatShortDate, diffDaysInclusive, isSchemaMissingError } from '@/utils/contratistasConfig'
 import { generateConvocatoriaSindicatoPDF } from '@/utils/convocatoriaSindicatoPdf'
+import Link from 'next/link'
 import {
   getEmployeeRegimenClassification,
   isTitularPatient,
   isMergedGhostEmployee,
+  normalizeNameTokens,
+  getEmployeeFullName,
+  canonicalizeDepartment,
 } from '@/utils/dataNormalization'
 import {
   generateSimulacionReglasPDF,
@@ -1565,6 +1569,97 @@ export default function MovimientosSindicatoPage() {
     return beneficiariosByEmpId.get(String(idEmpleado)) || []
   }
 
+  const [showFlowchartDiagram, setShowFlowchartDiagram] = useState(true)
+  const [creatingExpedienteId, setCreatingExpedienteId] = useState<string | null>(null)
+
+  // Resuelve el id_empleado real de cualquier postulante (aunque se haya metido directo por nombre o ficha)
+  const resolvePostulanteEmpleadoId = (post: any): string | null => {
+    if (!post) return null
+    if (post.id_empleado && empleadosCatalog.some((e) => String(e.id_empleado) === String(post.id_empleado))) {
+      return String(post.id_empleado)
+    }
+    if (post.numero_empleado) {
+      const byNum = empleadosCatalog.find(
+        (e) => String(e.numero_empleado || '').trim() === String(post.numero_empleado).trim()
+      )
+      if (byNum?.id_empleado) return String(byNum.id_empleado)
+    }
+    if (post.nombre_completo) {
+      const targetKey = normalizeNameTokens(post.nombre_completo).join('|')
+      if (targetKey) {
+        const byName = empleadosCatalog.find(
+          (e) => normalizeNameTokens(getEmployeeFullName(e)).join('|') === targetKey
+        )
+        if (byName?.id_empleado) return String(byName.id_empleado)
+      }
+    }
+    return null
+  }
+
+  // Si un postulante se capturó manualmente y no tenía registro en empleados, crea su expediente completo con 1 clic
+  const handleCreateMissingExpedienteForPostulante = async (post: any) => {
+    if (!post) return
+    setCreatingExpedienteId(post.id_postulacion)
+    try {
+      const parts = String(post.nombre_completo || 'TRABAJADOR GENERAL')
+        .trim()
+        .toUpperCase()
+        .split(/\s+/)
+      let nombre = parts[0] || 'TRABAJADOR'
+      let paterno = parts[1] || 'GENERAL'
+      let materno = parts.slice(2).join(' ') || null
+      if (parts.length >= 3) {
+        materno = parts[parts.length - 1]
+        paterno = parts[parts.length - 2]
+        nombre = parts.slice(0, parts.length - 2).join(' ')
+      }
+
+      const maxNum = empleadosCatalog.reduce((acc, e) => Math.max(acc, Number(e.numero_empleado || 0)), 1000)
+      const numEmp = Number(post.numero_empleado) || maxNum + 1
+      const anos = Number(post.anos_antiguedad || 2)
+      const ingresoDate = new Date(Date.now() - Math.round(anos * 365.25) * 86400000).toISOString().split('T')[0]
+
+      const { data: createdEmp, error: createErr } = await supabase
+        .from('empleados')
+        .insert([
+          {
+            numero_empleado: numEmp,
+            nombre,
+            apellido_paterno: paterno,
+            apellido_materno: materno,
+            departamento: canonicalizeDepartment(post.departamento_actual || 'MINA').officialName,
+            puesto: post.puesto_actual || 'OPERATIVO GENERAL',
+            telefono: post.celular || null,
+            estado_empleado: 'Activo',
+          },
+        ])
+        .select('id_empleado')
+        .single()
+
+      if (createErr) throw createErr
+
+      if (createdEmp?.id_empleado) {
+        await supabase.from('empleado_ingreso').insert([
+          {
+            id_empleado: createdEmp.id_empleado,
+            fecha_ingreso: ingresoDate,
+          },
+        ])
+        await supabase
+          .from('movimientos_postulantes')
+          .update({ id_empleado: createdEmp.id_empleado, numero_empleado: String(numEmp) })
+          .eq('id_postulacion', post.id_postulacion)
+      }
+
+      await fetchAllData()
+      alert(`✅ Expediente creado y vinculado en el Directorio General para ${post.nombre_completo} (Ficha #${numEmp}).`)
+    } catch (err: any) {
+      alert('Error creando expediente para el trabajador: ' + err.message)
+    } finally {
+      setCreatingExpedienteId(null)
+    }
+  }
+
   // Handler cuando el usuario ARRASTRA a un trabajador y lo SUELTA en un Lugar Vacío (Drop Zone)
   const handleDropWorkerOnSlot = async (vac: any, slotIndex: number, isOccupiedSlot: boolean, customDragged?: any) => {
     const item = customDragged || draggedWorker
@@ -2318,6 +2413,195 @@ export default function MovimientosSindicatoPage() {
             <span className="text-[10px] font-black text-emerald-800">Colocar en Vacante &rarr;</span>
           </div>
         </div>
+
+        {/* BOTÓN Y PANEL DEL DIAGRAMA DE FLUJO VISUAL DE PARTICIPACIÓN (QUIÉN AUTORIZA VS QUIÉN SOLO SE ENTERA) */}
+        <div className="pt-2 border-t border-zinc-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-black text-zinc-900 uppercase">
+                🗺️ Diagrama de Flujo del Escalafón y Matriz de Participación:
+              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-black">
+                🟢 PARTICIPA / AUTORIZA (Con Firma o Voto)
+              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-900 border border-blue-300 text-[10px] font-black">
+                🔵 SOLO SE ENTERA (Copia Informativa Automática)
+              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 border border-zinc-300 text-[10px] font-black">
+                ⚪ SIN PARTICIPACIÓN EN ESE PASO
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowFlowchartDiagram((prev) => !prev)}
+              className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-400 text-xs font-black cursor-pointer shrink-0"
+            >
+              {showFlowchartDiagram ? 'Ocultar Diagrama Visual ▲' : '🗺️ Ver Diagrama de Flujo y Participantes ▼'}
+            </button>
+          </div>
+
+          {showFlowchartDiagram && (
+            <div className="mt-4 bg-zinc-950 text-white rounded-2xl p-4 sm:p-5 border border-zinc-800 space-y-4">
+              {/* Diagrama de Flujo Visual Conectado */}
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-2 text-[11px]">
+                {[
+                  {
+                    step: 'ETAPA 1',
+                    title: 'Publicación de Vacante (10 Días)',
+                    activa: '🟢 RH Unidad o Depto. Destino abre vacante',
+                    entera: '🔵 Se enteran: Dirección RH Corp., Sindicato Secc. 45 y Todos los Deptos.',
+                    noParticipa: '⚪ Aún no hay firma de salida',
+                  },
+                  {
+                    step: 'ETAPA 2',
+                    title: 'Inscripción y Prelación Art. 116 C.C.T.',
+                    activa: '🟢 Trabajador se inscribe / Sindicato y RH validan antigüedad',
+                    entera: '🔵 Se enteran: Dirección RH Corp., Jefe Depto. Origen y Destino',
+                    noParticipa: '⚪ Otros deptos. ajenos no intervienen',
+                  },
+                  {
+                    step: 'ETAPA 3 (1ª FIRMA)',
+                    title: 'Validación Jefe RH Unidad',
+                    activa: `🟢 AUTORIZA: Jefe RH Unidad (${reglas.jefe_rh_unidad_nombre})`,
+                    entera: '🔵 Se enteran: Dirección RH Corp., Sindicato y Deptos. Origen/Destino',
+                    noParticipa: '⚪ Jefes de área aún no firman',
+                  },
+                  {
+                    step: 'ETAPA 4 (2ª FIRMA)',
+                    title: 'Autorización Dirección RH Corp.',
+                    activa: `🟢 AUTORIZA: Supt. RH Corporativo (${reglas.supt_rh_corporativo_nombre})`,
+                    entera: '🔵 Se enteran: RH Unidad, Jefe Depto. Destino (se activa su turno) y Sindicato',
+                    noParticipa: '⚪ Depto. Origen espera fecha de Destino',
+                  },
+                  {
+                    step: 'ETAPA 5 (3ª Y 4ª FIRMA)',
+                    title: 'Plan Destino + Liberación Origen',
+                    activa: '🟢 AUTORIZAN: 3ª Jefe Depto. Destino (Fecha/Plan) y 4ª Jefe Depto. Origen (SÍ/NO)',
+                    entera: '🔵 Se enteran SIEMPRE: Dirección RH Corp., RH Unidad y Sindicato Secc. 45',
+                    noParticipa: '⚪ Departamentos no involucrados',
+                  },
+                  {
+                    step: 'ETAPA 6 (CIERRE)',
+                    title: 'Entrada a Vacante + Efecto Dominó',
+                    activa: '🟢 EJECUTA: RH / Tablero coloca en vacante; a los 30 días Depto. Destino califica',
+                    entera: '🔵 Se enteran TODOS: Dirección RH, Destino, Origen, Sindicato y Expediente',
+                    noParticipa: '⚪ Plaza anterior pasa a Etapa 1 (Dominó)',
+                  },
+                ].map((node, idx) => (
+                  <div
+                    key={node.step}
+                    className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3 flex flex-col justify-between gap-2 relative"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-[10px] font-black text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded">
+                          {node.step}
+                        </span>
+                        {idx < 5 && <span className="text-amber-400 font-black hidden md:inline">&rarr;</span>}
+                      </div>
+                      <p className="font-black text-white uppercase mt-1.5">{node.title}</p>
+                    </div>
+                    <div className="space-y-1.5 pt-1 border-t border-zinc-800 text-[10px]">
+                      <p className="text-emerald-300 font-bold">{node.activa}</p>
+                      <p className="text-blue-300 font-semibold">{node.entera}</p>
+                      <p className="text-zinc-400">{node.noParticipa}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Tabla Matriz Visual: ¿Quién Autoriza vs Quién Solo se Entera? */}
+              <div className="overflow-x-auto rounded-xl border border-zinc-800">
+                <table className="min-w-full divide-y divide-zinc-800 text-[11px]">
+                  <thead className="bg-zinc-900 text-amber-400 uppercase font-mono text-[10px]">
+                    <tr>
+                      <th className="px-3 py-2.5 text-left">Actor / Participante</th>
+                      <th className="px-3 py-2.5 text-left">Rol en el Escalafón</th>
+                      <th className="px-3 py-2.5 text-center">1. Vacante (10d)</th>
+                      <th className="px-3 py-2.5 text-center">2. Inscripción C.C.T.</th>
+                      <th className="px-3 py-2.5 text-center">3. 1ª Firma RH Unidad</th>
+                      <th className="px-3 py-2.5 text-center">4. 2ª Firma RH Corp.</th>
+                      <th className="px-3 py-2.5 text-center">5. 3ª Destino / 4ª Origen</th>
+                      <th className="px-3 py-2.5 text-center">6. Vacante + 30 Días</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/80 bg-zinc-950/60">
+                    <tr>
+                      <td className="px-3 py-2 font-black text-white">Dirección RH Corporativo ({reglas.supt_rh_corporativo_nombre})</td>
+                      <td className="px-3 py-2 text-zinc-300">Autoriza en 2ª Firma y recibe copia obligatoria en todos los pasos</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-emerald-300 font-black bg-emerald-950/50">🟢 AUTORIZA (2ª Firma)</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 font-black text-white">Jefe de RH Unidad ({reglas.jefe_rh_unidad_nombre})</td>
+                      <td className="px-3 py-2 text-zinc-300">Boletina, valida antigüedad C.C.T. (1ª Firma) y ejecuta movimiento</td>
+                      <td className="px-3 py-2 text-center text-emerald-300 font-black bg-emerald-950/50">🟢 PUBLICA</td>
+                      <td className="px-3 py-2 text-center text-emerald-300 font-black bg-emerald-950/50">🟢 VALIDA C.C.T.</td>
+                      <td className="px-3 py-2 text-center text-emerald-300 font-black bg-emerald-950/50">🟢 AUTORIZA (1ª Firma)</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-emerald-300 font-black bg-emerald-950/50">🟢 EJECUTA PASE</td>
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 font-black text-white">Jefe Depto. Destino (Donde está la vacante)</td>
+                      <td className="px-3 py-2 text-zinc-300">Asigna fecha y plan de trabajo (3ª Firma) y evalúa a los 30 días</td>
+                      <td className="px-3 py-2 text-center text-emerald-300 font-black bg-emerald-950/50">🟢 SOLICITA PLAZA</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-emerald-300 font-black bg-emerald-950/50">🟢 AUTORIZA (3ª Firma)</td>
+                      <td className="px-3 py-2 text-center text-emerald-300 font-black bg-emerald-950/50">🟢 EVALÚA 30 DÍAS</td>
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 font-black text-white">Jefe Depto. Origen (Donde trabaja hoy)</td>
+                      <td className="px-3 py-2 text-zinc-300">Autoriza liberación SÍ o reprograma fecha NO (4ª Firma)</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-emerald-300 font-black bg-emerald-950/50">🟢 LIBERA SÍ/NO (4ª Firma)</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Recibe vacante dominó</td>
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 font-black text-white">Comité Sindicato Secc. 45 ({reglas.sindicato_nombre})</td>
+                      <td className="px-3 py-2 text-zinc-300">Recibe boletín de 10 días, propone por escalafón y vigila Art. 116 C.C.T.</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Recibe Boletín</td>
+                      <td className="px-3 py-2 text-center text-emerald-300 font-black bg-emerald-950/50">🟢 PROPONE / AVALA</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Se entera</td>
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 font-black text-white">Trabajador Postulante</td>
+                      <td className="px-3 py-2 text-zinc-300">Se inscribe por antigüedad y realiza periodo de prueba de 30 días</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Ve convocatoria</td>
+                      <td className="px-3 py-2 text-center text-emerald-300 font-black bg-emerald-950/50">🟢 SE INSCRIBE</td>
+                      <td className="px-3 py-2 text-center text-zinc-500">⚪ Espera dictamen</td>
+                      <td className="px-3 py-2 text-center text-zinc-500">⚪ Espera dictamen</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Recibe fecha cambio</td>
+                      <td className="px-3 py-2 text-center text-emerald-300 font-black bg-emerald-950/50">🟢 ENTRA A PUESTO</td>
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 font-black text-zinc-400">Otros Departamentos No Involucrados</td>
+                      <td className="px-3 py-2 text-zinc-400">Solo conocen el boletín general; no firman ni bloquean el movimiento</td>
+                      <td className="px-3 py-2 text-center text-blue-300 font-bold">🔵 Boletín general</td>
+                      <td className="px-3 py-2 text-center text-zinc-500">⚪ Sin participación</td>
+                      <td className="px-3 py-2 text-center text-zinc-500">⚪ Sin participación</td>
+                      <td className="px-3 py-2 text-center text-zinc-500">⚪ Sin participación</td>
+                      <td className="px-3 py-2 text-center text-zinc-500">⚪ Sin participación</td>
+                      <td className="px-3 py-2 text-center text-zinc-500">⚪ Sin participación</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* BARRA DE 7 PESTAÑAS */}
@@ -2660,6 +2944,25 @@ export default function MovimientosSindicatoPage() {
                         <td className="px-4 py-3.5">
                           <div className="font-bold text-zinc-800">{p.encargado_origen_nombre}</div>
                           <div className="text-[10px] font-mono text-zinc-500">{p.encargado_origen_correo}</div>
+                          <div className="mt-1.5">
+                            {resolvePostulanteEmpleadoId(p) ? (
+                              <Link
+                                href={`/empleados/${resolvePostulanteEmpleadoId(p)}`}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-amber-400 text-[10px] font-black"
+                              >
+                                📂 Ver Expediente
+                              </Link>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={creatingExpedienteId === p.id_postulacion}
+                                onClick={() => handleCreateMissingExpedienteForPostulante(p)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 text-[10px] font-black cursor-pointer"
+                              >
+                                {creatingExpedienteId === p.id_postulacion ? 'Creando...' : '➕ Crear Expediente en Padrón'}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )
