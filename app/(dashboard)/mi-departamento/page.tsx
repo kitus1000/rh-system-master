@@ -39,9 +39,9 @@ import {
 import { areDepartmentsEquivalent, canonicalizeDepartment } from '@/utils/dataNormalization'
 
 export default function MiDepartamentoPage() {
-  const { user, profile } = useAuth()
+  const { user, profile, isTestModeActive } = useAuth()
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'contratistas' | 'pases' | 'plantilla' | 'permisos'>('contratistas')
+  const [activeTab, setActiveTab] = useState<'contratistas' | 'pases' | 'plantilla' | 'permisos' | 'escalafon'>('contratistas')
 
   const [departamentos, setDepartamentos] = useState<any[]>([])
   const [selectedDeptId, setSelectedDeptId] = useState<string>('')
@@ -54,6 +54,9 @@ export default function MiDepartamentoPage() {
   const [prorrogasContratistas, setProrrogasContratistas] = useState<any[]>([])
   const [solicitudesInternas, setSolicitudesInternas] = useState<any[]>([])
   const [movAlertas, setMovAlertas] = useState<any[]>([])
+  const [movVacantes, setMovVacantes] = useState<any[]>([])
+  const [movPostulantes, setMovPostulantes] = useState<any[]>([])
+  const [busyMovId, setBusyMovId] = useState<string | null>(null)
 
   // Filtros internos
   const [paseFilterType, setPaseFilterType] = useState<'todos' | 'titular' | 'acompanante' | 'vigentes'>('todos')
@@ -169,8 +172,8 @@ export default function MiDepartamentoPage() {
       }
       setPasesAll(pasesList)
 
-      // Cargar Contratistas (Solicitudes, Credenciales, Prórrogas) y Bandeja de Movimientos Sindicales
-      const [solCntRes, credCntRes, prorCntRes, solIntRes, movAlertRes] = await Promise.all([
+      // Cargar Contratistas (Solicitudes, Credenciales, Prórrogas) y Bandeja de Movimientos Sindicales + Vacantes y Postulantes
+      const [solCntRes, credCntRes, prorCntRes, solIntRes, movAlertRes, movVacRes, movPostRes] = await Promise.all([
         supabase
           .from('contratistas_solicitudes')
           .select('*, contratistas_empresas(*), contratistas_solicitud_personal(*, contratistas_personal(*))')
@@ -206,6 +209,14 @@ export default function MiDepartamentoPage() {
           .select('*')
           .eq('atendida', false)
           .order('creado_el', { ascending: false }),
+        supabase
+          .from('movimientos_vacantes')
+          .select('*')
+          .order('creado_el', { ascending: false }),
+        supabase
+          .from('movimientos_postulantes')
+          .select('*')
+          .order('anos_antiguedad', { ascending: false }),
       ])
 
       setSolicitudesContratistas(solCntRes.data || [])
@@ -213,6 +224,8 @@ export default function MiDepartamentoPage() {
       setProrrogasContratistas(prorCntRes.data || [])
       setSolicitudesInternas(solIntRes.data || [])
       setMovAlertas(movAlertRes?.data || [])
+      setMovVacantes(movVacRes?.data || [])
+      setMovPostulantes(movPostRes?.data || [])
     } catch (e) {
       console.error('Error cargando portal de departamento:', e)
     } finally {
@@ -296,6 +309,59 @@ export default function MiDepartamentoPage() {
       return false
     })
   }, [movAlertas, user, profile, currentDept])
+
+  // Movimientos de Escalafón que involucran a este departamento (Salidas de mi área y Entradas a vacantes de mi área)
+  const deptOutgoingMovements = useMemo(() => {
+    if (!currentDept) return movPostulantes
+    return movPostulantes.filter((p) => matchesSelectedDepartment(null, p.departamento_actual))
+  }, [movPostulantes, currentDept])
+
+  const deptIncomingVacancies = useMemo(() => {
+    if (!currentDept) return movVacantes
+    return movVacantes.filter((v) => matchesSelectedDepartment(null, v.departamento_destino))
+  }, [movVacantes, currentDept])
+
+  const deptIncomingMovements = useMemo(() => {
+    const vacIds = new Set(deptIncomingVacancies.map((v) => v.id_vacante))
+    return movPostulantes.filter((p) => vacIds.has(p.id_vacante))
+  }, [movPostulantes, deptIncomingVacancies])
+
+  const handleDeptEscalafonAction = async (
+    post: any,
+    etapa: 'PLAN_DESTINO' | 'LIBERACION_ORIGEN',
+    extras?: Record<string, any>
+  ) => {
+    setBusyMovId(`${post.id_postulacion}_${etapa}`)
+    try {
+      const res = await fetch('/api/movimientos/autorizar-etapa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id_postulacion: post.id_postulacion,
+          etapa,
+          user_id: user?.id || profile?.id || null,
+          user_email: user?.email || (profile as any)?.email || '',
+          user_name: profile?.nombre_completo || `Jefatura ${currentDept?.departamento || ''}`,
+          user_rol: profile?.rol || 'Jefe de Departamento',
+          bypass_lock: true,
+          modo_prueba: isTestModeActive,
+          baseUrl: typeof window !== 'undefined' ? window.location.origin : '',
+          ...(extras || {}),
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        alert(json.error || 'Error procesando autorización de escalafón.')
+        return
+      }
+      await fetchAllDepartmentData()
+      alert(json.message || '✅ Autorización de departamento registrada y notificada a Dirección de RH.')
+    } catch (e: any) {
+      alert('Error en movimiento de escalafón: ' + e.message)
+    } finally {
+      setBusyMovId(null)
+    }
+  }
 
   // 1. Empleados propios de este departamento
   const deptEmployees = useMemo(() => {
@@ -669,13 +735,22 @@ export default function MiDepartamentoPage() {
             </div>
           </div>
 
-          <Link
-            href="/movimientos-sindicato"
-            className="inline-flex items-center gap-2 px-5 py-3 bg-zinc-900 hover:bg-black text-amber-400 font-black text-xs rounded-2xl shadow-lg shrink-0"
-          >
-            <span>Revisar y Autorizar Ahora</span>
-            <ArrowRight className="w-4 h-4" />
-          </Link>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setActiveTab('escalafon')}
+              className="inline-flex items-center gap-2 px-4 py-3 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs rounded-2xl shadow cursor-pointer"
+            >
+              <span>Autorizar Aquí en Mi Departamento</span>
+            </button>
+            <Link
+              href="/movimientos-sindicato"
+              className="inline-flex items-center gap-2 px-4 py-3 bg-zinc-900 hover:bg-black text-amber-400 font-black text-xs rounded-2xl shadow-lg shrink-0"
+            >
+              <span>Abrir Tablero Maestro</span>
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
         </div>
       )}
 
@@ -774,6 +849,11 @@ export default function MiDepartamentoPage() {
               deptInternalRequests.filter((r) => r.estatus === 'Pendiente' || r.estatus === 'En revisión').length
             })`,
             icon: FileText,
+          },
+          {
+            id: 'escalafon',
+            label: `5. 🔀 Escalafón y Movimientos de mi Área (${deptOutgoingMovements.length + deptIncomingMovements.length})`,
+            icon: ShieldCheck,
           },
         ].map((t) => {
           const Icon = t.icon
@@ -1421,6 +1501,198 @@ export default function MiDepartamentoPage() {
               No hay solicitudes de permisos o vacaciones pendientes en {currentDept?.departamento || 'tu departamento'}.
             </div>
           )}
+        </div>
+      )}
+
+      {/* =====================================================================
+          PESTAÑA 5: ESCALAFÓN, VACANTES Y MOVIMIENTOS DEL DEPARTAMENTO (ART. 116 C.C.T.)
+         ===================================================================== */}
+      {activeTab === 'escalafon' && (
+        <div className="space-y-6">
+          {/* SECCIÓN 1: PERSONAL DE MI DEPARTAMENTO SOLICITADO POR OTRA ÁREA (PASO 4: LIBERACIÓN SÍ / NO) */}
+          <div className="bg-white rounded-3xl border border-zinc-200 shadow-sm p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-100 pb-3">
+              <div>
+                <span className="text-[10px] font-mono font-black uppercase text-amber-600">
+                  SALIDAS POR ESCALAFÓN (ART. 116 C.C.T.) • PASO 4: LIBERACIÓN DE MI ÁREA
+                </span>
+                <h3 className="text-base font-black text-zinc-900 uppercase">
+                  Trabajadores de {currentDept?.departamento || 'Mi Departamento'} Postulados a Otra Vacante ({deptOutgoingMovements.length})
+                </h3>
+                <p className="text-xs text-zinc-500">
+                  Aquí ves de inmediato cuando un trabajador de tu área se inscribe o es seleccionado para ascender. Tu respuesta avisa automáticamente a Dirección de RH y al Departamento Destino.
+                </p>
+              </div>
+              <Link
+                href="/movimientos-sindicato"
+                className="px-3.5 py-2 bg-zinc-900 text-amber-400 font-black text-xs rounded-xl self-start sm:self-center shrink-0"
+              >
+                Ir a Tablero Completo &rarr;
+              </Link>
+            </div>
+
+            {deptOutgoingMovements.length === 0 ? (
+              <div className="p-8 text-center text-xs text-zinc-400 border border-dashed border-zinc-200 rounded-2xl">
+                Ningún trabajador de {currentDept?.departamento || 'tu departamento'} tiene movimientos de salida pendientes en este momento.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {deptOutgoingMovements.map((p) => {
+                  const vac = movVacantes.find((v) => v.id_vacante === p.id_vacante)
+                  const destDept = vac?.departamento_destino || 'Mina'
+                  const destPuesto = vac?.puesto_vacante || p.puesto_postulado
+                  const isMoved = p.estatus_movimiento === 'Movimiento Ejecutado (En Puesto)'
+                  return (
+                    <div
+                      key={p.id_postulacion}
+                      className="rounded-2xl border border-zinc-200 p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-zinc-50/60"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-[10px] font-black bg-zinc-900 text-amber-400 px-2 py-0.5 rounded">
+                            {vac?.folio_convocatoria || 'ESCALAFÓN'}
+                          </span>
+                          <strong className="text-sm font-black text-zinc-900 uppercase">👷 {p.nombre_completo}</strong>
+                          <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
+                            ⏱️ Antigüedad: {p.anos_antiguedad || 0} años
+                          </span>
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-white border border-zinc-300 text-zinc-800">
+                            {p.estatus_movimiento}
+                          </span>
+                        </div>
+                        <p className="text-xs text-zinc-700">
+                          Sale de: <strong>{p.puesto_actual} ({p.departamento_actual})</strong> &rarr; Va para:{' '}
+                          <strong className="text-emerald-800">{destPuesto} ({destDept})</strong>
+                        </p>
+                        <div className="flex flex-wrap gap-2 text-[11px] text-zinc-500">
+                          <span>1ª Firma RH Unidad: <strong>{p.autorizado_rh_local ? '✓ Autorizado' : 'Pendiente'}</strong></span>
+                          <span>• 2ª Firma Dirección RH Corp.: <strong>{p.autorizado_rh_corporativo ? '✓ Autorizado' : 'Pendiente'}</strong></span>
+                          <span>• Fecha solicitada por {destDept}: <strong>{formatShortDate(p.fecha_presentacion)}</strong></span>
+                          <span>• Tu Respuesta: <strong>{p.respuesta_depto_origen || 'Pendiente'}</strong></span>
+                        </div>
+                      </div>
+
+                      {!isMoved && (
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            disabled={busyMovId === `${p.id_postulacion}_LIBERACION_ORIGEN`}
+                            onClick={() =>
+                              handleDeptEscalafonAction(p, 'LIBERACION_ORIGEN', {
+                                decision: 'SI',
+                                comentario: `Salida autorizada desde portal Mi Departamento (${currentDept?.departamento || p.departamento_actual})`,
+                              })
+                            }
+                            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black text-xs rounded-xl cursor-pointer shadow-xs"
+                          >
+                            ✅ SÍ Autorizo Salida
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyMovId === `${p.id_postulacion}_LIBERACION_ORIGEN`}
+                            onClick={() => {
+                              const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
+                              const motivo = prompt(
+                                `Indica el motivo por el cual ${p.departamento_actual} solicita reprogramar la salida de ${p.nombre_completo}:`,
+                                'Por cierre de operación en turno, se libera la próxima semana'
+                              )
+                              if (motivo === null) return
+                              handleDeptEscalafonAction(p, 'LIBERACION_ORIGEN', {
+                                decision: 'NO',
+                                nueva_fecha: nextWeek,
+                                comentario: motivo,
+                              })
+                            }}
+                            className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-black text-xs rounded-xl cursor-pointer shadow-xs"
+                          >
+                            ⏳ NO / Reprogramar Fecha
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* SECCIÓN 2: VACANTES ABIERTAS EN MI DEPARTAMENTO Y CANDIDATOS QUE ENTRAN (PASO 3: PLAN Y FECHA) */}
+          <div className="bg-white rounded-3xl border border-zinc-200 shadow-sm p-5 space-y-4">
+            <div>
+              <span className="text-[10px] font-mono font-black uppercase text-emerald-600">
+                INGRESOS A MI DEPARTAMENTO • PASO 3: SELECCIÓN, PLAN DE CAPACITACIÓN Y FECHA
+              </span>
+              <h3 className="text-base font-black text-zinc-900 uppercase">
+                Vacantes de {currentDept?.departamento || 'Mi Departamento'} y Candidatos Inscritos ({deptIncomingMovements.length})
+              </h3>
+              <p className="text-xs text-zinc-500">
+                Candidatos ordenados por antigüedad conforme al Art. 116 del C.C.T. Al confirmar fecha y plan se solicita automáticamente la liberación a su departamento de origen y se entera a Dirección de RH.
+              </p>
+            </div>
+
+            {deptIncomingMovements.length === 0 ? (
+              <div className="p-8 text-center text-xs text-zinc-400 border border-dashed border-zinc-200 rounded-2xl">
+                No hay candidatos postulados actualmente hacia vacantes de {currentDept?.departamento || 'tu departamento'}.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {deptIncomingMovements.map((p, idx) => {
+                  const vac = movVacantes.find((v) => v.id_vacante === p.id_vacante)
+                  const isMoved = p.estatus_movimiento === 'Movimiento Ejecutado (En Puesto)'
+                  return (
+                    <div
+                      key={p.id_postulacion}
+                      className="rounded-2xl border border-zinc-200 p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-emerald-50/30"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-[10px] font-black bg-zinc-900 text-amber-400 px-2 py-0.5 rounded">
+                            #{idx + 1} ESCALAFÓN • {vac?.folio_convocatoria || 'VACANTE'}
+                          </span>
+                          <strong className="text-sm font-black text-zinc-900 uppercase">👷 {p.nombre_completo}</strong>
+                          <span className="text-[11px] font-bold text-emerald-900 bg-emerald-100 px-2 py-0.5 rounded">
+                            ⏱️ {p.anos_antiguedad || 0} años antigüedad
+                          </span>
+                        </div>
+                        <p className="text-xs text-zinc-700">
+                          Viene de: <strong>{p.puesto_actual} ({p.departamento_actual})</strong> &rarr; Para tu vacante:{' '}
+                          <strong className="text-amber-900">{vac?.puesto_vacante || p.puesto_postulado}</strong>
+                        </p>
+                        <div className="flex flex-wrap gap-2 text-[11px] text-zinc-500">
+                          <span>1ª Firma RH Unidad: <strong>{p.autorizado_rh_local ? '✓ OK' : 'Pendiente'}</strong></span>
+                          <span>• 2ª Firma Dirección RH Corp.: <strong>{p.autorizado_rh_corporativo ? '✓ OK' : 'Pendiente'}</strong></span>
+                          <span>• Fecha presentación: <strong>{formatShortDate(p.fecha_presentacion)}</strong></span>
+                          <span>• Liberación de {p.departamento_actual}: <strong>{p.respuesta_depto_origen || 'Pendiente'}</strong></span>
+                        </div>
+                      </div>
+
+                      {!isMoved && (
+                        <button
+                          type="button"
+                          disabled={busyMovId === `${p.id_postulacion}_PLAN_DESTINO`}
+                          onClick={() =>
+                            handleDeptEscalafonAction(p, 'PLAN_DESTINO', {
+                              fecha_presentacion:
+                                p.fecha_presentacion || new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0],
+                              plan_avance:
+                                p.plan_avance_asignado ||
+                                vac?.plan_avance_departamento ||
+                                `Adiestramiento y evaluación de 30 días Art. 116 C.C.T. en ${currentDept?.departamento || 'área destino'}`,
+                            })
+                          }
+                          className="px-4 py-2 bg-zinc-900 hover:bg-black disabled:opacity-50 text-amber-400 font-black text-xs rounded-xl cursor-pointer shrink-0 shadow"
+                        >
+                          {p.seleccionado_por_destino
+                            ? '✓ Seleccionado (Reenviar Solicitud a Origen)'
+                            : '📅 Seleccionar Candidato y Pedir Salida a Origen'}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

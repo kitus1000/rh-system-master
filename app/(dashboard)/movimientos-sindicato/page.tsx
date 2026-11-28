@@ -326,10 +326,111 @@ export default function MovimientosSindicatoPage() {
     [vacantes, selectedVacanteId]
   )
 
+  // Calcula la antigüedad real en años desde fecha_ingreso del padrón o días acumulados en historial
+  const computeEmployeeRealSeniorityYears = (emp?: any, fallbackYears = 2.0): number => {
+    if (emp?.fecha_ingreso) {
+      const ts = new Date(emp.fecha_ingreso).getTime()
+      if (!isNaN(ts) && ts > 0) {
+        const yrs = (Date.now() - ts) / (1000 * 60 * 60 * 24 * 365.25)
+        if (yrs >= 0 && yrs < 70) return Number(yrs.toFixed(1))
+      }
+    }
+    if (emp?.id_empleado) {
+      const histDays = historial
+        .filter((h) => String(h.id_empleado) === String(emp.id_empleado))
+        .reduce((acc, h) => acc + Number(h.dias_acumulados || 0), 0)
+      if (histDays > 0) return Number(Math.max(0.5, histDays / 365).toFixed(1))
+    }
+    return Number(fallbackYears || 2.0)
+  }
+
+  // Motor Oficial de Prelación de Escalafón (Art. 116 C.C.T. Secc. 45 y Arts. 154-159 LFT)
+  const evaluateCctPrelacion = (
+    item: {
+      id_empleado?: string | null
+      departamento_actual?: string | null
+      puesto_actual?: string | null
+      anos_antiguedad?: number | null
+      tiene_experiencia_puesto?: boolean
+      tiene_anos_experiencia?: boolean
+      requiere_capacitacion_previa?: boolean
+      emp?: any
+    },
+    vac?: any
+  ) => {
+    const empMatch =
+      item.emp ||
+      (item.id_empleado ? empleadosCatalog.find((e) => String(e.id_empleado) === String(item.id_empleado)) : null)
+    const anos = Number(
+      item.anos_antiguedad && Number(item.anos_antiguedad) > 0
+        ? Number(item.anos_antiguedad).toFixed(1)
+        : computeEmployeeRealSeniorityYears(empMatch, 2.0)
+    )
+    const deptoOrig = (item.departamento_actual || '').trim()
+    const deptoDest = (vac?.departamento_destino || '').trim()
+    const esMismoDepto =
+      Boolean(deptoOrig && deptoDest) &&
+      (deptoOrig.toLowerCase() === deptoDest.toLowerCase() ||
+        deptoOrig.toLowerCase().includes(deptoDest.toLowerCase()) ||
+        deptoDest.toLowerCase().includes(deptoOrig.toLowerCase()))
+
+    const regimen = getEmployeeRegimenClassification({
+      ...empMatch,
+      puesto: item.puesto_actual || empMatch?.puesto,
+      departamento: deptoOrig || empMatch?.departamento,
+    })
+    const esSindicalizado = regimen.code === 'SEMANAL_SINDICATO'
+    const expPuesto = Boolean(item.tiene_experiencia_puesto)
+    const expMina = item.tiene_anos_experiencia !== undefined ? Boolean(item.tiene_anos_experiencia) : anos >= 1
+    const listoDirecto = item.requiere_capacitacion_previa === false
+    const famCount = item.id_empleado
+      ? pacientesCatalog.filter((pac) => String(pac.id_empleado) === String(item.id_empleado) && !isTitularPatient(pac)).length
+      : 0
+
+    // Puntaje ponderado conforme al Art. 116 C.C.T. y Art. 159 LFT:
+    // 1° Sindicalizado Secc. 45 + Mismo Departamento (Derecho de Rama) + Mayor Antigüedad + Competencia + Familia
+    const score =
+      (esSindicalizado ? 20 : 5) +
+      (esMismoDepto ? 22 : 10) +
+      Math.min(40, anos * 4.2) +
+      (expPuesto ? 10 : 0) +
+      (expMina ? 4 : 0) +
+      (listoDirecto ? 2 : 0) +
+      Math.min(4, famCount * 1)
+
+    const razones: string[] = [`${anos} años antigüedad`]
+    if (esMismoDepto) razones.push('Preferencia Mismo Depto (Art. 116 C.C.T.)')
+    if (esSindicalizado) razones.push('Sindicalizado Secc. 45')
+    if (expPuesto) razones.push('Exp. directa en puesto')
+    if (famCount > 0) razones.push(`${famCount} dep. fam. (Art. 159 LFT)`)
+
+    return {
+      anos,
+      esMismoDepto,
+      esSindicalizado,
+      expPuesto,
+      expMina,
+      listoDirecto,
+      famCount,
+      cctScore: Number(Math.min(100, score).toFixed(1)),
+      fundamentoCct: razones.join(' • '),
+    }
+  }
+
   const currentPostulantes = useMemo(() => {
-    if (!currentVacante) return postulantes
-    return postulantes.filter((p) => p.id_vacante === currentVacante.id_vacante)
-  }, [postulantes, currentVacante])
+    const list = !currentVacante
+      ? [...postulantes]
+      : postulantes.filter((p) => p.id_vacante === currentVacante.id_vacante)
+
+    return list.sort((a, b) => {
+      const pa = evaluateCctPrelacion(a, currentVacante)
+      const pb = evaluateCctPrelacion(b, currentVacante)
+      if (pb.esSindicalizado !== pa.esSindicalizado) return pb.esSindicalizado ? 1 : -1
+      if (pb.esMismoDepto !== pa.esMismoDepto) return pb.esMismoDepto ? 1 : -1
+      if (pb.anos !== pa.anos) return pb.anos - pa.anos
+      return pb.cctScore - pa.cctScore
+    })
+  }, [postulantes, currentVacante, empleadosCatalog, pacientesCatalog, historial])
 
   // Identidad activa del usuario para candados por usuario y bandeja personal
   const actorId = user?.id || profile?.id || null
@@ -423,29 +524,180 @@ export default function MovimientosSindicatoPage() {
       const { data: created, error } = await supabase.from('movimientos_vacantes').insert([payload]).select().single()
       if (error) throw error
 
-      await supabase.from('movimientos_notificaciones_log').insert([
-        {
-          id_vacante: created.id_vacante,
-          tipo_aviso: 'CONVOCATORIA_10_DIAS',
-          remitente: `${profile?.nombre_completo || 'RH / Sindicato'}`,
-          destinatarios: 'Sindicato, RH Corporativo y Todos los Departamentos',
-          asunto: `Apertura de Convocatoria (${folio}): ${payload.puesto_vacante} en ${payload.departamento_destino}`,
-          mensaje: `Se abrió convocatoria oficial por ${payload.dias_convocatoria} días (cierra el ${formatShortDate(
-            fechaCierreStr
-          )}) para ${payload.plazas_totales} plaza(s) de ${payload.puesto_vacante} en ${payload.departamento_destino} (${
-            payload.sub_departamento_destino
-          }).`,
-          correo_enviado: false,
-        },
-      ])
+      // Avisar de inmediato a Dirección de RH (Corporativo y Unidad), Sindicato Secc. 45 y todos los Departamentos
+      try {
+        await fetch('/api/movimientos/autorizar-etapa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id_vacante: created.id_vacante,
+            etapa: 'PUBLICAR_VACANTE',
+            user_id: actorId,
+            user_email: actorEmail,
+            user_name: actorName,
+            user_rol: profile?.rol || '',
+            modo_prueba: isTestModeActive,
+            baseUrl: typeof window !== 'undefined' ? window.location.origin : '',
+          }),
+        })
+      } catch (pubErr) {
+        console.warn('Error notificando apertura de vacante:', pubErr)
+      }
 
       setShowVacanteModal(false)
       setSelectedVacanteId(created.id_vacante)
       await fetchAllData()
+      alert(
+        `📢 ¡Vacante "${payload.puesto_vacante}" (${folio}) abierta y publicada por ${payload.dias_convocatoria} días (Art. 116 C.C.T.)!\n\nSe notificó automáticamente a:\n• Dirección de RH (Supt. RH Corporativo y Jefe RH Unidad)\n• Sindicato Secc. 45\n• Jefatura de ${payload.departamento_destino} y todos los Departamentos para inscripción de personal.`
+      )
     } catch (err: any) {
       alert('Error abriendo convocatoria: ' + err.message)
     } finally {
       setSavingVacante(false)
+    }
+  }
+
+  // Botón para difundir / re-avisar una vacante abierta a Dirección de RH, Sindicato y todos los Departamentos
+  const handleBroadcastVacanteToDepartments = async (vacTarget?: any) => {
+    const v = vacTarget || currentVacante
+    if (!v) return
+    setSendingEmails(true)
+    try {
+      const res = await fetch('/api/movimientos/autorizar-etapa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id_vacante: v.id_vacante,
+          etapa: 'PUBLICAR_VACANTE',
+          user_id: actorId,
+          user_email: actorEmail,
+          user_name: actorName,
+          user_rol: profile?.rol || '',
+          modo_prueba: isTestModeActive,
+          baseUrl: typeof window !== 'undefined' ? window.location.origin : '',
+        }),
+      })
+      const json = await res.json()
+      await fetchAllData()
+      alert(json.message || `📢 Aviso de vacante ${v.folio_convocatoria} enviado a Dirección de RH, Sindicato y Departamentos.`)
+    } catch (e: any) {
+      alert('Error enviando aviso de vacante: ' + e.message)
+    } finally {
+      setSendingEmails(false)
+    }
+  }
+
+  // Inscribir con 1 clic al Top 3 de trabajadores del padrón con mayor antigüedad / derecho C.C.T.
+  const handleAutoEnrollTopSeniorityWorkers = async () => {
+    if (!currentVacante) {
+      alert('Selecciona primero una vacante activa.')
+      return
+    }
+    const alreadyIds = new Set(currentPostulantes.map((p) => String(p.id_empleado || '')).filter(Boolean))
+    const alreadyNames = new Set(currentPostulantes.map((p) => (p.nombre_completo || '').trim().toUpperCase()))
+
+    const rankedCandidates = empleadosCatalog
+      .filter((emp) => {
+        if ((emp.estado_empleado || 'Activo') !== 'Activo') return false
+        const fullName = `${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.trim().toUpperCase()
+        if (alreadyIds.has(String(emp.id_empleado)) || alreadyNames.has(fullName)) return false
+        return true
+      })
+      .map((emp) => {
+        const fullName = `${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.trim()
+        const depto =
+          emp.empleado_adscripciones?.[0]?.cat_departamentos?.departamento ||
+          emp.departamento ||
+          'Planta de Beneficio'
+        const puesto = emp.empleado_adscripciones?.[0]?.cat_puestos?.puesto || emp.puesto || 'Ayudante General'
+        const anos = computeEmployeeRealSeniorityYears(emp, 2.5)
+        const cct = evaluateCctPrelacion(
+          {
+            id_empleado: emp.id_empleado,
+            departamento_actual: depto,
+            puesto_actual: puesto,
+            anos_antiguedad: anos,
+            emp,
+          },
+          currentVacante
+        )
+        return { emp, fullName, depto, puesto, anos, cct }
+      })
+      .sort((a, b) => {
+        if (b.cct.esSindicalizado !== a.cct.esSindicalizado) return b.cct.esSindicalizado ? 1 : -1
+        if (b.cct.esMismoDepto !== a.cct.esMismoDepto) return b.cct.esMismoDepto ? 1 : -1
+        if (b.anos !== a.anos) return b.anos - a.anos
+        return b.cct.cctScore - a.cct.cctScore
+      })
+      .slice(0, 3)
+
+    if (rankedCandidates.length === 0) {
+      alert('No se encontraron más trabajadores activos sin inscribir en el padrón.')
+      return
+    }
+
+    const confirmList = rankedCandidates
+      .map((c, i) => `${i + 1}° ${c.fullName} — ${c.anos} años (${c.puesto} en ${c.depto})`)
+      .join('\n')
+    const ok = confirm(
+      `⚖️ SUGERENCIA AUTOMÁTICA POR ANTIGÜEDAD Y ESCALAFÓN (ART. 116 C.C.T.):\n\n¿Deseas inscribir en la vacante "${currentVacante.puesto_vacante}" (${currentVacante.departamento_destino}) a los ${rankedCandidates.length} trabajadores con mayor derecho de escalafón y notificar a Dirección de RH y sus Departamentos?\n\n${confirmList}`
+    )
+    if (!ok) return
+
+    setSavingInscripcion(true)
+    try {
+      const todayStr = new Date().toISOString().split('T')[0]
+      for (const cand of rankedCandidates) {
+        const encOrig = resolveEncargadoForDept(cand.depto, cand.depto)
+        const { data: insPost, error } = await supabase
+          .from('movimientos_postulantes')
+          .insert([
+            {
+              id_vacante: currentVacante.id_vacante,
+              id_empleado: cand.emp.id_empleado,
+              nombre_completo: cand.fullName,
+              numero_empleado: String(cand.emp.numero_empleado || ''),
+              fecha_inscripcion: todayStr,
+              departamento_actual: cand.depto,
+              sub_departamento_actual: cand.depto,
+              puesto_actual: cand.puesto,
+              puesto_postulado: currentVacante.puesto_vacante,
+              celular: cand.emp.telefono || '',
+              anos_antiguedad: cand.anos,
+              tiene_anos_experiencia: true,
+              anos_experiencia_detalle: `${cand.anos} años de antigüedad en padrón (Art. 116 C.C.T.)`,
+              tiene_experiencia_puesto: cand.cct.esMismoDepto,
+              requiere_capacitacion_previa: true,
+              encargado_origen_nombre: encOrig.nombre_encargado,
+              encargado_origen_correo: encOrig.correo_encargado,
+              estatus_movimiento: 'Inscrito en Convocatoria',
+            },
+          ])
+          .select()
+          .single()
+        if (!error && insPost) {
+          await fetch('/api/movimientos/autorizar-etapa', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id_postulacion: insPost.id_postulacion,
+              etapa: 'NOTIFICAR_INSCRIPCION',
+              user_id: actorId,
+              user_email: actorEmail,
+              user_name: actorName,
+              user_rol: profile?.rol || '',
+              modo_prueba: isTestModeActive,
+              baseUrl: typeof window !== 'undefined' ? window.location.origin : '',
+            }),
+          }).catch(() => {})
+        }
+      }
+      await fetchAllData()
+      alert(`✅ Se inscribieron los ${rankedCandidates.length} trabajadores con mayor antigüedad C.C.T. y se notificó a Jefe RH Unidad, Dirección de RH y Jefes de Departamento.`)
+    } catch (err: any) {
+      alert('Error inscribiendo por escalafón: ' + err.message)
+    } finally {
+      setSavingInscripcion(false)
     }
   }
 
@@ -641,6 +893,22 @@ export default function MovimientosSindicatoPage() {
       'Presentación en área, evaluación técnica y plan de capacitación.'
 
     if (selected) {
+      // Validación de Prelación Art. 116 C.C.T.: revisar si hay otro candidato inscrito con mayor antigüedad sin colocar
+      const masAntiguo = currentPostulantes.find(
+        (other) =>
+          other.id_postulacion !== post.id_postulacion &&
+          other.estatus_movimiento !== 'Movimiento Ejecutado (En Puesto)' &&
+          !String(other.estatus_movimiento || '').includes('Rechazado') &&
+          !other.seleccionado_por_destino &&
+          Number(other.anos_antiguedad || 0) > Number(post.anos_antiguedad || 0)
+      )
+      if (masAntiguo) {
+        const proceedSkip = confirm(
+          `⚖️ AVISO DE PRELACIÓN DE ESCALAFÓN (ART. 116 C.C.T. SECC. 45):\n\nEl trabajador "${masAntiguo.nombre_completo}" cuenta con MAYOR ANTIGÜEDAD (${masAntiguo.anos_antiguedad} años) que "${post.nombre_completo}" (${post.anos_antiguedad} años).\n\nConforme al Artículo 116 del C.C.T., tiene preferencia el trabajador con más tiempo salvo dictamen de competencia técnica o declinación.\n\n¿Confirmas seleccionar a "${post.nombre_completo}" dejando constancia para Dirección de RH y Sindicato?`
+        )
+        if (!proceedSkip) return
+      }
+
       await handleAutorizarEtapa(post, 'PLAN_DESTINO', {
         fecha_presentacion: defaultDate,
         plan_avance: defaultPlan,
@@ -1103,15 +1371,52 @@ export default function MovimientosSindicatoPage() {
         },
       ])
 
-      // 3.2 Actualizar PUESTO y DEPARTAMENTO oficial en la tabla empleados para reflejo inmediato en perfil
-      if (post.id_empleado) {
+      // 3.2 Actualizar PUESTO y DEPARTAMENTO oficial en empleados Y en empleado_adscripciones para que Mi Departamento y el Padrón concuerden al 100%
+      let targetEmpId = post.id_empleado || null
+      if (!targetEmpId && post.numero_empleado) {
+        const matchedByNum = empleadosCatalog.find(
+          (e) => String(e.numero_empleado || '').trim() === String(post.numero_empleado).trim()
+        )
+        if (matchedByNum) targetEmpId = matchedByNum.id_empleado
+      }
+
+      if (targetEmpId) {
         await supabase
           .from('empleados')
           .update({
             puesto: vac.puesto_vacante,
             departamento: vac.departamento_destino,
           })
-          .eq('id_empleado', post.id_empleado)
+          .eq('id_empleado', targetEmpId)
+
+        // Sincronizar también empleado_adscripciones con cat_departamentos y cat_puestos
+        const [{ data: deptsMatch }, { data: puestosMatch }] = await Promise.all([
+          supabase.from('cat_departamentos').select('id_departamento, departamento').eq('activo', true),
+          supabase.from('cat_puestos').select('id_puesto, puesto').eq('activo', true),
+        ])
+        const targetDeptRow = (deptsMatch || []).find(
+          (d: any) =>
+            (d.departamento || '').trim().toLowerCase() === (vac.departamento_destino || '').trim().toLowerCase() ||
+            (d.departamento || '').trim().toLowerCase().includes((vac.departamento_destino || '').trim().toLowerCase())
+        )
+        const targetPuestoRow = (puestosMatch || []).find(
+          (p: any) => (p.puesto || '').trim().toLowerCase() === (vac.puesto_vacante || '').trim().toLowerCase()
+        )
+        if (targetDeptRow?.id_departamento) {
+          const adsUpdate: any = { id_departamento: targetDeptRow.id_departamento }
+          if (targetPuestoRow?.id_puesto) adsUpdate.id_puesto = targetPuestoRow.id_puesto
+          const { data: existingAds } = await supabase
+            .from('empleado_adscripciones')
+            .select('id_adscripcion')
+            .eq('id_empleado', targetEmpId)
+            .limit(1)
+          if (existingAds && existingAds.length > 0) {
+            await supabase
+              .from('empleado_adscripciones')
+              .update(adsUpdate)
+              .eq('id_empleado', targetEmpId)
+          }
+        }
       } else if (post.numero_empleado) {
         await supabase
           .from('empleados')
@@ -1124,40 +1429,46 @@ export default function MovimientosSindicatoPage() {
 
       // 4. EFECTO DOMINÓ DE AJEDREZ (según regla configurada)
       let dominoFolio = ''
+      let dominoVacId = ''
       if (reglas.regla_permitir_efecto_domino) {
         dominoFolio = `CONV-DOM-${new Date().getFullYear().toString().slice(-2)}-${Math.floor(100 + Math.random() * 900)}`
         const todayStr = new Date().toISOString().split('T')[0]
         const diasConv = Number(reglas.regla_dias_convocatoria || 10)
         const closeDays = new Date(Date.now() + diasConv * 86400000).toISOString().split('T')[0]
 
-        await supabase.from('movimientos_vacantes').insert([
-          {
-            folio_convocatoria: dominoFolio,
-            puesto_vacante: post.puesto_actual,
-            departamento_destino: post.departamento_actual,
-            sub_departamento_destino: post.sub_departamento_actual || post.departamento_actual,
-            plazas_totales: 1,
-            plazas_ocupadas: 0,
-            origen_vacante: 'Liberada por Movimiento (Efecto Dominó)',
-            liberada_por_nombre: post.nombre_completo,
-            categoria_tabulador: 'Sindicalizado / Escalafón',
-            requisitos: `Vacante liberada por ascenso de ${post.nombre_completo} a ${vac.puesto_vacante}. Periodo de ${diasConv} días abierto para postulaciones.`,
-            fecha_apertura: todayStr,
-            fecha_cierre_inscripcion: closeDays,
-            dias_convocatoria: diasConv,
-            estatus_vacante: `Convocatoria Abierta (${diasConv} Días)`,
-          },
-        ])
+        const { data: domCreated } = await supabase
+          .from('movimientos_vacantes')
+          .insert([
+            {
+              folio_convocatoria: dominoFolio,
+              puesto_vacante: post.puesto_actual,
+              departamento_destino: post.departamento_actual,
+              sub_departamento_destino: post.sub_departamento_actual || post.departamento_actual,
+              plazas_totales: 1,
+              plazas_ocupadas: 0,
+              origen_vacante: 'Liberada por Movimiento (Efecto Dominó)',
+              liberada_por_nombre: post.nombre_completo,
+              categoria_tabulador: 'Sindicalizado / Escalafón',
+              requisitos: `Vacante liberada por ascenso de ${post.nombre_completo} a ${vac.puesto_vacante}. Periodo de ${diasConv} días abierto para postulaciones conforme al Art. 116 C.C.T.`,
+              fecha_apertura: todayStr,
+              fecha_cierre_inscripcion: closeDays,
+              dias_convocatoria: diasConv,
+              estatus_vacante: `Convocatoria Abierta (${diasConv} Días)`,
+            },
+          ])
+          .select()
+          .maybeSingle()
+        if (domCreated?.id_vacante) dominoVacId = domCreated.id_vacante
       }
 
-      // 5. Bitácora de avisos
+      // 5. Bitácora de avisos y notificación inmediata a Dirección de RH, Depto Destino, Depto Origen y Sindicato
       await supabase.from('movimientos_notificaciones_log').insert([
         {
           id_vacante: vac.id_vacante,
           id_postulacion: post.id_postulacion,
           tipo_aviso: 'MOVIMIENTO_AJEDREZ',
-          remitente: `Tablero de Ajedrez (${actorName})`,
-          destinatarios: `${vac.departamento_destino}, ${post.departamento_actual}, RH Corporativo y Sindicato`,
+          remitente: `Tablero de Escalafón (${actorName})`,
+          destinatarios: `Dirección de RH (Corp y Unidad), ${vac.departamento_destino}, ${post.departamento_actual} y Sindicato Secc. 45`,
           asunto: `♟️ Movimiento Ejecutado: ${post.nombre_completo} -> ${vac.puesto_vacante} (${vac.departamento_destino})`,
           mensaje: `${post.nombre_completo} ocupó la plaza de ${vac.puesto_vacante} en ${vac.departamento_destino}.${
             dominoFolio
@@ -1167,6 +1478,39 @@ export default function MovimientosSindicatoPage() {
           correo_enviado: false,
         },
       ])
+
+      await fetch('/api/movimientos/autorizar-etapa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id_postulacion: post.id_postulacion,
+          etapa: 'EJECUTAR_MOVIMIENTO',
+          domino_folio: dominoFolio || undefined,
+          user_id: actorId,
+          user_email: actorEmail,
+          user_name: actorName,
+          user_rol: profile?.rol || '',
+          modo_prueba: isTestModeActive,
+          baseUrl: typeof window !== 'undefined' ? window.location.origin : '',
+        }),
+      }).catch(() => {})
+
+      if (dominoVacId) {
+        await fetch('/api/movimientos/autorizar-etapa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id_vacante: dominoVacId,
+            etapa: 'PUBLICAR_VACANTE',
+            user_id: actorId,
+            user_email: actorEmail,
+            user_name: actorName,
+            user_rol: profile?.rol || '',
+            modo_prueba: isTestModeActive,
+            baseUrl: typeof window !== 'undefined' ? window.location.origin : '',
+          }),
+        }).catch(() => {})
+      }
 
       await fetchAllData()
       alert(
@@ -1296,28 +1640,49 @@ export default function MovimientosSindicatoPage() {
       const encOrigen = resolveEncargadoForDept(post.departamento_actual, post.sub_departamento_actual)
       const todayStr = new Date().toISOString().split('T')[0]
 
-      const { error } = await supabase.from('movimientos_postulantes').insert([
-        {
-          id_vacante: vac.id_vacante,
-          id_empleado: post.id_empleado || null,
-          nombre_completo: post.nombre_completo,
-          numero_empleado: post.numero_empleado || '',
-          fecha_inscripcion: todayStr,
-          departamento_actual: post.departamento_actual,
-          sub_departamento_actual: post.sub_departamento_actual,
-          puesto_actual: post.puesto_actual,
-          puesto_postulado: vac.puesto_vacante,
-          anos_antiguedad: Number(post.anos_antiguedad || 2),
-          tiene_anos_experiencia: true,
-          tiene_experiencia_puesto: true,
-          requiere_capacitacion_previa: false,
-          encargado_origen_nombre: encOrigen.nombre_encargado,
-          encargado_origen_correo: encOrigen.correo_encargado,
-          respuesta_depto_origen: 'Pendiente de Respuesta',
-          estatus_movimiento: 'Inscrito en Convocatoria',
-        },
-      ])
+      const { data: insertedDropPost, error } = await supabase
+        .from('movimientos_postulantes')
+        .insert([
+          {
+            id_vacante: vac.id_vacante,
+            id_empleado: post.id_empleado || null,
+            nombre_completo: post.nombre_completo,
+            numero_empleado: post.numero_empleado || '',
+            fecha_inscripcion: todayStr,
+            departamento_actual: post.departamento_actual,
+            sub_departamento_actual: post.sub_departamento_actual,
+            puesto_actual: post.puesto_actual,
+            puesto_postulado: vac.puesto_vacante,
+            anos_antiguedad: Number(post.anos_antiguedad || 2),
+            tiene_anos_experiencia: true,
+            tiene_experiencia_puesto: true,
+            requiere_capacitacion_previa: false,
+            encargado_origen_nombre: encOrigen.nombre_encargado,
+            encargado_origen_correo: encOrigen.correo_encargado,
+            respuesta_depto_origen: 'Pendiente de Respuesta',
+            estatus_movimiento: 'Inscrito en Convocatoria',
+          },
+        ])
+        .select()
+        .single()
       if (error) throw error
+
+      if (insertedDropPost?.id_postulacion) {
+        await fetch('/api/movimientos/autorizar-etapa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id_postulacion: insertedDropPost.id_postulacion,
+            etapa: 'NOTIFICAR_INSCRIPCION',
+            user_id: actorId,
+            user_email: actorEmail,
+            user_name: actorName,
+            user_rol: profile?.rol || '',
+            modo_prueba: isTestModeActive,
+            baseUrl: typeof window !== 'undefined' ? window.location.origin : '',
+          }),
+        }).catch(() => {})
+      }
 
       setDropValidationModal(null)
       setSelectedVacanteId(vac.id_vacante)
@@ -1777,6 +2142,184 @@ export default function MovimientosSindicatoPage() {
         </div>
       </div>
 
+      {/* GUÍA LOGÍSTICA OFICIAL PASO A PASO (6 ETAPAS DEL ESCALAFÓN ART. 116 C.C.T. Y JERARQUÍA DE AUTORIZACIÓN) */}
+      <div className="bg-white rounded-3xl border-2 border-amber-300 shadow-sm p-5 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-zinc-100 pb-3">
+          <div>
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider bg-zinc-900 text-amber-400 px-2.5 py-0.5 rounded-full">
+              <Sparkles className="w-3 h-3" />
+              <span>Ruta Logística Oficial en 6 Pasos • Art. 116 C.C.T. Secc. 45 y Arts. 154–159 LFT</span>
+            </span>
+            <h2 className="text-base sm:text-lg font-black text-zinc-900 uppercase mt-1">
+              Logística Clara de Escalafón: Publicación &rarr; Antigüedad &rarr; Jerarquía RH &rarr; Departamentos &rarr; Vacante
+            </h2>
+            <p className="text-xs text-zinc-600">
+              Dirección de RH (<strong>{reglas.supt_rh_corporativo_nombre}</strong> y <strong>{reglas.jefe_rh_unidad_nombre}</strong>) y los Departamentos involucrados reciben aviso inmediato en cada etapa.
+            </p>
+          </div>
+
+          {currentVacante && (
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                disabled={sendingEmails}
+                onClick={() => handleBroadcastVacanteToDepartments(currentVacante)}
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black text-xs inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Bell className="w-3.5 h-3.5" />
+                <span>📢 Avisar Vacante a Deptos y Dirección RH</span>
+              </button>
+              <button
+                type="button"
+                disabled={savingInscripcion}
+                onClick={handleAutoEnrollTopSeniorityWorkers}
+                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-black text-xs inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Award className="w-3.5 h-3.5" />
+                <span>⚡ Inscribir Top 3 Más Antiguos (C.C.T.)</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5 text-xs">
+          {/* PASO 1 */}
+          <div
+            onClick={() => setActiveTab('convocatorias')}
+            className="p-3 rounded-2xl bg-zinc-50 hover:bg-amber-50/60 border border-zinc-200 hover:border-amber-300 cursor-pointer transition-all flex flex-col justify-between gap-2"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-black uppercase bg-zinc-900 text-amber-400 px-2 py-0.5 rounded">
+                  PASO 1
+                </span>
+                <span className="text-[10px] font-black text-emerald-700">
+                  {currentVacante
+                    ? `${Math.max(0, (currentVacante.plazas_totales || 1) - (currentVacante.plazas_ocupadas || 0))} libre(s)`
+                    : '0 libres'}
+                </span>
+              </div>
+              <p className="font-black text-zinc-900 uppercase mt-1.5">1. Abrir y Boletinar Vacante</p>
+              <p className="text-[11px] text-zinc-600 mt-0.5">
+                Publicación por {reglas.regla_dias_convocatoria || 10} días (Art. 116 C.C.T.) avisando a Sindicato, Dirección RH y Departamentos.
+              </p>
+            </div>
+            <span className="text-[10px] font-black text-amber-700">Ver Convocatoria &rarr;</span>
+          </div>
+
+          {/* PASO 2 */}
+          <div
+            onClick={() => setActiveTab('inscripciones')}
+            className="p-3 rounded-2xl bg-zinc-50 hover:bg-amber-50/60 border border-zinc-200 hover:border-amber-300 cursor-pointer transition-all flex flex-col justify-between gap-2"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-black uppercase bg-zinc-900 text-amber-400 px-2 py-0.5 rounded">
+                  PASO 2
+                </span>
+                <span className="text-[10px] font-black text-amber-700">{currentPostulantes.length} inscrito(s)</span>
+              </div>
+              <p className="font-black text-zinc-900 uppercase mt-1.5">2. Inscripción por Antigüedad</p>
+              <p className="text-[11px] text-zinc-600 mt-0.5">
+                {currentPostulantes[0]
+                  ? `#1 Prelación: ${currentPostulantes[0].nombre_completo} (${currentPostulantes[0].anos_antiguedad} años)`
+                  : 'Ordena por mayor tiempo, mismo depto y competencia C.C.T.'}
+              </p>
+            </div>
+            <span className="text-[10px] font-black text-amber-700">Ver Escalafón &rarr;</span>
+          </div>
+
+          {/* PASO 3 */}
+          <div
+            onClick={() => setActiveTab('autorizaciones')}
+            className="p-3 rounded-2xl bg-zinc-50 hover:bg-amber-50/60 border border-zinc-200 hover:border-amber-300 cursor-pointer transition-all flex flex-col justify-between gap-2"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-black uppercase bg-amber-500 text-zinc-950 px-2 py-0.5 rounded">
+                  PASO 3 • 1ª FIRMA
+                </span>
+                <span className="text-[10px] font-black text-emerald-700">
+                  {currentPostulantes.filter((p) => p.autorizado_rh_local).length}/{currentPostulantes.length} OK
+                </span>
+              </div>
+              <p className="font-black text-zinc-900 uppercase mt-1.5">3. Jefe de RH Unidad</p>
+              <p className="text-[11px] text-zinc-600 mt-0.5">
+                Titular: <strong>{reglas.jefe_rh_unidad_nombre}</strong>. Valida derecho de escalafón y antigüedad.
+              </p>
+            </div>
+            <span className="text-[10px] font-black text-amber-700">Firmar 1ª Instancia &rarr;</span>
+          </div>
+
+          {/* PASO 4 */}
+          <div
+            onClick={() => setActiveTab('autorizaciones')}
+            className="p-3 rounded-2xl bg-zinc-50 hover:bg-indigo-50/60 border border-zinc-200 hover:border-indigo-300 cursor-pointer transition-all flex flex-col justify-between gap-2"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-black uppercase bg-indigo-700 text-white px-2 py-0.5 rounded">
+                  PASO 4 • 2ª FIRMA
+                </span>
+                <span className="text-[10px] font-black text-indigo-700">
+                  {currentPostulantes.filter((p) => p.autorizado_rh_corporativo).length}/{currentPostulantes.length} OK
+                </span>
+              </div>
+              <p className="font-black text-zinc-900 uppercase mt-1.5">4. Dirección RH Corporativo</p>
+              <p className="text-[11px] text-zinc-600 mt-0.5">
+                Titular: <strong>{reglas.supt_rh_corporativo_nombre}</strong>. Autoriza ingreso a vacante y siempre está enterado.
+              </p>
+            </div>
+            <span className="text-[10px] font-black text-indigo-700">Firmar Dirección RH &rarr;</span>
+          </div>
+
+          {/* PASO 5 */}
+          <div
+            onClick={() => setActiveTab('autorizaciones')}
+            className="p-3 rounded-2xl bg-zinc-50 hover:bg-blue-50/60 border border-zinc-200 hover:border-blue-300 cursor-pointer transition-all flex flex-col justify-between gap-2"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-black uppercase bg-blue-700 text-white px-2 py-0.5 rounded">
+                  PASO 5 • 3ª Y 4ª FIRMA
+                </span>
+                <span className="text-[10px] font-black text-blue-700">
+                  {currentPostulantes.filter((p) => p.seleccionado_por_destino && p.respuesta_depto_origen === 'Autorizado (Sí)').length}/
+                  {currentPostulantes.length} OK
+                </span>
+              </div>
+              <p className="font-black text-zinc-900 uppercase mt-1.5">5. Jefes Destino y Origen</p>
+              <p className="text-[11px] text-zinc-600 mt-0.5">
+                Destino ({currentVacante?.departamento_destino || 'Área'}) fija fecha/plan y Origen autoriza salida (SÍ/NO).
+              </p>
+            </div>
+            <span className="text-[10px] font-black text-blue-700">Coordinar Jefaturas &rarr;</span>
+          </div>
+
+          {/* PASO 6 */}
+          <div
+            onClick={() => setActiveTab('ajedrez')}
+            className="p-3 rounded-2xl bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-300 cursor-pointer transition-all flex flex-col justify-between gap-2"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-black uppercase bg-emerald-700 text-white px-2 py-0.5 rounded">
+                  PASO 6 • CIERRE
+                </span>
+                <span className="text-[10px] font-black text-emerald-800">
+                  {currentPostulantes.filter((p) => p.estatus_movimiento === 'Movimiento Ejecutado (En Puesto)').length} colocado(s)
+                </span>
+              </div>
+              <p className="font-black text-emerald-950 uppercase mt-1.5">6. Entrar a Vacante + Dominó</p>
+              <p className="text-[11px] text-emerald-900 mt-0.5">
+                Actualiza adscripción oficial, inicia prueba 30 días, avisa a todos los deptos y libera su plaza anterior.
+              </p>
+            </div>
+            <span className="text-[10px] font-black text-emerald-800">Colocar en Vacante &rarr;</span>
+          </div>
+        </div>
+      </div>
+
       {/* BARRA DE 7 PESTAÑAS */}
       <div className="flex flex-wrap gap-2 bg-white p-2 rounded-2xl border border-zinc-200 shadow-sm">
         {[
@@ -2010,91 +2553,117 @@ export default function MovimientosSindicatoPage() {
             <div className="p-4 bg-zinc-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <h3 className="text-xs font-black uppercase text-amber-400">
-                  Padrón de Trabajadores Inscritos a la Convocatoria (Ordenados por Antigüedad / Escalafón)
+                  Padrón de Trabajadores Inscritos a la Convocatoria (Ordenados por Prelación Oficial Art. 116 C.C.T. y Art. 159 LFT)
                 </h3>
                 <p className="text-[11px] text-zinc-400">
-                  Incluye puesto actual, sub-departamento, encargado responsable, celular, años de antigüedad, experiencia y si requiere capacitación previa.
+                  Prioriza automáticamente: 1° Sindicalizado Secc. 45 y Mismo Departamento (Derecho de Rama), 2° Mayor Antigüedad (más tiempo), 3° Competencia en el puesto y 4° Carga familiar.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowInscribirModal(true)}
-                className="px-4 py-2 bg-amber-500 text-black font-black text-xs rounded-xl shrink-0"
-              >
-                + Inscribir Trabajador
-              </button>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  disabled={savingInscripcion}
+                  onClick={handleAutoEnrollTopSeniorityWorkers}
+                  className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-amber-500/40 font-black text-xs rounded-xl shrink-0 cursor-pointer"
+                >
+                  ⚡ Sugerir Top 3 Más Antiguos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowInscribirModal(true)}
+                  className="px-4 py-2 bg-amber-500 text-black font-black text-xs rounded-xl shrink-0 cursor-pointer"
+                >
+                  + Inscribir Trabajador
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-zinc-200 text-xs">
                 <thead className="bg-zinc-50 text-zinc-600 uppercase text-[10px] font-black">
                   <tr>
-                    <th className="px-4 py-3 text-left">Escalafón / Trabajador</th>
+                    <th className="px-4 py-3 text-left">Prelación C.C.T. / Trabajador</th>
                     <th className="px-4 py-3 text-left">Depto / Sub-depto y Puesto Actual</th>
                     <th className="px-4 py-3 text-left">Puesto Postulado</th>
-                    <th className="px-4 py-3 text-left">Antigüedad</th>
-                    <th className="px-4 py-3 text-left">Experiencia &amp; Capacitación</th>
+                    <th className="px-4 py-3 text-left">Antigüedad &amp; Puntaje C.C.T.</th>
+                    <th className="px-4 py-3 text-left">Fundamento Art. 116 C.C.T. / Capacitación</th>
                     <th className="px-4 py-3 text-left">Encargado Único Origen</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
-                  {currentPostulantes.map((p, idx) => (
-                    <tr key={p.id_postulacion} className="hover:bg-zinc-50">
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <span className="w-6 h-6 rounded-full bg-zinc-900 text-amber-400 font-mono font-black text-[11px] flex items-center justify-center">
-                            #{idx + 1}
-                          </span>
-                          <div>
-                            <div className="font-black text-zinc-900">{p.nombre_completo}</div>
-                            <div className="text-[10px] text-zinc-500 font-mono">
-                              Inscrito: {formatShortDate(p.fecha_inscripcion)} • Cel: {p.celular || 'S/N'}
+                  {currentPostulantes.map((p, idx) => {
+                    const cct = evaluateCctPrelacion(p, currentVacante)
+                    return (
+                      <tr key={p.id_postulacion} className={idx === 0 ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-zinc-50'}>
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-2.5">
+                            <span
+                              className={`w-7 h-7 rounded-full font-mono font-black text-[11px] flex items-center justify-center shrink-0 ${
+                                idx === 0 ? 'bg-amber-500 text-zinc-950 ring-2 ring-amber-300' : 'bg-zinc-900 text-amber-400'
+                              }`}
+                            >
+                              #{idx + 1}
+                            </span>
+                            <div>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-black text-zinc-900">{p.nombre_completo}</span>
+                                {idx === 0 && (
+                                  <span className="text-[9px] font-black uppercase bg-amber-500 text-zinc-950 px-2 py-0.5 rounded-full">
+                                    ★ 1° Preferente C.C.T.
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-zinc-500 font-mono">
+                                Inscrito: {formatShortDate(p.fecha_inscripcion)} • Cel: {p.celular || 'S/N'}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="font-bold text-zinc-900">{p.puesto_actual}</div>
-                        <div className="text-[11px] text-zinc-500">
-                          {p.departamento_actual}
-                          {p.sub_departamento_actual ? ` • ${p.sub_departamento_actual}` : ''}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 font-black text-amber-700">{p.puesto_postulado}</td>
-                      <td className="px-4 py-3.5">
-                        <span className="font-mono font-black text-sm text-zinc-900">{p.anos_antiguedad} años</span>
-                      </td>
-                      <td className="px-4 py-3.5 space-y-1">
-                        <div className="flex flex-wrap gap-1">
-                          <span
-                            className={`text-[10px] font-black px-2 py-0.5 rounded ${
-                              p.tiene_anos_experiencia ? 'bg-emerald-100 text-emerald-800' : 'bg-zinc-100 text-zinc-500'
-                            }`}
-                          >
-                            {p.tiene_anos_experiencia ? '✓ Con Años Exp.' : 'Sin Exp. Previa'}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="font-bold text-zinc-900">{p.puesto_actual}</div>
+                          <div className="text-[11px] text-zinc-500">
+                            {p.departamento_actual}
+                            {p.sub_departamento_actual ? ` • ${p.sub_departamento_actual}` : ''}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 font-black text-amber-700">{p.puesto_postulado}</td>
+                        <td className="px-4 py-3.5">
+                          <span className="font-mono font-black text-sm text-zinc-900 block">{cct.anos} años</span>
+                          <span className="text-[10px] font-mono font-bold text-emerald-700">
+                            Índice C.C.T.: {cct.cctScore} pts
                           </span>
-                          <span
-                            className={`text-[10px] font-black px-2 py-0.5 rounded ${
-                              p.tiene_experiencia_puesto ? 'bg-blue-100 text-blue-800' : 'bg-zinc-100 text-zinc-500'
-                            }`}
-                          >
-                            {p.tiene_experiencia_puesto ? '✓ Exp. en el Puesto' : 'Nuevo en el Puesto'}
-                          </span>
-                          <span
-                            className={`text-[10px] font-black px-2 py-0.5 rounded ${
-                              p.requiere_capacitacion_previa ? 'bg-amber-100 text-amber-900' : 'bg-emerald-50 text-emerald-700'
-                            }`}
-                          >
-                            {p.requiere_capacitacion_previa ? '⚠️ Requiere Capacitación Previa' : 'Listo Directo'}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="font-bold text-zinc-800">{p.encargado_origen_nombre}</div>
-                        <div className="text-[10px] font-mono text-zinc-500">{p.encargado_origen_correo}</div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-4 py-3.5 space-y-1">
+                          <div className="text-[10px] font-bold text-zinc-700">{cct.fundamentoCct}</div>
+                          <div className="flex flex-wrap gap-1">
+                            {cct.esMismoDepto && (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded bg-indigo-100 text-indigo-900">
+                                ✓ Mismo Depto (Derecho de Rama)
+                              </span>
+                            )}
+                            <span
+                              className={`text-[10px] font-black px-2 py-0.5 rounded ${
+                                p.tiene_experiencia_puesto ? 'bg-blue-100 text-blue-800' : 'bg-zinc-100 text-zinc-500'
+                              }`}
+                            >
+                              {p.tiene_experiencia_puesto ? '✓ Exp. en el Puesto' : 'En Adiestramiento 30 días'}
+                            </span>
+                            <span
+                              className={`text-[10px] font-black px-2 py-0.5 rounded ${
+                                p.requiere_capacitacion_previa ? 'bg-amber-100 text-amber-900' : 'bg-emerald-50 text-emerald-700'
+                              }`}
+                            >
+                              {p.requiere_capacitacion_previa ? '⚠️ Requiere Capacitación Previa' : 'Listo Directo'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="font-bold text-zinc-800">{p.encargado_origen_nombre}</div>
+                          <div className="text-[10px] font-mono text-zinc-500">{p.encargado_origen_correo}</div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                   {currentPostulantes.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-6 py-10 text-center text-zinc-400">
@@ -2808,8 +3377,9 @@ export default function MovimientosSindicatoPage() {
                         String(emp.numero_empleado || '').includes(q)
                       )
                     })
+                    .sort((a, b) => computeEmployeeRealSeniorityYears(b) - computeEmployeeRealSeniorityYears(a))
                     .slice(0, 50)
-                    .map((emp) => {
+                    .map((emp, empIdx) => {
                       const fullName = `${emp.nombre || ''} ${emp.apellido_paterno || ''} ${emp.apellido_materno || ''}`.trim()
                       const depto =
                         emp.empleado_adscripciones?.[0]?.cat_departamentos?.departamento ||
@@ -2819,6 +3389,7 @@ export default function MovimientosSindicatoPage() {
                         emp.empleado_adscripciones?.[0]?.cat_puestos?.puesto || emp.puesto || 'Operativo'
                       const regimen = classifyWorkerRegimen(puesto, depto)
                       const beneficiarios = getWorkerBeneficiarios(emp.id_empleado)
+                      const realSeniority = computeEmployeeRealSeniorityYears(emp, 2.5)
 
                       const dragPayload = {
                         type: 'EMPLEADO',
@@ -2827,7 +3398,7 @@ export default function MovimientosSindicatoPage() {
                         numero_empleado: emp.numero_empleado,
                         puestoActual: puesto,
                         deptoActual: depto,
-                        anos_antiguedad: 3.0,
+                        anos_antiguedad: realSeniority,
                         emp,
                       }
 
@@ -2848,10 +3419,10 @@ export default function MovimientosSindicatoPage() {
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <div className="font-black text-xs text-zinc-900 uppercase">
-                                #{emp.numero_empleado || 'S/N'} — {fullName}
+                                #{empIdx + 1} Escalafón • Ficha #{emp.numero_empleado || 'S/N'} — {fullName}
                               </div>
                               <div className="text-[11px] font-bold text-zinc-500">
-                                {puesto} • <strong>{depto}</strong>
+                                {puesto} • <strong>{depto}</strong> • <span className="text-amber-700 font-black">⏱️ {realSeniority} años antigüedad</span>
                               </div>
                             </div>
                             <span className={`text-[9px] font-black px-2 py-0.5 rounded-md border shrink-0 ${regimen.badgeClass}`}>
